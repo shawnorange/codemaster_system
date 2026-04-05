@@ -12,6 +12,7 @@ from .auth import (
     set_auth_cookie,
 )
 from .shell_content import ROLE_SHELL_CONTENT
+from .student_portal_content import STUDENT_PORTAL_CONTENT
 
 
 def login_page(request: HttpRequest) -> HttpResponse:
@@ -64,9 +65,41 @@ def render_role_page(request: HttpRequest, role_key: str) -> HttpResponse:
     )
 
 
+def render_student_portal_page(request: HttpRequest, page_key: str) -> HttpResponse:
+    role_config = ROLE_CONFIG["student"]
+    user = request.codemaster_user
+    page_shell = STUDENT_PORTAL_CONTENT[page_key]
+    return render(
+        request,
+        "entry/student_portal_page.html",
+        {
+            "role_label": role_config["label"],
+            "page_title": page_shell["page_title"],
+            "page_description": page_shell["page_description"],
+            "page_shell": page_shell,
+            "username": user["username"],
+        },
+    )
+
+
 @role_required("student")
 def student_courses(request: HttpRequest) -> HttpResponse:
-    return render_role_page(request, "student")
+    return render_student_portal_page(request, "courses")
+
+
+@role_required("student")
+def student_cpp(request: HttpRequest) -> HttpResponse:
+    return render_student_portal_page(request, "cpp")
+
+
+@role_required("student")
+def student_cpp_gesp(request: HttpRequest) -> HttpResponse:
+    return render_student_portal_page(request, "cpp_gesp")
+
+
+@role_required("student")
+def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
+    return render_student_portal_page(request, "cpp_gesp4")
 
 
 @role_required("parent")

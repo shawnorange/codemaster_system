@@ -1,0 +1,201 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    {% if page_shell.page_mode == "entry_grid" %}
+        {% if page_shell.breadcrumb_items %}
+            <nav class="student-breadcrumbs" aria-label="面包屑导航">
+                {% for item in page_shell.breadcrumb_items %}
+                    {% if item.href %}
+                        <a href="{{ item.href }}">{{ item.label }}</a>
+                    {% else %}
+                        <span>{{ item.label }}</span>
+                    {% endif %}
+                    {% if not forloop.last %}
+                        <i></i>
+                    {% endif %}
+                {% endfor %}
+            </nav>
+        {% endif %}
+
+        <section class="compact-portal-header">
+            <div class="compact-portal-header__main">
+                <p class="eyebrow">{{ page_shell.hero_eyebrow }}</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ page_title }}</h2>
+                <p class="compact-portal-header__description">{{ page_description }}</p>
+            </div>
+
+            <div class="entry-stat-row">
+                {% for item in page_shell.summary_cards %}
+                    <article class="entry-stat-chip">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        {% if page_shell.entry_hint %}
+            <div class="entry-hint-bar">{{ page_shell.entry_hint }}</div>
+        {% endif %}
+
+        <section class="entry-grid entry-grid--{{ page_shell.grid_variant|default:'courses' }}">
+            {% for card in page_shell.portal_cards %}
+                {% if card.state == "locked" %}
+                    <article class="entry-tile entry-tile--{{ card.state }}{% if card.featured %} entry-tile--featured{% endif %}" id="entry-{{ card.slug }}">
+                        <div class="entry-tile__top">
+                            <span class="entry-tile__meta">{{ card.meta }}</span>
+                            <span class="state-pill state-pill--{{ card.state }}">{{ card.status_text }}</span>
+                        </div>
+                        <h3>{{ card.title }}</h3>
+                        <p class="entry-tile__subtitle">{{ card.subtitle }}</p>
+                        <p class="entry-tile__note">{{ card.note }}</p>
+                        <span class="entry-tile__cta entry-tile__cta--locked">暂未开放</span>
+                    </article>
+                {% else %}
+                    <a class="entry-tile entry-tile--{{ card.state }} entry-tile--interactive{% if card.featured %} entry-tile--featured{% endif %}" href="{{ card.action_href }}" id="entry-{{ card.slug }}">
+                        <div class="entry-tile__top">
+                            <span class="entry-tile__meta">{{ card.meta }}</span>
+                            <span class="state-pill state-pill--{{ card.state }}">{{ card.status_text }}</span>
+                        </div>
+                        <h3>{{ card.title }}</h3>
+                        <p class="entry-tile__subtitle">{{ card.subtitle }}</p>
+                        <p class="entry-tile__note">{{ card.note }}</p>
+                        <span class="entry-tile__cta entry-tile__cta--{{ card.state }}">{{ card.action_label }}</span>
+                    </a>
+                {% endif %}
+            {% endfor %}
+        </section>
+    {% else %}
+        {% if page_shell.breadcrumb_items %}
+            <nav class="student-breadcrumbs" aria-label="面包屑导航">
+                {% for item in page_shell.breadcrumb_items %}
+                    {% if item.href %}
+                        <a href="{{ item.href }}">{{ item.label }}</a>
+                    {% else %}
+                        <span>{{ item.label }}</span>
+                    {% endif %}
+                    {% if not forloop.last %}
+                        <i></i>
+                    {% endif %}
+                {% endfor %}
+            </nav>
+        {% endif %}
+
+        <section class="hero-panel">
+            <div class="hero-panel__copy">
+                <p class="eyebrow">{{ page_shell.hero_eyebrow }}</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ page_title }}</h2>
+                <p class="role-description">{{ page_description }}</p>
+            </div>
+
+            <div class="hero-panel__metrics">
+                {% for item in page_shell.summary_cards %}
+                    <article class="metric-card">
+                        <p class="metric-card__label">{{ item.label }}</p>
+                        <strong>{{ item.value }}</strong>
+                        <span>{{ item.hint }}</span>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="system-content-grid">
+            <section class="surface-panel surface-panel--primary">
+                <div class="section-heading">
+                    <p class="section-heading__eyebrow">{{ page_shell.section_eyebrow }}</p>
+                    <h3>{{ page_shell.section_title }}</h3>
+                    <p>{{ page_shell.section_description }}</p>
+                </div>
+
+                {% if page_shell.portal_notice %}
+                    <section class="portal-notice">
+                        <div class="portal-notice__copy">
+                            <p class="section-heading__eyebrow">Portal Guide</p>
+                            <h4>{{ page_shell.portal_notice.title }}</h4>
+                            <p>{{ page_shell.portal_notice.description }}</p>
+                        </div>
+
+                        <ul class="portal-notice__list">
+                            {% for item in page_shell.portal_notice.items %}
+                                <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+                    </section>
+                {% endif %}
+
+                <div class="reserved-entry-panel">
+                    <div class="focus-entry focus-entry--large">
+                        <div class="focus-entry__top">
+                            <span class="focus-entry__label">{{ page_shell.reserved_entry.label }}</span>
+                            <span class="state-pill state-pill--future">{{ page_shell.reserved_entry.status_text }}</span>
+                        </div>
+                        <div class="focus-entry__path">
+                            {% for item in page_shell.reserved_entry.path %}
+                                <span>{{ item }}</span>
+                                {% if not forloop.last %}
+                                    <i></i>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <strong>{{ page_shell.reserved_entry.title }}</strong>
+                        <p>{{ page_shell.reserved_entry.description }}</p>
+                    </div>
+
+                    <div class="reserved-note-grid">
+                        {% for item in page_shell.reserved_notes %}
+                            <article class="reserved-note-card">
+                                <strong>{{ item.title }}</strong>
+                                <p>{{ item.description }}</p>
+                            </article>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+
+            <aside class="system-aside">
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">System Context</p>
+                        <h3>当前页面上下文</h3>
+                    </div>
+
+                    <div class="context-list">
+                        <div class="context-list__item">
+                            <span>当前角色</span>
+                            <strong>{{ role_label }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>登录账号</span>
+                            <strong>{{ username }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>访问路径</span>
+                            <strong>{{ request.path }}</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">{{ page_shell.support_label }}</p>
+                        <h3>{{ page_shell.support_title }}</h3>
+                        <p>{{ page_shell.support_description }}</p>
+                    </div>
+
+                    <ul class="support-list">
+                        {% for item in page_shell.support_items %}
+                            <li>
+                                <strong>{{ item.title }}</strong>
+                                <span>{{ item.description }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </section>
+            </aside>
+        </div>
+    {% endif %}
+{% endblock %}

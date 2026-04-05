@@ -18,8 +18,8 @@ ROLE_CONFIG = {
     "student": {
         "label": "学生",
         "landing_url_name": "student-courses",
-        "page_title": "学生课程中心",
-        "page_description": "统一系统壳下的学生课程入口，当前以静态课程卡片占位，为下一步接入真实课程内容预留结构。",
+        "page_title": "学生课程选择页",
+        "page_description": "请选择已开放的学习内容。课程入口按方向整理展示，大部分内容将随学习阶段逐步解锁。",
     },
     "parent": {
         "label": "家长",

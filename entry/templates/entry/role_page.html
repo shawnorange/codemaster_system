@@ -31,31 +31,70 @@
             </div>
 
             {% if role_key == "student" %}
-                <div class="course-grid">
-                    {% for course in page_shell.courses %}
-                        <article class="course-card">
-                            <div class="course-card__top">
-                                <span class="soft-chip">{{ course.status }}</span>
-                                <span class="course-card__code">{{ course.code }}</span>
-                            </div>
-                            <h4>{{ course.title }}</h4>
-                            <p>{{ course.description }}</p>
-                            <div class="course-card__meta">
-                                <div class="course-card__meta-item">
-                                    <span>上课安排</span>
-                                    <strong>{{ course.schedule }}</strong>
+                <div class="learning-portal">
+                    <section class="portal-notice">
+                        <div class="portal-notice__copy">
+                            <p class="section-heading__eyebrow">Portal Guide</p>
+                            <h4>{{ page_shell.portal_notice.title }}</h4>
+                            <p>{{ page_shell.portal_notice.description }}</p>
+                        </div>
+
+                        <ul class="portal-notice__list">
+                            {% for item in page_shell.portal_notice.items %}
+                                <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+                    </section>
+
+                    <div class="direction-grid" id="student-course-directions">
+                        {% for direction in page_shell.directions %}
+                            <article class="direction-card direction-card--{{ direction.state }}" id="direction-{{ direction.slug }}">
+                                {% if direction.state == "locked" %}
+                                    <span class="direction-card__watermark">LOCKED</span>
+                                {% endif %}
+
+                                <div class="direction-card__header">
+                                    <div>
+                                        <p class="direction-card__track">{{ direction.track }}</p>
+                                        <h4>{{ direction.title }}</h4>
+                                    </div>
+                                    <span class="state-pill state-pill--{{ direction.state }}">{{ direction.status_text }}</span>
                                 </div>
-                                <div class="course-card__meta-item">
-                                    <span>授课教师</span>
-                                    <strong>{{ course.mentor }}</strong>
+
+                                <p class="direction-card__meta">{{ direction.level }} · {{ direction.phase }}</p>
+                                <p class="direction-card__description">{{ direction.description }}</p>
+                                <p class="direction-card__tip">{{ direction.tip }}</p>
+
+                                {% if direction.focus_entry %}
+                                    <div class="focus-entry" id="cpp-gesp4-entry">
+                                        <div class="focus-entry__top">
+                                            <span class="focus-entry__label">{{ direction.focus_entry.label }}</span>
+                                            <span class="state-pill state-pill--future">{{ direction.focus_entry.status_text }}</span>
+                                        </div>
+                                        <div class="focus-entry__path">
+                                            {% for item in direction.focus_entry.path %}
+                                                <span>{{ item }}</span>
+                                                {% if not forloop.last %}
+                                                    <i></i>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                        <strong>{{ direction.focus_entry.title }}</strong>
+                                        <p>{{ direction.focus_entry.description }}</p>
+                                    </div>
+                                {% endif %}
+
+                                <div class="direction-card__footer">
+                                    <span class="direction-card__hint">{{ direction.hint }}</span>
+                                    {% if direction.state == "locked" %}
+                                        <span class="direction-card__action direction-card__action--locked">暂未开放</span>
+                                    {% else %}
+                                        <a class="direction-card__action direction-card__action--{{ direction.state }}" href="{{ direction.action_href|default:'#student-course-directions' }}">{{ direction.action_label }}</a>
+                                    {% endif %}
                                 </div>
-                                <div class="course-card__meta-item">
-                                    <span>当前进度</span>
-                                    <strong>{{ course.progress }}</strong>
-                                </div>
-                            </div>
-                        </article>
-                    {% endfor %}
+                            </article>
+                        {% endfor %}
+                    </div>
                 </div>
             {% elif role_key == "parent" %}
                 <div class="profile-shell">
