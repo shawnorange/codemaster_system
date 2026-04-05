@@ -1,61 +1,162 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="zh-Hans">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page_title }} | CodeMaster 少儿编程教学系统</title>
-    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
-</head>
-<body>
-    <div class="page-shell role-page-shell">
-        <header class="site-header site-header--between">
-            <div class="brand-mark">
-                <img src="{% static 'entry/images/logo.svg' %}" alt="机构 Logo" class="brand-mark__icon">
-                <div class="brand-mark__text">
-                    <p class="brand-mark__label">CodeMaster Campus</p>
-                    <h1>少儿编程教学系统</h1>
-                </div>
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">{{ page_shell.hero_eyebrow }}</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in page_shell.summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">{{ page_shell.section_eyebrow }}</p>
+                <h3>{{ page_shell.section_title }}</h3>
+                <p>{{ page_shell.section_description }}</p>
             </div>
 
-            <form class="logout-form" action="{% url 'logout' %}" method="post">
-                {% csrf_token %}
-                <button type="submit" class="logout-button">退出登录</button>
-            </form>
-        </header>
+            {% if role_key == "student" %}
+                <div class="course-grid">
+                    {% for course in page_shell.courses %}
+                        <article class="course-card">
+                            <div class="course-card__top">
+                                <span class="soft-chip">{{ course.status }}</span>
+                                <span class="course-card__code">{{ course.code }}</span>
+                            </div>
+                            <h4>{{ course.title }}</h4>
+                            <p>{{ course.description }}</p>
+                            <div class="course-card__meta">
+                                <div class="course-card__meta-item">
+                                    <span>上课安排</span>
+                                    <strong>{{ course.schedule }}</strong>
+                                </div>
+                                <div class="course-card__meta-item">
+                                    <span>授课教师</span>
+                                    <strong>{{ course.mentor }}</strong>
+                                </div>
+                                <div class="course-card__meta-item">
+                                    <span>当前进度</span>
+                                    <strong>{{ course.progress }}</strong>
+                                </div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% elif role_key == "parent" %}
+                <div class="profile-shell">
+                    <div class="profile-header">
+                        <div class="profile-avatar">林</div>
+                        <div class="profile-header__content">
+                            <h4>{{ page_shell.student_profile.name }}</h4>
+                            <p>{{ page_shell.student_profile.summary }}</p>
+                            <div class="profile-tags">
+                                <span>{{ page_shell.student_profile.campus }}</span>
+                                <span>{{ page_shell.student_profile.grade }}</span>
+                                <span>{{ page_shell.student_profile.mentor }}</span>
+                            </div>
+                        </div>
+                    </div>
 
-        <main class="role-main">
-            <section class="role-card">
-                <p class="eyebrow">{{ role_label }} Portal</p>
-                <span class="role-badge">当前角色：{{ role_label }}</span>
-                <h2>{{ page_title }}</h2>
-                <p class="role-description">{{ page_description }}</p>
+                    <div class="profile-grid">
+                        {% for item in page_shell.profile_items %}
+                            <article class="profile-item">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                            </article>
+                        {% endfor %}
+                    </div>
 
-                <div class="role-grid">
-                    <article class="role-block">
-                        <p class="role-block__label">当前角色</p>
-                        <strong>{{ role_label }}</strong>
-                    </article>
-                    <article class="role-block">
-                        <p class="role-block__label">登录账号</p>
-                        <strong>{{ username }}</strong>
-                    </article>
-                    <article class="role-block">
-                        <p class="role-block__label">当前页面</p>
-                        <strong>{{ request.path }}</strong>
-                    </article>
+                    <div class="profile-highlight">
+                        <span>最近课程</span>
+                        <strong>{{ page_shell.student_profile.recent_lesson }}</strong>
+                    </div>
+                </div>
+            {% elif role_key == "teacher" %}
+                <div class="teacher-table">
+                    <div class="teacher-table__header">
+                        <span>学生</span>
+                        <span>年级</span>
+                        <span>课程</span>
+                        <span>状态</span>
+                        <span>跟进备注</span>
+                    </div>
+                    {% for student in page_shell.students %}
+                        <div class="teacher-table__row">
+                            <strong>{{ student.name }}</strong>
+                            <span>{{ student.grade }}</span>
+                            <span>{{ student.course }}</span>
+                            <span class="teacher-table__status">{{ student.status }}</span>
+                            <span>{{ student.note }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% elif role_key == "principal" %}
+                <div class="overview-grid">
+                    {% for card in page_shell.overview_cards %}
+                        <article class="overview-card">
+                            <span>{{ card.title }}</span>
+                            <strong>{{ card.value }}</strong>
+                            <p>{{ card.description }}</p>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">System Context</p>
+                    <h3>当前页面上下文</h3>
                 </div>
 
-                <div class="role-placeholder">
-                    <h3>占位说明</h3>
-                    <p>这是第二批目标里的最小角色落地页，目前只承接登录后的角色跳转，不展开课程、档案、教学或运营业务内容。</p>
+                <div class="context-list">
+                    <div class="context-list__item">
+                        <span>当前角色</span>
+                        <strong>{{ role_label }}</strong>
+                    </div>
+                    <div class="context-list__item">
+                        <span>登录账号</span>
+                        <strong>{{ username }}</strong>
+                    </div>
+                    <div class="context-list__item">
+                        <span>访问路径</span>
+                        <strong>{{ request.path }}</strong>
+                    </div>
                 </div>
             </section>
-        </main>
 
-        <footer class="site-footer">
-            <span class="site-footer__tag">@ 2026 上海宝睿蒙教育科技有限公司</span>
-        </footer>
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">{{ page_shell.support_label }}</p>
+                    <h3>{{ page_shell.support_title }}</h3>
+                    <p>{{ page_shell.support_description }}</p>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in page_shell.support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
     </div>
-</body>
-</html>
+{% endblock %}

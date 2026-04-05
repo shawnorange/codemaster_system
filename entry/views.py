@@ -11,6 +11,7 @@ from .auth import (
     role_required,
     set_auth_cookie,
 )
+from .shell_content import ROLE_SHELL_CONTENT
 
 
 def login_page(request: HttpRequest) -> HttpResponse:
@@ -48,13 +49,16 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 def render_role_page(request: HttpRequest, role_key: str) -> HttpResponse:
     role_config = ROLE_CONFIG[role_key]
     user = request.codemaster_user
+    page_shell = ROLE_SHELL_CONTENT[role_key]
     return render(
         request,
         "entry/role_page.html",
         {
+            "role_key": role_key,
             "role_label": role_config["label"],
             "page_title": role_config["page_title"],
             "page_description": role_config["page_description"],
+            "page_shell": page_shell,
             "username": user["username"],
         },
     )

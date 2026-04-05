@@ -1,0 +1,49 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}CodeMaster 大师码教学系统{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+</head>
+<body>
+    <div class="page-shell system-shell">
+        <header class="system-header">
+            <div class="system-header__brand">
+                <div class="brand-mark">
+                    <img src="{% static 'entry/images/logo.svg' %}" alt="机构 Logo" class="brand-mark__icon">
+                    <div class="brand-mark__text">
+                        <p class="brand-mark__label">CodeMaster Campus</p>
+                        <h1>大师码教学系统</h1>
+                    </div>
+                </div>
+                <span class="system-header__tag">Unified Role Shell</span>
+            </div>
+
+            <div class="system-header__actions">
+                <div class="identity-chip">
+                    <span class="identity-chip__label">当前身份</span>
+                    <strong>{{ role_label }}</strong>
+                </div>
+                <div class="identity-chip">
+                    <span class="identity-chip__label">登录账号</span>
+                    <strong>{{ username }}</strong>
+                </div>
+                <form class="logout-form" action="{% url 'logout' %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="logout-button">退出登录</button>
+                </form>
+            </div>
+        </header>
+
+        <main class="system-main">
+            {% block system_content %}{% endblock %}
+        </main>
+
+        <footer class="site-footer">
+            <span class="site-footer__tag">@ 2026 上海宝睿蒙教育科技有限公司</span>
+        </footer>
+    </div>
+</body>
+</html>

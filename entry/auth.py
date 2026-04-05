@@ -18,26 +18,26 @@ ROLE_CONFIG = {
     "student": {
         "label": "学生",
         "landing_url_name": "student-courses",
-        "page_title": "学生课程页",
-        "page_description": "这是学生端最小占位页，当前只用于验证登录后角色跳转链路，后续再接入课程、作业与学习进度。",
+        "page_title": "学生课程中心",
+        "page_description": "统一系统壳下的学生课程入口，当前以静态课程卡片占位，为下一步接入真实课程内容预留结构。",
     },
     "parent": {
         "label": "家长",
         "landing_url_name": "parent-student-profile",
-        "page_title": "家长学生档案页",
-        "page_description": "这是家长端最小占位页，当前只用于验证登录后角色跳转链路，后续再接入学习档案、反馈与沟通模块。",
+        "page_title": "家长学生档案",
+        "page_description": "统一系统壳下的家长查看入口，当前以学生信息卡和关注事项占位，为下一步接入档案与反馈做准备。",
     },
     "teacher": {
         "label": "教师",
         "landing_url_name": "teacher-students",
-        "page_title": "教师学生管理页",
-        "page_description": "这是教师端最小占位页，当前只用于验证登录后角色跳转链路，后续再接入学生管理、授课记录与教学协同。",
+        "page_title": "教师学生管理",
+        "page_description": "统一系统壳下的教师工作入口，当前以学生列表和教学提醒占位，为下一步接入课堂管理和反馈记录预留位置。",
     },
     "principal": {
         "label": "校长",
         "landing_url_name": "principal-dashboard",
-        "page_title": "校长总览页",
-        "page_description": "这是校长端最小占位页，当前只用于验证登录后角色跳转链路，后续再接入校区运营总览、排课与数据看板。",
+        "page_title": "校长校区概览",
+        "page_description": "统一系统壳下的校区总览入口，当前以概览卡片和重点事项占位，为下一步接入运营与教学数据预留结构。",
     },
 }
 
