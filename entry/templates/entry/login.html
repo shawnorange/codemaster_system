@@ -1,0 +1,91 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CodeMaster 少儿编程教学系统</title>
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="site-header">
+            <div class="brand-mark">
+                <img src="{% static 'entry/images/logo.svg' %}" alt="机构 Logo" class="brand-mark__icon">
+                <div class="brand-mark__text">
+                    <p class="brand-mark__label">CodeMaster Campus</p>
+                    <h1>少儿编程教学系统</h1>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-layout">
+            <section class="showcase-panel" aria-label="品牌展示区">
+                <div class="showcase-panel__glow"></div>
+                <div class="showcase-panel__copy">
+                    <p class="eyebrow">Campus MVP</p>
+                    <h2>清爽、亲和、规范的系统入口层</h2>
+                    <p>
+                        面向少儿编程培训校区的教学系统首屏骨架，
+                        当前仅实现登录入口视觉页，后续再逐步接入认证与课程能力。
+                    </p>
+                    <div class="feature-pills">
+                        <span>课堂管理</span>
+                        <span>教学协同</span>
+                        <span>校区运营</span>
+                    </div>
+                </div>
+                <div class="showcase-panel__mascot">
+                    <img src="{% static 'entry/images/superpanda-transparent.png' %}" alt="公司吉祥物形象">
+                </div>
+            </section>
+
+            <section class="login-panel" aria-label="登录卡片区">
+                <div class="login-card">
+                    <p class="login-card__eyebrow">Welcome Back</p>
+                    <h2>账号登录</h2>
+                    <p class="login-card__intro">当前已接入最小测试登录链路，可直接验证账号提交、角色识别与页面跳转。</p>
+
+                    <form class="login-form" action="{% url 'login' %}" method="post">
+                        {% csrf_token %}
+                        {% if error_message %}
+                            <div class="form-error">{{ error_message }}</div>
+                        {% endif %}
+
+                        <label class="field">
+                            <span>账号</span>
+                            <input type="text" name="username" value="{{ username|default:'' }}" placeholder="请输入测试账号" autocomplete="username">
+                        </label>
+
+                        <label class="field">
+                            <span>密码</span>
+                            <input type="password" name="password" placeholder="请输入登录密码" autocomplete="current-password">
+                        </label>
+
+                        <button type="submit" class="login-button">进入系统</button>
+                    </form>
+
+                    <div class="login-card__testbox">
+                        <p class="login-card__testtitle">测试账号</p>
+                        <ul class="test-account-list">
+                            {% for account in test_accounts %}
+                                <li>{{ account.role_label }}：{{ account.username }}</li>
+                            {% endfor %}
+                        </ul>
+                        <p class="login-card__password">默认测试密码：{{ default_test_password }}</p>
+                    </div>
+
+                    <div class="login-card__note">
+                        <span class="dot"></span>
+                        后续将在此替换为真实 Django 认证方案
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="site-footer">
+            <span class="site-footer__tag">@ 2026 上海宝睿蒙教育科技有限公司</span>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,61 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }} | CodeMaster 少儿编程教学系统</title>
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+</head>
+<body>
+    <div class="page-shell role-page-shell">
+        <header class="site-header site-header--between">
+            <div class="brand-mark">
+                <img src="{% static 'entry/images/logo.svg' %}" alt="机构 Logo" class="brand-mark__icon">
+                <div class="brand-mark__text">
+                    <p class="brand-mark__label">CodeMaster Campus</p>
+                    <h1>少儿编程教学系统</h1>
+                </div>
+            </div>
+
+            <form class="logout-form" action="{% url 'logout' %}" method="post">
+                {% csrf_token %}
+                <button type="submit" class="logout-button">退出登录</button>
+            </form>
+        </header>
+
+        <main class="role-main">
+            <section class="role-card">
+                <p class="eyebrow">{{ role_label }} Portal</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ page_title }}</h2>
+                <p class="role-description">{{ page_description }}</p>
+
+                <div class="role-grid">
+                    <article class="role-block">
+                        <p class="role-block__label">当前角色</p>
+                        <strong>{{ role_label }}</strong>
+                    </article>
+                    <article class="role-block">
+                        <p class="role-block__label">登录账号</p>
+                        <strong>{{ username }}</strong>
+                    </article>
+                    <article class="role-block">
+                        <p class="role-block__label">当前页面</p>
+                        <strong>{{ request.path }}</strong>
+                    </article>
+                </div>
+
+                <div class="role-placeholder">
+                    <h3>占位说明</h3>
+                    <p>这是第二批目标里的最小角色落地页，目前只承接登录后的角色跳转，不展开课程、档案、教学或运营业务内容。</p>
+                </div>
+            </section>
+        </main>
+
+        <footer class="site-footer">
+            <span class="site-footer__tag">@ 2026 上海宝睿蒙教育科技有限公司</span>
+        </footer>
+    </div>
+</body>
+</html>
