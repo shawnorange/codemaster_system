@@ -102,6 +102,11 @@ def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
     return render_student_portal_page(request, "cpp_gesp4")
 
 
+@role_required("student")
+def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
+    return render_student_portal_page(request, "cpp_gesp4_array_2d")
+
+
 @role_required("parent")
 def parent_student_profile(request: HttpRequest) -> HttpResponse:
     return render_role_page(request, "parent")
