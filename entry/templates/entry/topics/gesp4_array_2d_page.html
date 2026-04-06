@@ -1,0 +1,137 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/topics/gesp4_array_2d/styles.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumb_items %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <div class="entry-hint-bar">{{ topic_note }}</div>
+
+    <section class="gesp4-array-topic" data-page="{{ topic_page_mode }}">
+        <div class="page-shell">
+            <main class="content">
+                {% if topic_page_mode == "lecture" %}
+                    <section class="hero-panel">
+                        <div class="hero-copy">
+                            <p class="eyebrow">GESP4 / 讲次内容</p>
+                            <h2 id="page-title">加载中...</h2>
+                            <p id="page-subtitle" class="hero-subtitle"></p>
+                            <p id="sidebar-summary" class="topic-summary">加载中...</p>
+                            <div id="hero-actions" class="hero-actions"></div>
+                        </div>
+                        <div id="meta-grid" class="meta-grid"></div>
+                    </section>
+
+                    <section class="outline-panel outline-panel--lecture">
+                        <div class="report-header">
+                            <p class="eyebrow">Lecture Outline</p>
+                            <h3>本讲目录</h3>
+                            <p class="panel-description">讲次内容主体完整保留，导航只作为局部目录和讲次切换，不再模拟整站左侧主导航。</p>
+                        </div>
+                        <nav id="sidebar-nav" class="topic-outline-nav" aria-label="本讲目录"></nav>
+                    </section>
+
+                    <div id="lecture-container" class="lecture-container"></div>
+                {% else %}
+                    <section id="overview" class="hero-panel">
+                        <div class="hero-copy">
+                            <p class="eyebrow">GESP4 / 二维数组专题</p>
+                            <h2 id="page-title">加载中...</h2>
+                            <p id="page-subtitle" class="hero-subtitle"></p>
+                            <p id="sidebar-summary" class="topic-summary">加载中...</p>
+                        </div>
+                        <div id="meta-grid" class="meta-grid"></div>
+                    </section>
+
+                    <section class="outline-panel">
+                        <div class="report-header">
+                            <p class="eyebrow">Topic Outline</p>
+                            <h3>专题目录</h3>
+                            <p class="panel-description">保留目录能力，但降级为轻量专题导览，方便后续直接作为系统内专题内容层挂载。</p>
+                        </div>
+                        <nav id="sidebar-nav" class="topic-outline-nav" aria-label="专题目录"></nav>
+                    </section>
+
+                    <section class="overview-grid">
+                        <article class="overview-card">
+                            <h3>专题导读</h3>
+                            <div id="tech-stack-notes" class="overview-body"></div>
+                        </article>
+                        <article class="overview-card">
+                            <h3>学习主线</h3>
+                            <div id="source-documents" class="overview-body"></div>
+                        </article>
+                        <article class="overview-card">
+                            <h3>内容编排</h3>
+                            <div id="extraction-summary" class="overview-body"></div>
+                        </article>
+                    </section>
+
+                    <section class="report-panel">
+                        <div class="report-header">
+                            <p class="eyebrow">Past Paper Coverage</p>
+                            <h3>真题覆盖</h3>
+                            <p class="panel-description">按试卷来源查看当前专题已整理内容，方便后续接入新系统时继续补齐或扩展。</p>
+                        </div>
+                        <div id="report-grid" class="report-grid"></div>
+                    </section>
+
+                    <section class="report-panel lecture-entry-panel">
+                        <div class="report-header">
+                            <p class="eyebrow">Lecture Directory</p>
+                            <h3>讲次目录</h3>
+                            <p class="panel-description">继续沿用旧项目已有的讲次拆分和内容主体，后续只需要替换外层壳子接入即可。</p>
+                        </div>
+                        <div id="lecture-entry-grid" class="lecture-entry-grid"></div>
+                    </section>
+                {% endif %}
+            </main>
+        </div>
+
+        <template id="question-card-template">
+            <article class="question-card">
+                <div class="question-head">
+                    <div class="question-meta"></div>
+                    <div class="question-status"></div>
+                </div>
+                <h4 class="question-title"></h4>
+                <p class="question-summary"></p>
+                <div class="question-text"></div>
+                <dl class="question-notes">
+                    <div>
+                        <dt>分类理由</dt>
+                        <dd class="classification-reason"></dd>
+                    </div>
+                    <div>
+                        <dt>易错点</dt>
+                        <dd class="pitfall"></dd>
+                    </div>
+                </dl>
+                <div class="question-actions"></div>
+                <div class="question-panels"></div>
+            </article>
+        </template>
+    </section>
+
+    {{ topic_site_data|json_script:"gesp4-array-2d-site-data" }}
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'entry/topics/gesp4_array_2d/app.js' %}" type="module"></script>
+{% endblock %}

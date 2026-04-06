@@ -13,6 +13,7 @@ from .auth import (
 )
 from .shell_content import ROLE_SHELL_CONTENT
 from .student_portal_content import STUDENT_PORTAL_CONTENT
+from .topic_content.gesp4_array_2d.context import get_topic_page_context
 
 
 def login_page(request: HttpRequest) -> HttpResponse:
@@ -104,7 +105,18 @@ def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
 
 @role_required("student")
 def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
-    return render_student_portal_page(request, "cpp_gesp4_array_2d")
+    role_config = ROLE_CONFIG["student"]
+    user = request.codemaster_user
+    topic_context = get_topic_page_context(request.GET.get("lecture"))
+    return render(
+        request,
+        "entry/topics/gesp4_array_2d_page.html",
+        {
+            "role_label": role_config["label"],
+            "username": user["username"],
+            **topic_context,
+        },
+    )
 
 
 @role_required("parent")

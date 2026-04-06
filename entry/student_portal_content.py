@@ -227,7 +227,7 @@ STUDENT_PORTAL_CONTENT = {
                 "title": "二维数组专题",
                 "meta": "首个真实内容入口",
                 "subtitle": "当前唯一可进入专题",
-                "note": "进入专题详情预留页，后续在此接入真实内容。",
+                "note": "已接入专题首页内容，可继续通过同一路由承载讲次详情。",
                 "state": "open",
                 "status_text": "已开放",
                 "featured": True,

@@ -1,0 +1,1392 @@
+{
+  "meta": {
+    "title": "GESP4 二维数组专题",
+    "subtitle": "按 6 讲推进二维数组学习，覆盖入门、按行理解、统计处理、字符网格与矩阵变换。",
+    "generatedAt": "2026-04-04 16:19:32",
+    "projectRoot": "/Users/apple/Documents/github_coding/GESP4",
+    "entry": "/Users/apple/Documents/github_coding/GESP4/index.html",
+    "techStack": {
+      "judgement": "当前 GESP4 目录没有现成前端工程配置，首版采用原生 HTML + CSS + JavaScript + `python3 -m http.server`。",
+      "scanScope": [
+        "/Users/apple/Documents/github_coding",
+        "/Users/apple/Documents/github_coding/GESP4",
+        "/Users/apple/Documents/github_coding/GESP4/真题"
+      ],
+      "notes": [
+        "`/Users/apple/Documents/github_coding` 下目前可见目录为 `GESP4`、`codex`、`gemini`。",
+        "目标项目 `GESP4` 目前只有 `真题` 资料目录，没有 `package.json`、`vite.config.*`、`next.config.*` 等工程文件。",
+        "因此首版网页骨架直接落为零依赖静态站，便于后续继续迭代到框架项目。"
+      ]
+    },
+    "sourceDocuments": [
+      {
+        "label": "教学大纲",
+        "path": "/Users/apple/Downloads/GESP4_二维数组_6讲教学大纲.md",
+        "exists": true
+      },
+      {
+        "label": "结构化任务说明",
+        "path": "/Users/apple/Downloads/Codex_结构化任务说明_GESP4二维数组网页_增强版_含演示模式.md",
+        "exists": true
+      }
+    ],
+    "implementationNotes": [
+      "专题首页保留导读、真题覆盖和讲次目录，适合作为系统内的专题内容入口。",
+      "第 1 讲到第 6 讲已接入可运行动画，整个二维数组专题的动画主线已打通。",
+      "讲次内容继续保留目标、知识点、模板、动画和真题结构，便于后续嵌入学生端路由。"
+    ]
+  },
+  "lectures": [
+    {
+      "id": "lecture-1",
+      "title": "第1讲：二维数组入门",
+      "summary": "先把二维数组最基础的定义、定位和遍历学稳，让学生能把题面中的“第几行第几列”准确落到代码里。",
+      "sections": [
+        {
+          "id": "lecture-1-goals",
+          "title": "本讲目标",
+          "points": [
+            "会写 `int a[3][4];` 这类合法定义，知道二维数组不是“逗号版一维数组”。",
+            "理解“先行后列”，能把题目里的位置描述稳定翻成 `a[i][j]`。",
+            "会用双重循环完成读入、输出和最基础的整表遍历。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-1-core",
+          "title": "核心知识点",
+          "points": [
+            "第1讲不追求难题，先把“会写、会找、会遍历”三件事学稳。"
+          ],
+          "children": [
+            {
+              "id": "lecture-1-core-definition",
+              "title": "定义、下标与客观题训练",
+              "points": [
+                "这一组题主要在学二维数组到底长什么样：定义时要有两层方括号，行数和列数都要交代清楚。",
+                "对应能力点是把自然语言位置翻成代码坐标，例如“第 2 行第 3 列”要先减一，再写成 `a[1][2]`。",
+                "这 5 道客观题放在一起，是因为它们都在反复考“合法定义 + 先行后列 + 下标从 0 开始”这一条主线。",
+                "如果这一讲没有站稳，后面做字符网格、固定窗口和矩阵变换时就会反复把行列和下标写反。"
+              ],
+              "questionIds": [
+                "q-2024-09-single-7",
+                "q-2025-03-single-9",
+                "q-2024-12-single-8",
+                "q-2025-12-single-3",
+                "q-2025-03-single-8"
+              ]
+            },
+            {
+              "id": "lecture-1-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是二维数组的基本形态、单个格子的访问方式，以及整张表的双重循环遍历。",
+                "对应的二维数组能力点是：合法定义、坐标转换、外层管行内层管列。",
+                "下标从 0 开始，题面中的第 1 行第 1 列在代码里是 `a[0][0]`，不是 `a[1][1]`。",
+                "行列最容易写反：通常外层循环是行 `i`，内层循环是列 `j`，访问时也要先写 `i` 再写 `j`。",
+                "输出时不要每输出一个元素就换行，而是一整行结束后再换行。",
+                "声明时不要把 `[]`、`()`、`,` 混用，这类语法错误在客观题里非常常见。"
+              ]
+            },
+            {
+              "id": "lecture-1-core-io",
+              "title": "代码模板",
+              "points": [
+                "下面的模板不是让学生死背，而是固定“行在外、列在内”的节奏。",
+                "第 1 讲模板学稳后，后面所有讲次都只是在这个基础上加条件判断、统计量或窗口范围。"
+              ],
+              "resources": [
+                {
+                  "title": "二维数组输入模板",
+                  "description": "最基础的二维数组读入模板。先把整张表读完整，再做任何判断或统计。",
+                  "code": "for (int i = 0; i < n; i++) {\n    for (int j = 0; j < m; j++) {\n        cin >> a[i][j];\n    }\n}"
+                },
+                {
+                  "title": "按行输出模板",
+                  "description": "输出时一整行结束后再换行，避免把格式写乱。",
+                  "code": "for (int i = 0; i < n; i++) {\n    for (int j = 0; j < m; j++) {\n        cout << a[i][j];\n        if (j + 1 < m) {\n            cout << ' ';\n        }\n    }\n    cout << '\\n';\n}"
+                },
+                {
+                  "title": "题面坐标转代码坐标",
+                  "description": "遇到“第几行第几列”时，先减一再访问，不要直接把自然语言编号塞进数组下标。",
+                  "code": "int row = inputRow - 1;\nint col = inputCol - 1;\ncout << a[row][col] << '\\n';"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-1-template",
+          "title": "演示模块精修版",
+          "points": [
+            "动画区对应第 1 讲最重要的三件事：内存开辟、下标访问、输入输出遍历。",
+            "看动画时要把“格子高亮”和“代码里的 i、j 变化”对起来，形成坐标感。"
+          ],
+          "children": [
+            {
+              "id": "lecture-1-template-animation",
+              "title": "第1讲演示模块",
+              "points": [
+                "支持空格键下一步。",
+                "支持按钮执行上一步与重置。",
+                "默认展示当前步骤说明和关键变量。"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-2",
+      "title": "第2讲：按行理解与按行存储",
+      "summary": "把二维数组的一整行看成一个一维数组，建立按行存储、地址偏移和函数传参的统一理解。",
+      "sections": [
+        {
+          "id": "lecture-2-goals",
+          "title": "本讲目标",
+          "points": [
+            "知道 `a[i]` 代表第 `i` 行，而不是单个元素。",
+            "理解二维数组在内存里按行连续铺开，能把二维坐标换成线性偏移。",
+            "记住函数传参时列数必须写明，否则编译器无法确定一整行有多长。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-2-core",
+          "title": "核心知识点",
+          "points": [
+            "第2讲的关键不是多做题，而是把“一整行”的概念真正看懂。"
+          ],
+          "children": [
+            {
+              "id": "lecture-2-core-row",
+              "title": "整行大小、地址偏移与客观题训练",
+              "points": [
+                "这一组题在训练三个连着的概念：`a[i]` 是一整行、二维数组按行连续存储、函数传参时列数不能丢。",
+                "对应能力点是把“二维表”看成“很多行组成”，这样地址偏移、`arr[0]` 大小和线性映射都会顺下来。",
+                "这 6 道题放在一起学，是因为它们虽然问法不同，但本质都在考“整行长度”与“按行偏移”。",
+                "如果学生只记住 `a[i][j]` 是单元格，却不知道 `a[i]` 是整行，后面做矩阵模拟就很容易卡住。"
+              ],
+              "questionIds": [
+                "q-2024-03-single-4",
+                "q-2024-03-single-5",
+                "q-2024-09-single-8",
+                "q-2025-12-single-4",
+                "q-2025-12-judge-3",
+                "q-2023-06-single-12"
+              ]
+            },
+            {
+              "id": "lecture-2-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是“把二维数组按行理解”，也就是知道一整行的大小、起点和传参方式。",
+                "对应的二维数组能力点是：按行存储、行首地址、列数确定后才能换算偏移。",
+                "最常见错误是把 `arr[0]`、`arr[1]` 当成单个元素，而不是整行。",
+                "算地址时经常只加一个元素大小，忘了先跨过前面整行。",
+                "把 `int a[][4]` 写成 `int a[][]` 是典型传参错误，第二维不能省。",
+                "看到线性指针或 `*(p+k)` 时，要先把 `k` 换成“第几行第几列”的偏移再判断。"
+              ]
+            },
+            {
+              "id": "lecture-2-core-template",
+              "title": "代码模板",
+              "points": [
+                "第 2 讲模板的重点不是写花哨代码，而是把“整行长度”和“线性偏移”写清楚。",
+                "学完这两个模板，学生应该能自己解释为什么 `index = i * m + j`。"
+              ],
+              "resources": [
+                {
+                  "title": "二维坐标转线性下标模板",
+                  "description": "按行展开时，先跨过前面 `i` 整行，再在当前行里向右走 `j` 步。",
+                  "code": "int index = i * m + j;\ncout << flat[index] << '\\n';",
+                  "points": [
+                    "`m` 是列数，不是行数。",
+                    "只要是按行展开，这个公式就始终成立。"
+                  ]
+                },
+                {
+                  "title": "二维数组函数传参模板",
+                  "description": "传参时一定要把列数写明，这样函数内部才能正确访问 `a[i][j]`。",
+                  "code": "const int M = 105;\n\nvoid solve(int a[][M], int n, int m) {\n    for (int i = 0; i < n; i++) {\n        for (int j = 0; j < m; j++) {\n            cout << a[i][j] << ' ';\n        }\n        cout << '\\n';\n    }\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-2-template",
+          "title": "演示模块第一版",
+          "points": [
+            "动画区把“二维网格”和“线性内存条”直接对齐，帮助学生把抽象偏移看成可见移动。",
+            "讲第 2 讲时，建议让学生一边看动画一边口算 `a[i][j]` 对应的线性位置。"
+          ],
+          "children": [
+            {
+              "id": "lecture-2-template-animation",
+              "title": "第2讲演示模块",
+              "points": [
+                "支持空格推进、上一步和重置。",
+                "统一采用网格区、讲解区、debug 区、代码区布局。",
+                "重点建立“按行存储”和“a[i] 表示一整行”的直觉。"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-3",
+      "title": "第3讲：最值、求和、计数",
+      "summary": "进入真正的二维数组处理题，开始系统训练整表统计、局部窗口统计和变量重置。",
+      "sections": [
+        {
+          "id": "lecture-3-goals",
+          "title": "本讲目标",
+          "points": [
+            "会写二维数组的求和、最值、计数模板，知道统计量该在什么位置更新。",
+            "会枚举 `2×2`、`3×3` 这类固定窗口，知道左上角范围怎么写。",
+            "能区分“整张表只遍历一次”和“每个窗口都要重新统计”的差别。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-3-core",
+          "title": "核心知识点",
+          "points": [
+            "第3讲的主线是“遍历 + 统计量”，真正困难的往往不是算法，而是变量管理。"
+          ],
+          "children": [
+            {
+              "id": "lecture-3-core-basic",
+              "title": "整表统计、窗口统计与编程题训练",
+              "points": [
+                "这一组题把第 3 讲最核心的几类统计题串起来：整表求和、按行统计、固定窗口统计和图像计数。",
+                "对应能力点是知道什么时候只需要一重双循环，什么时候必须先枚举左上角，再在窗口内部重新统计。",
+                "把《二阶矩阵》《建造》《礼盒排序》《图像压缩》放在一起学，是为了让学生看到“统计对象不同，但循环骨架很像”。",
+                "这组题最容易错的地方不是公式本身，而是统计变量没重置、窗口范围写错、更新顺序不稳定。"
+              ],
+              "questionIds": [
+                "q-2025-03-program-2",
+                "q-2025-12-program-1",
+                "q-2026-03-program-2",
+                "q-2023-06-program-2"
+              ]
+            },
+            {
+              "id": "lecture-3-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是对二维数组做统计：求和、找最值、条件计数，以及在局部窗口里重复做这些事。",
+                "对应能力点是把遍历顺序写稳，再把 `sum`、`mx`、`mn`、`cnt` 这些变量放在正确作用域里。",
+                "求整张表时，统计变量一般只初始化一次；枚举窗口时，统计变量必须在每个新窗口开始时重置。",
+                "最大值、最小值的初值最容易写坏，尤其是窗口题里不能沿用上一个窗口的值。",
+                "固定窗口枚举时，左上角范围应该写成 `i + h - 1 < n`、`j + w - 1 < m` 这类合法范围。",
+                "条件计数题里不要先加答案再判断，应该先判条件是否成立，再决定 `cnt` 是否增加。"
+              ]
+            },
+            {
+              "id": "lecture-3-core-template",
+              "title": "代码模板",
+              "points": [
+                "第 3 讲模板的重点是把统计量的初始化位置和更新位置固定下来。",
+                "学生如果能看懂下面两个模板，后面做字符网格统计和局部判断会顺很多。"
+              ],
+              "resources": [
+                {
+                  "title": "求和 / 最值 / 计数模板",
+                  "description": "这一版把最常见的三类统计量放在同一层循环里更新，适合讲变量作用域。",
+                  "code": "long long sum = 0;\nint mx = -1000000000;\nint mn = 1000000000;\nint cnt = 0;\n\nfor (int i = 0; i < n; i++) {\n    for (int j = 0; j < m; j++) {\n        int x = a[i][j];\n        sum += x;\n        mx = max(mx, x);\n        mn = min(mn, x);\n        if (x % 2 == 0) {\n            cnt++;\n        }\n    }\n}"
+                },
+                {
+                  "title": "固定窗口枚举模板",
+                  "description": "先枚举窗口左上角，再在窗口内部做独立统计。每个新窗口开始前，局部变量都要重新初始化。",
+                  "code": "for (int sx = 0; sx + 1 < n; sx++) {\n    for (int sy = 0; sy + 1 < m; sy++) {\n        int localSum = 0;\n        for (int i = sx; i <= sx + 1; i++) {\n            for (int j = sy; j <= sy + 1; j++) {\n                localSum += a[i][j];\n            }\n        }\n        ans = max(ans, localSum);\n    }\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-3-template",
+          "title": "演示模块第一版",
+          "points": [
+            "动画区对应四种最常见统计行为：总和、最值、条件计数和固定窗口。",
+            "建议第 3 讲把代码行高亮和 Debug 区一起看，帮助学生理解变量为什么会在某一步变化。"
+          ],
+          "children": [
+            {
+              "id": "lecture-3-template-animation",
+              "title": "第3讲演示模块",
+              "points": [
+                "支持空格推进、上一步和重置。",
+                "统一采用动画区、讲解文字区、Debug 区、代码区布局。",
+                "覆盖总和、最值、条件计数和固定窗口四类核心模板。"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-4",
+      "title": "第4讲：字符网格入门",
+      "summary": "把字符网格当作特殊二维数组来学，开始进入地图、画布和四方向判断这类题型。",
+      "sections": [
+        {
+          "id": "lecture-4-goals",
+          "title": "本讲目标",
+          "points": [
+            "会把每一行字符串读入到字符网格中，知道字符网格本质上还是二维数组。",
+            "能写出上下左右四个方向的访问方式，并在访问前先做越界判断。",
+            "能在字符矩阵里完成裁剪、局部输出和简单图案判断。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-4-core",
+          "title": "核心知识点",
+          "points": [
+            "第4讲的关键是把“数字表”切换成“字符地图”，但双重循环骨架并没有变。"
+          ],
+          "children": [
+            {
+              "id": "lecture-4-core-grid",
+              "title": "字符网格、四方向与编程题训练",
+              "points": [
+                "这一组题都把题面包装成地图、画布或黑白格，但本质上仍然是在二维数组上读入、访问和输出。",
+                "对应能力点是：按行读字符串、把字符放进网格、再围绕某个格子检查上下左右或裁剪子区域。",
+                "把《画布裁剪》《荒地开垦》《黑白方块》放在一起学，是为了让学生看到字符网格题通常都从“读入 + 定位 + 邻居/子区域”展开。",
+                "这一讲最容易卡住的是字符和数字混用、越界判断顺序错误，以及把字符串下标和网格下标弄乱。"
+              ],
+              "questionIds": [
+                "q-2025-06-program-1",
+                "q-2025-03-program-1",
+                "q-2024-09-program-1"
+              ]
+            },
+            {
+              "id": "lecture-4-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是字符网格读入、四方向访问和字符子矩阵处理。",
+                "对应能力点是把 `string s` 的第 `j` 个字符存进 `grid[i][j]`，再围绕 `grid[i][j]` 做邻居判断。",
+                "字符 `'0'`、`'1'` 和整数 `0`、`1` 不是一回事，比较时一定要看题目是字符还是数字。",
+                "四方向访问时，必须先判断新坐标是否合法，再去读 `grid[nx][ny]`。",
+                "按题面给出的行列范围裁剪时，先统一成 0 下标，再写双重循环输出。",
+                "字符网格题很容易在输入阶段就把空格、整行字符串和单个字符读混。"
+              ]
+            },
+            {
+              "id": "lecture-4-core-template",
+              "title": "代码模板",
+              "points": [
+                "第 4 讲模板的重点是“字符读入”和“邻居访问顺序”。",
+                "只要把这几段模板学稳，后面八方向、局部图案判断都会自然衔接上。"
+              ],
+              "resources": [
+                {
+                  "title": "字符网格读入模板",
+                  "description": "最常见的写法是先读每一行字符串，再把字符放到 `grid[i][j]`，也可以直接保留为字符串数组。",
+                  "code": "vector<string> grid(n);\nfor (int i = 0; i < n; i++) {\n    cin >> grid[i];\n}"
+                },
+                {
+                  "title": "上下左右模板",
+                  "description": "访问四邻时，先算新坐标，再做边界判断。",
+                  "code": "int dx[4] = {-1, 1, 0, 0};\nint dy[4] = {0, 0, -1, 1};\n\nfor (int k = 0; k < 4; k++) {\n    int nx = x + dx[k];\n    int ny = y + dy[k];\n    if (nx < 0 || nx >= n || ny < 0 || ny >= m) {\n        continue;\n    }\n    // 使用 grid[nx][ny]\n}"
+                },
+                {
+                  "title": "画布裁剪输出模板",
+                  "description": "裁剪题通常只是在原字符矩阵上截出一个子矩形，再按行输出。",
+                  "code": "for (int i = x1; i <= x2; i++) {\n    for (int j = y1; j <= y2; j++) {\n        cout << grid[i][j];\n    }\n    cout << '\\n';\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-4-template",
+          "title": "演示模块第一版",
+          "points": [
+            "动画区把字符逐格写入、中心格与邻居格的关系、裁剪前后区域的对应过程都做成了可见步骤。",
+            "第 4 讲建议边看动画边读代码区，重点观察坐标是怎样从源区域复制到目标区域的。"
+          ],
+          "children": [
+            {
+              "id": "lecture-4-template-animation",
+              "title": "第4讲演示模块",
+              "points": [
+                "支持空格推进、上一步和重置。",
+                "统一采用动画区、讲解文字区、Debug 区、代码区布局。",
+                "覆盖字符读入、上下左右和画布裁剪三类核心模板。"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-5",
+      "title": "第5讲：八方向、子矩形、局部判断",
+      "summary": "继续扩展字符网格处理，重点训练八方向、子矩形左上角枚举和局部检查函数。",
+      "sections": [
+        {
+          "id": "lecture-5-goals",
+          "title": "本讲目标",
+          "points": [
+            "会写八方向偏移数组，知道中心格不属于自己的邻居。",
+            "会枚举子矩形左上角，并能说明为什么当前位置合法。",
+            "会把局部判断抽成 `check(x, y)`，让主循环只负责枚举。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-5-core",
+          "title": "核心知识点",
+          "points": [
+            "第5讲的主线是“先枚举起点，再做局部判断”，是图案题和子矩形题的共同套路。"
+          ],
+          "children": [
+            {
+              "id": "lecture-5-core-local",
+              "title": "八方向、子矩形与编程题训练",
+              "points": [
+                "这一组题都不是单纯遍历整张表，而是先选一个位置或一个左上角，再围绕局部区域做判断。",
+                "对应能力点是：八方向偏移、子矩形范围、把局部判断抽成 `check()`。",
+                "把《山之谷》《排兵布阵》《黑白方块（拔高）》放在一起学，是为了让学生看到“局部条件”才是这类题的核心，而不是表面题意。",
+                "只要学生能稳定写出“枚举起点 + check 函数”，这类题会一下子清楚很多。"
+              ],
+              "questionIds": [
+                "q-2026-03-program-1",
+                "q-2025-09-program-1",
+                "q-2024-06-program-1"
+              ]
+            },
+            {
+              "id": "lecture-5-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是八方向邻居、子矩形左上角枚举和局部图案判断。",
+                "对应能力点是先把枚举范围写对，再把每个局部判断封装好，避免主循环里塞满细节。",
+                "八方向最容易漏写某个偏移，或者把 `(0, 0)` 也错误地算进邻域。",
+                "子矩形枚举最常见错误是左上角范围写大，导致窗口越界。",
+                "写 `check()` 时不要直接修改全局答案，`check()` 只负责判断，主循环负责更新答案更稳。",
+                "局部变量一定要在每次新起点开始时重新初始化，否则会把上一次检查结果带进来。"
+              ]
+            },
+            {
+              "id": "lecture-5-core-template",
+              "title": "代码模板",
+              "points": [
+                "第 5 讲模板的重点是把“枚举”和“检查”分层写清楚。",
+                "这套模板一旦掌握，很多地图题和局部匹配题都能直接套骨架。"
+              ],
+              "resources": [
+                {
+                  "title": "八方向模板",
+                  "description": "八方向常用两组长度为 8 的偏移数组。讲课时要强调它们和上下左右模板只差偏移数量。",
+                  "code": "int dx[8] = {-1, -1, -1, 0, 0, 1, 1, 1};\nint dy[8] = {-1, 0, 1, -1, 1, -1, 0, 1};\n\nfor (int k = 0; k < 8; k++) {\n    int nx = x + dx[k];\n    int ny = y + dy[k];\n    if (nx < 0 || nx >= n || ny < 0 || ny >= m) {\n        continue;\n    }\n    // 使用 grid[nx][ny]\n}"
+                },
+                {
+                  "title": "子矩形左上角枚举模板",
+                  "description": "固定窗口大小后，主循环只枚举合法左上角。",
+                  "code": "for (int sx = 0; sx + h - 1 < n; sx++) {\n    for (int sy = 0; sy + w - 1 < m; sy++) {\n        // 检查左上角为 (sx, sy) 的子矩形\n    }\n}"
+                },
+                {
+                  "title": "check 函数模板",
+                  "description": "把局部判断抽成函数后，主循环就只剩“枚举起点 + 根据返回值更新答案”。",
+                  "code": "bool check(int sx, int sy) {\n    for (int i = 0; i < h; i++) {\n        for (int j = 0; j < w; j++) {\n            if (grid[sx + i][sy + j] != pattern[i][j]) {\n                return false;\n            }\n        }\n    }\n    return true;\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-5-template",
+          "title": "演示模块第一版",
+          "points": [
+            "动画区已经把“中心格 / 邻居格”“子矩形左上角推进”“check 逐格失败”做成了统一可视化。",
+            "第 5 讲适合带着学生一起口述当前检查到了哪一格，帮助他们建立 `check()` 的执行顺序感。"
+          ],
+          "children": [
+            {
+              "id": "lecture-5-template-animation",
+              "title": "第5讲演示模块",
+              "points": [
+                "支持空格推进、上一步和重置。",
+                "统一采用动画区、讲解文字区、Debug 区、代码区布局。",
+                "覆盖八方向、子矩形枚举和 check 局部判断三类核心模板。"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-6",
+      "title": "第6讲：翻转、转置、行列交换、矩阵模拟",
+      "summary": "把二维数组真正当作矩阵整体来操作，系统串起翻转、转置、行列交换和按行展开映射。",
+      "sections": [
+        {
+          "id": "lecture-6-goals",
+          "title": "本讲目标",
+          "points": [
+            "把二维数组从“很多格子”提升成“一个矩阵对象”来理解。",
+            "看懂翻转、转置、行交换、列交换这些操作为什么都能拆成清楚的坐标映射或成对交换。",
+            "用矩阵与一维展开映射，把前面学过的按行存储在最后一讲真正收束起来。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-6-core",
+          "title": "核心知识点",
+          "points": [
+            "第6讲是专题收口，重点不是记结论，而是把“变化过程”看清楚。"
+          ],
+          "children": [
+            {
+              "id": "lecture-6-core-matrix",
+              "title": "矩阵整体视角与客观题训练",
+              "points": [
+                "这一组题虽然还是客观题，但它们已经把学生从“单个元素访问”推进到“整行、整体矩阵和线性空间映射”。",
+                "对应能力点是：函数传参时明确列数、知道二维数组按行展开、能把矩阵当整体对象处理。",
+                "把这三题放在一起学，是为了让学生在做翻转、转置之前，先搞清楚“矩阵整体”的底层样子。",
+                "第 6 讲如果只看最后结果不看过程，很容易把转置、翻转和行列交换都理解成“魔法变化”。"
+              ],
+              "questionIds": [
+                "q-2025-06-single-2",
+                "q-2025-06-single-3",
+                "q-2025-03-judge-5"
+              ]
+            },
+            {
+              "id": "lecture-6-core-mistakes",
+              "title": "知识点说明与易错点",
+              "points": [
+                "本讲主要学的是矩阵级操作：左右翻转、上下翻转、转置、行交换、列交换，以及二维到一维的映射。",
+                "对应能力点是把坐标变化写清楚，而不是只会看最终答案。",
+                "转置最常见错误是把 `b[j][i] = a[i][j]` 写反，或者把源坐标和目标坐标混掉。",
+                "翻转题最容易把左右/上下的配对关系写错，或者交换范围多走一步。",
+                "行交换和列交换本质上都是逐格交换，不是一整行或一整列瞬间移动。",
+                "函数传参和线性展开还会反复出现，所以列数漏写、`index = i * m + j` 写错仍然要重点盯。"
+              ]
+            },
+            {
+              "id": "lecture-6-core-template",
+              "title": "代码模板",
+              "points": [
+                "第 6 讲模板服务的是“整体矩阵操作”，所以一定要把源坐标、目标坐标和交换对象写清楚。",
+                "建议学生先照着模板写出过程，再去追求更短的写法。"
+              ],
+              "resources": [
+                {
+                  "title": "转置模板",
+                  "description": "教学上最清楚的写法是“原矩阵 -> 新矩阵”，先把映射关系看懂，再谈原地写法。",
+                  "code": "for (int i = 0; i < n; i++) {\n    for (int j = 0; j < m; j++) {\n        b[j][i] = a[i][j];\n    }\n}"
+                },
+                {
+                  "title": "左右 / 上下翻转模板",
+                  "description": "翻转题的关键是成对交换。左右翻转按列配对，上下翻转按行配对。",
+                  "code": "for (int i = 0; i < n; i++) {\n    for (int l = 0, r = m - 1; l < r; l++, r--) {\n        swap(a[i][l], a[i][r]);\n    }\n}\n\nfor (int up = 0, down = n - 1; up < down; up++, down--) {\n    for (int j = 0; j < m; j++) {\n        swap(a[up][j], a[down][j]);\n    }\n}"
+                },
+                {
+                  "title": "行交换 / 列交换模板",
+                  "description": "行交换按列推进，列交换按行推进。看起来像整体变化，代码里其实还是逐格 swap。",
+                  "code": "for (int j = 0; j < m; j++) {\n    swap(a[rowA][j], a[rowB][j]);\n}\n\nfor (int i = 0; i < n; i++) {\n    swap(a[i][colA], a[i][colB]);\n}"
+                },
+                {
+                  "title": "二维到一维映射模板",
+                  "description": "最后再回到按行展开，帮助学生把“矩阵操作”和“线性空间”统一起来。",
+                  "code": "for (int i = 0; i < n; i++) {\n    for (int j = 0; j < m; j++) {\n        int index = i * m + j;\n        flat[index] = a[i][j];\n    }\n}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "lecture-6-template",
+          "title": "演示模块第一版",
+          "points": [
+            "动画区把翻转、转置、行交换、列交换和一维展开映射统一成同一种步骤播放器，适合做专题收口。",
+            "讲第 6 讲时建议多让学生描述“当前这一步把哪个位置变到哪个位置”，而不是只盯着结果矩阵。"
+          ],
+          "children": [
+            {
+              "id": "lecture-6-template-animation",
+              "title": "第6讲演示模块",
+              "points": [
+                "支持空格推进、上一步和重置。",
+                "统一采用动画区、讲解文字区、Debug 区、代码区布局。",
+                "覆盖翻转、转置、行列交换和矩阵展开映射六类核心模板。"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": "q-2024-09-single-7",
+      "lectureId": "lecture-1",
+      "topicId": "lecture-1-core-definition",
+      "paper": "4级2024年9月.pdf",
+      "paperLabel": "2024年9月",
+      "paperKey": "2024-09",
+      "year": 2024,
+      "month": 9,
+      "type": "single_choice",
+      "questionNumber": 7,
+      "title": "二维数组合法定义",
+      "summary": "判断哪个选项正确声明了一个 3 行 4 列的二维数组。",
+      "classificationReason": "适合作为二维数组定义的开篇题，帮助学生建立合法写法意识。",
+      "pitfall": "把 `int a[3][4]` 写成 `int a[3,4]` 或漏掉列数。",
+      "questionText": "第7题 D. struct student { char[20] name; int age; };\n在 C++ 中，（ ）正确声明了一个 3 行 4 列的二维数组。\nA. int arr[3, 4];\nB. int arr[3][4];\nC. int arr[4][3];\nD. int arr(3, 4);",
+      "rawQuestionText": "第7题 D. struct student { char[20] name; int age; };\n在 C++ 中，（ ）正确声明了一个 3 行 4 列的二维数组。\nA. int arr[3, 4];\nB. int arr[3][4];\nC. int arr[4][3];\nD. int arr(3, 4);",
+      "answerText": "正确写法应为 `int a[3][4];`。",
+      "analysisText": "这题表面在考语法，实际上是在筛掉把二维数组写成“逗号版一维数组”的错误习惯。\n\n最容易错的是把“3 行 4 列”记成两个参数，却忘了代码里必须写成两层方括号。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年9月.pdf"
+    },
+    {
+      "id": "q-2025-03-single-9",
+      "lectureId": "lecture-1",
+      "topicId": "lecture-1-core-definition",
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "paperKey": "2025-03",
+      "year": 2025,
+      "month": 3,
+      "type": "single_choice",
+      "questionNumber": 9,
+      "title": "正确定义二维数组",
+      "summary": "从多个声明方式中选择合法的二维数组定义。",
+      "classificationReason": "和 2024 年 9 月、2024 年 12 月的定义题可组成同类题组。",
+      "pitfall": "把括号、逗号和方括号混用。",
+      "questionText": "第9题 下面（ ）正确定义了二维数组。\nA. int arr[3,4];\nB. int arr[3][4];\nC. int arr(3,4);\nD. int a[3-4];",
+      "rawQuestionText": "第9题 下面（ ）正确定义了二维数组。\nA. int arr[3,4];\nB. int arr[3][4];\nC. int arr(3,4);\nD. int a[3-4];",
+      "answerText": "二维数组定义要写成 `int arr[3][4];` 这类形式。",
+      "analysisText": "这类题喜欢把括号、逗号、方括号混在一起出干扰项，考的不是记忆力，而是二维数组写法是否真正形成了固定印象。\n\n如果学生还在靠“看着顺眼”选答案，说明定义规则没有学稳。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf"
+    },
+    {
+      "id": "q-2024-12-single-8",
+      "lectureId": "lecture-1",
+      "topicId": "lecture-1-core-definition",
+      "paper": "4级2024年12月.pdf",
+      "paperLabel": "2024年12月",
+      "paperKey": "2024-12",
+      "year": 2024,
+      "month": 12,
+      "type": "single_choice",
+      "questionNumber": 8,
+      "title": "二维数组定义辨析",
+      "summary": "辨析多个二维数组声明写法，选择合法项。",
+      "classificationReason": "用于巩固“行列都要写清”的规则。",
+      "pitfall": "误以为二维数组可以省掉第二维。",
+      "questionText": "第8题 下面（ ）正确定义二维数组。\nA. int a[3][];\nB. int a[][];\nC. int a[][4];\nD. int a[][2] = {{1,2},{1,2},{3,4}};",
+      "rawQuestionText": "第8题 下面（ ）正确定义二维数组。\nA. int a[3][];\nB. int a[][];\nC. int a[][4];\nD. int a[][2] = {{1,2},{1,2},{3,4}};",
+      "answerText": "合法二维数组必须写明列数，典型写法是 `int a[3][4];`。",
+      "analysisText": "这题容易错在“我知道它是二维数组，但我以为第二维可以随便省”。\n\n实际上声明阶段和传参阶段不一样，声明二维数组时行数和列数都要明确。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年12月.pdf"
+    },
+    {
+      "id": "q-2025-12-single-3",
+      "lectureId": "lecture-1",
+      "topicId": "lecture-1-core-definition",
+      "paper": "4级2025年12月.pdf",
+      "paperLabel": "2025年12月",
+      "paperKey": "2025-12",
+      "year": 2025,
+      "month": 12,
+      "type": "single_choice",
+      "questionNumber": 3,
+      "title": "按行按列访问棋盘",
+      "summary": "用二维数组表示棋盘，判断“第 2 行第 3 列”应如何访问。",
+      "classificationReason": "最适合讲“先行后列”和“题目序号要减一”。",
+      "pitfall": "把“第2行第3列”直接写成 `a[2][3]`。",
+      "questionText": "第3题 可采用的代码是：（ ）。\n小杨用一个二维数组表示棋盘，其中 1 表示有棋子，0 表示没有棋子。他想知道第 2 行 第 3 列有没有棋子，\n1\n2\n3\n4\n5\nint a[3][4] = {\n{1, 0, 1, 0},\n{0, 1, 0, 1},\n{1, 1, 0, 0}\n};\nA. cout << a[1, 2] << endl;\nB. cout << a[1][2] << endl;\nC. cout << a(1, 2) << endl;\nD. cout << a{1}{2} << endl;",
+      "rawQuestionText": "第3题 可采用的代码是：（ ）。\n小杨用一个二维数组表示棋盘，其中 1 表示有棋子，0 表示没有棋子。他想知道第 2 行 第 3 列有没有棋子，\n1\n2\n3\n4\n5\nint a[3][4] = {\n{1, 0, 1, 0},\n{0, 1, 0, 1},\n{1, 1, 0, 0}\n};\nA. cout << a[1, 2] << endl;\nB. cout << a[1][2] << endl;\nC. cout << a(1, 2) << endl;\nD. cout << a{1}{2} << endl;",
+      "answerText": "应访问 `a[1][2]`，因为题目中的第 2 行和第 3 列都要先减 1。",
+      "analysisText": "这题最适合讲“先行后列”和“题面编号转代码下标”。\n\n很多同学看到“第 2 行第 3 列”就直接写成 `a[2][3]`，说明自然语言和代码坐标还没有真正对上。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年12月.pdf"
+    },
+    {
+      "id": "q-2025-03-single-8",
+      "lectureId": "lecture-1",
+      "topicId": "lecture-1-core-definition",
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "paperKey": "2025-03",
+      "year": 2025,
+      "month": 3,
+      "type": "single_choice",
+      "questionNumber": 8,
+      "title": "读取指定坐标元素",
+      "summary": "已知 `int arr[2][3] = {{1,2,3},{4,5,6}};`，求 `arr[1][2]` 的值。",
+      "classificationReason": "这是最纯粹的下标访问题，适合讲完坐标后马上练。",
+      "pitfall": "把第二行第三列误读成 `arr[2][3]` 或把行列顺序反过来。",
+      "questionText": "第8题 假设 int arr[2][3] = {{1,2,3},{4,5,6}};，则 arr[1][2] 的值是（ ）。\nA. 2\nB. 3\nC. 5\nD. 6",
+      "rawQuestionText": "第8题 假设 int arr[2][3] = {{1,2,3},{4,5,6}};，则 arr[1][2] 的值是（ ）。\nA. 2\nB. 3\nC. 5\nD. 6",
+      "answerText": "`arr[1][2]` 对应第二行第三列，答案是 `6`。",
+      "analysisText": "这题虽然简单，但它能直接暴露学生有没有把二维数组当成“先找行，再找列”来理解。\n\n如果把 `arr[1][2]` 读错，后面所有窗口题和字符网格题都会持续出错。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf"
+    },
+    {
+      "id": "q-2024-03-single-4",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2024年3月.pdf",
+      "paperLabel": "2024年3月",
+      "paperKey": "2024-03",
+      "year": 2024,
+      "month": 3,
+      "type": "single_choice",
+      "questionNumber": 4,
+      "title": "一整行占多少字节",
+      "summary": "给出 `int arr[3][16];`，问 `arr[1]` 占多少字节。",
+      "classificationReason": "非常适合建立“`arr[1]` 是一整行”的概念。",
+      "pitfall": "把一整行和单个元素的大小混为一谈。",
+      "questionText": "第4题 对二维数组 int arr[3][16];，则 arr[1] 占用内存的大小为（ ）字节。\nA. 4\nB. 16\nC. 48\nD. 64",
+      "rawQuestionText": "第4题 对二维数组 int arr[3][16];，则 arr[1] 占用内存的大小为（ ）字节。\nA. 4\nB. 16\nC. 48\nD. 64",
+      "answerText": "`arr[1]` 表示一整行，共 16 个 `int`，若 `int` 为 4 字节，则一行大小是 `64` 字节。",
+      "analysisText": "这题不是单纯算字节数，而是在建立“`arr[1]` 是一整行”的概念。\n\n一旦学生把 `arr[1]` 误当成单个元素，按行理解和函数传参都会接着出问题。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年3月.pdf"
+    },
+    {
+      "id": "q-2024-03-single-5",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2024年3月.pdf",
+      "paperLabel": "2024年3月",
+      "paperKey": "2024-03",
+      "year": 2024,
+      "month": 3,
+      "type": "single_choice",
+      "questionNumber": 5,
+      "title": "按行偏移求地址",
+      "summary": "已知二维数组首地址，问 `arr[1]` 对应的地址或值。",
+      "classificationReason": "结合上一题继续讲“按行偏移”的底层含义。",
+      "pitfall": "只加 1 个元素大小，而不是加 1 整行大小。",
+      "questionText": "第5题 对二维数组 int arr[3][16];，若 arr 的地址是 0x28cbc0 ，则 arr[1] 的值是（ ）。\nA. 0x28cbc4\nB. 0x28cbd0\nC. 0x28cc00\nD. 不确定",
+      "rawQuestionText": "第5题 对二维数组 int arr[3][16];，若 arr 的地址是 0x28cbc0 ，则 arr[1] 的值是（ ）。\nA. 0x28cbc4\nB. 0x28cbd0\nC. 0x28cc00\nD. 不确定",
+      "answerText": "`arr[1]` 是第二行首地址，应在首地址基础上偏移一整行。",
+      "analysisText": "这题考的是“行偏移”，不是“元素偏移”。\n\n最容易错的地方是只加一个 `int` 的大小，而没有先跨过前面一整行。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年3月.pdf"
+    },
+    {
+      "id": "q-2024-09-single-8",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2024年9月.pdf",
+      "paperLabel": "2024年9月",
+      "paperKey": "2024-09",
+      "year": 2024,
+      "month": 9,
+      "type": "single_choice",
+      "questionNumber": 8,
+      "title": "`arr[0]` 的整行大小",
+      "summary": "围绕 `arr[0]` 的含义和所占字节数考查“第 0 行”概念。",
+      "classificationReason": "可与 2024 年 3 月同类题合并讲一整行的大小。",
+      "pitfall": "误把 `arr[0]` 当作单个 `int`。",
+      "questionText": "第8题 一个二维数组定义为 int arr[3][4]; （假设一个int变量占4个字节），则 int arr[0] 占用（ ）个字节\n的内存。\nA. 3\nB. 4\nC. 12\nD. 16",
+      "rawQuestionText": "第8题 一个二维数组定义为 int arr[3][4]; （假设一个int变量占4个字节），则 int arr[0] 占用（ ）个字节\n的内存。\nA. 3\nB. 4\nC. 12\nD. 16",
+      "answerText": "`arr[0]` 不是一个元素，而是第 0 行；它的大小等于整行元素数乘单个元素大小。",
+      "analysisText": "这题和上一题属于同一类：把第 0 行当成一个整体来看。\n\n学生如果只盯着单个元素，就很难看懂 `arr[0]`、`arr[1]` 这类表达式到底代表什么。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年9月.pdf"
+    },
+    {
+      "id": "q-2025-12-single-4",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2025年12月.pdf",
+      "paperLabel": "2025年12月",
+      "paperKey": "2025-12",
+      "year": 2025,
+      "month": 12,
+      "type": "single_choice",
+      "questionNumber": 4,
+      "title": "线性内存与 `arr[1][1]`",
+      "summary": "通过 `*(p+5)` 和 `arr[1][1]` 的关系考查二维数组按行存储。",
+      "classificationReason": "可以把二维数组和线性内存条直接对上。",
+      "pitfall": "没有先把二维坐标换成按行展开后的偏移。",
+      "questionText": "第4题 执行完下面的代码后， *(p + 5) 和 arr[1][1] 的值分别是（ ）。\n1\n2\nint arr[3][4] = {{1,2,3,4}, {5,6,7,8}, {9,10,11,12}};\nint* p = &arr[0][0];\nA. 5 6\nB. 6 5\nC. 5 5\nD. 6 6",
+      "rawQuestionText": "第4题 执行完下面的代码后， *(p + 5) 和 arr[1][1] 的值分别是（ ）。\n1\n2\nint arr[3][4] = {{1,2,3,4}, {5,6,7,8}, {9,10,11,12}};\nint* p = &arr[0][0];\nA. 5 6\nB. 6 5\nC. 5 5\nD. 6 6",
+      "answerText": "先按“前一整行 + 当前行列偏移”换算，再与线性指针位置对应。",
+      "analysisText": "这题的关键是把二维坐标先换成一维偏移，再和线性指针对上。\n\n容易错不是因为计算难，而是因为脑子里没有“按行展开”的清晰图像。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年12月.pdf"
+    },
+    {
+      "id": "q-2025-12-judge-3",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2025年12月.pdf",
+      "paperLabel": "2025年12月",
+      "paperKey": "2025-12",
+      "year": 2025,
+      "month": 12,
+      "type": "judgement",
+      "questionNumber": 3,
+      "title": "二维数组按行优先连续存放",
+      "summary": "判断二维数组在内存中是否按行优先连续存放。",
+      "classificationReason": "这是“按行存储”最直接的一句判断题。",
+      "pitfall": "以为每一行在内存中不连续。",
+      "questionText": "第3题 可采用的代码是：（ ）。\n小杨用一个二维数组表示棋盘，其中 1 表示有棋子，0 表示没有棋子。他想知道第 2 行 第 3 列有没有棋子，\n1\n2\n3\n4\n5\nint a[3][4] = {\n{1, 0, 1, 0},\n{0, 1, 0, 1},\n{1, 1, 0, 0}\n};\nA. cout << a[1, 2] << endl;\nB. cout << a[1][2] << endl;\nC. cout << a(1, 2) << endl;\nD. cout << a{1}{2} << endl;",
+      "rawQuestionText": "第3题 可采用的代码是：（ ）。\n小杨用一个二维数组表示棋盘，其中 1 表示有棋子，0 表示没有棋子。他想知道第 2 行 第 3 列有没有棋子，\n1\n2\n3\n4\n5\nint a[3][4] = {\n{1, 0, 1, 0},\n{0, 1, 0, 1},\n{1, 1, 0, 0}\n};\nA. cout << a[1, 2] << endl;\nB. cout << a[1][2] << endl;\nC. cout << a(1, 2) << endl;\nD. cout << a{1}{2} << endl;",
+      "answerText": "正确。C/C++ 二维数组在内存中按行优先连续存放。",
+      "analysisText": "判断题看起来简单，但它其实是在确认学生有没有真正接受“二维数组按行连续存放”这个底层事实。\n\n如果这里还摇摆，后面做转置、翻转和线性映射会一直不稳。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年12月.pdf"
+    },
+    {
+      "id": "q-2023-06-single-12",
+      "lectureId": "lecture-2",
+      "topicId": "lecture-2-core-row",
+      "paper": "4级2023年6月.pdf",
+      "paperLabel": "2023年6月",
+      "paperKey": "2023-06",
+      "year": 2023,
+      "month": 6,
+      "type": "single_choice",
+      "questionNumber": 12,
+      "title": "二维数组函数传参",
+      "summary": "判断哪个函数声明能够正确接收二维数组参数。",
+      "classificationReason": "适合作为“列数必须写明”的第一道传参题。",
+      "pitfall": "传参时漏掉第二维，或把二维数组写成不完整类型。",
+      "questionText": "12. 以下哪个函数声明在调用时可以传递二维数组的名字作为参数？（ ）\nA. void BubbleSort(int a[][4]);\nB. void BubbleSort(int a[3][]);\nC. void BubbleSort(int a[][]);\nD. void BubbleSort(int ** a);",
+      "rawQuestionText": "12. 以下哪个函数声明在调用时可以传递二维数组的名字作为参数？（ ）\nA. void BubbleSort(int a[][4]);\nB. void BubbleSort(int a[3][]);\nC. void BubbleSort(int a[][]);\nD. void BubbleSort(int ** a);",
+      "answerText": "二维数组作为函数参数时必须显式写出列数，例如 `void f(int a[][4])`。",
+      "analysisText": "这题非常典型，专门用来纠正“二维数组传参可以照着声明随便写”的误区。\n\n学生最容易错在把第二维也留空，但编译器恰恰需要列数来计算一整行的跨度。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2023年6月.pdf"
+    },
+    {
+      "id": "q-2025-03-program-2",
+      "lectureId": "lecture-3",
+      "topicId": "lecture-3-core-basic",
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "paperKey": "2025-03",
+      "year": 2025,
+      "month": 3,
+      "type": "programming",
+      "questionNumber": 2,
+      "title": "二阶矩阵",
+      "summary": "统计矩阵中满足特定比例关系的 2×2 好子矩阵数量。",
+      "classificationReason": "标准的固定窗口枚举题，适合首次讲 2×2 子矩阵。",
+      "pitfall": "2×2 左上角枚举范围容易写成 `i <= n`、`j <= m` 导致越界。",
+      "questionText": "题目描述\n给定一个 n 行 m 列的整数矩阵 a。\n如果某个 2×2 子矩阵满足左上角与右下角元素的乘积，等于右上角与左下角元素的乘积，则称这个 2×2 子矩阵是“好的”。\n请你统计整个矩阵中好的 2×2 子矩阵数量。\n\n输入格式\n第一行输入两个正整数 n、m。\n接下来 n 行，每行输入 m 个整数，表示矩阵元素。\n\n输出格式\n输出一个整数，表示好的 2×2 子矩阵数量。\n\n样例\n\n样例 1 输入\n3 4\n1 2 1 0\n2 4 2 1\n0 3 3 0\n\n样例 1 输出\n2\n\n样例 1 解释\n样例中共有两个满足条件的 2×2 子矩阵，它们的左上角分别在第 1 行第 1 列和第 1 行第 2 列。\n\n数据范围\n根据原卷参考程序中的断言可恢复：1 <= n, m <= 500，矩阵元素的范围为 [-100, 100]。",
+      "rawQuestionText": "二阶矩阵\n3.2.11 题目描述\n小 A 有一个 行 列的矩阵 。\n小 A 认为一个 的矩阵 是好的，当且仅当 的元素。\n小 A 想知道 中有多少个好的子矩阵。\n3.2.12 输入格式\n第一行，两个正整数 。\n接下来 行，每行 个整数 。\n3.2.13 输出格式\n一行，\n一个整数，表示 中好的子矩阵的数量。\n3.2.14 样例\n3.2.14.1 输入样例 1\n1\n2\n3\n4\n3 4\n1 2 1 0\n2 4 2 1\n0 3 3 0\n。其中 表示矩阵 的第 行第 列\n3.2.14.2 输出样例 1\n1\n2\n3.2.14.3 样例解释\n样例中的好的子矩阵如下：\n3.2.15 数据范围\n对于所有测试点，保证 ， ， 。",
+      "answerText": "用左上角枚举所有 2×2 子矩阵，并在窗口内做条件判断累计答案。",
+      "analysisText": "这题的入口不是去想复杂数学，而是先认出“题目反复提到 2×2 子矩阵”，所以主循环一定是枚举窗口左上角。",
+      "studyGuide": {
+        "reading": "先抓题面里的关键词“2×2 子矩阵”和“满足条件的数量”，这已经说明答案来自窗口枚举后的计数。",
+        "why2d": "题目输入就是一个矩阵，而且判断条件发生在相邻 4 个格子之间，天然要用二维数组保存和访问。",
+        "loops": "第一层双重循环枚举 2×2 左上角 `(sx, sy)`，第二层只在这 4 个格子里取值并完成判断。",
+        "key": "关键点是把左上角范围写对，并把窗口内部 4 个位置的关系一次性写清楚。",
+        "pitfall": "最容易错在 `sx + 1`、`sy + 1` 越界，或者把 2×2 的四个位置写串。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nconst int N = 505;\nint a[N][N];\n\nint main() {\n    int n, m;\n    scanf(\"%d%d\", &n, &m);\n\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            scanf(\"%d\", &a[i][j]);\n        }\n    }\n\n    int ans = 0;\n    for (int i = 1; i < n; i++) {\n        for (int j = 1; j < m; j++) {\n            if (a[i][j] * a[i + 1][j + 1] == a[i + 1][j] * a[i][j + 1]) {\n                ans++;\n            }\n        }\n    }\n\n    printf(\"%d\\n\", ans);\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf"
+    },
+    {
+      "id": "q-2025-12-program-1",
+      "lectureId": "lecture-3",
+      "topicId": "lecture-3-core-basic",
+      "paper": "4级2025年12月.pdf",
+      "paperLabel": "2025年12月",
+      "paperKey": "2025-12",
+      "year": 2025,
+      "month": 12,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "建造",
+      "summary": "在若干局部区域上做最大值、最小值与求和判断。",
+      "classificationReason": "综合了局部窗口、最值和统计，是整表与局部概念的分水岭。",
+      "pitfall": "窗口内的变量没有在每次重新枚举时初始化。",
+      "questionText": "题目描述\n给定一张 M 行 N 列的地形图，第 i 行第 j 列的数字表示该位置的海拔高度。\n一个停机坪必须恰好是 3×3 的区域，并且这 9 个位置的最大高度与最小高度之差不超过 H。\n请你在所有可以建造停机坪的 3×3 区域中，求出区域内海拔之和的最大值。\n\n输入格式\n第一行输入三个正整数 M、N、H。\n接下来 M 行，每行输入 N 个整数，表示地形图中的海拔高度。\n题目保证至少存在一个合法的 3×3 停机坪。\n\n输出格式\n输出一个整数，表示所有合法 3×3 区域中海拔之和的最大值。\n\n样例\n\n样例 1 输入\n5 5 3\n5 5 5 5 5\n5 1 5 1 5\n5 5 5 5 5\n5 2 5 2 5\n3 5 5 5 2\n\n样例 1 输出\n40\n\n数据范围\n原卷数据范围处仍有公式位缺失；从参考程序使用的数组规模来看，地图行列规模在千级范围内。",
+      "rawQuestionText": "建造\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题目描述\n小 A 有一张 行 列的地形图，其中第 行第 列的数字 代表坐标 ( ) 的海拔高度。\n停机坪为一个 的区域且内部所有 个点的最大高度和最小高度之差不超过 。\n小 A 想请你计算出，在所有适合建造停机坪的区域中，区域内部 个点海拔之和最大是多少。\n3.1.2 输入格式\n第一行三个正整数 ，含义如题面所示。\n之后 行，第 行包含 个整数 ，代表坐标 ( ) 的高度。\n数据保证总存在一个适合建造停机坪的区域。\n3.1.3 输出格式\n输出一行，代表最大的海拔之和。\n3.1.4样例\n3.1.4.1 输入样例\n1\n2\n3\n4\n5\n6\n5 5 3\n5 5 5 5 5\n5 1 5 1 5\n5 5 5 5 5\n5 2 5 2 5\n3 5 5 5 2\n3.1.4.2 输出样例\n1\n40\n3.1.5 数据范围\n对于所有测试点，保证 。",
+      "answerText": "按题目要求枚举局部区域，在每个窗口中独立更新最值和统计量。",
+      "analysisText": "这题读起来像地形题，但真正要做的是在很多局部区域里反复做求和、最大值和最小值判断。",
+      "studyGuide": {
+        "reading": "先确定每个候选区域都要做三件事：求和、找最大值、找最小值，然后再看哪些区域满足条件。",
+        "why2d": "海拔图本身就是二维网格，题目要比较的也是一个局部矩形里的所有格子。",
+        "loops": "主循环枚举区域左上角，窗口内部再用双重循环统计 `sum`、`mx`、`mn`。",
+        "key": "每个新区域开始时都要重新初始化窗口内统计量，不能把上一个区域的值带进来。",
+        "pitfall": "最容易错在局部变量没有重置，或者先更新答案后才判断窗口是否合法。"
+      },
+      "referenceCode": "#include <iostream>\nusing namespace std;\n\nint a[1010][1010];\n\nint main() {\n    int M, N, H;\n    cin >> M >> N >> H;\n\n    for (int i = 1; i <= M; ++i) {\n        for (int j = 1; j <= N; ++j) {\n            cin >> a[i][j];\n        }\n    }\n\n    int max_sum = 0;\n    for (int i = 1; i <= M - 2; ++i) {\n        for (int j = 1; j <= N - 2; ++j) {\n            int local_sum = 0;\n            int local_max = a[i][j];\n            int local_min = a[i][j];\n\n            for (int x = 0; x < 3; ++x) {\n                for (int y = 0; y < 3; ++y) {\n                    int height = a[i + x][j + y];\n                    local_sum += height;\n                    if (height > local_max) {\n                        local_max = height;\n                    }\n                    if (height < local_min) {\n                        local_min = height;\n                    }\n                }\n            }\n\n            if (local_max - local_min <= H) {\n                if (local_sum > max_sum) {\n                    max_sum = local_sum;\n                }\n            }\n        }\n    }\n\n    cout << max_sum;\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年12月.pdf"
+    },
+    {
+      "id": "q-2026-03-program-2",
+      "lectureId": "lecture-3",
+      "topicId": "lecture-3-core-basic",
+      "paper": "4级2026年3月.pdf",
+      "paperLabel": "2026年3月",
+      "paperKey": "2026-03",
+      "year": 2026,
+      "month": 3,
+      "type": "programming",
+      "questionNumber": 2,
+      "title": "礼盒排序",
+      "summary": "对每一行做总和、最大值和最小值统计，再进行排序或决策。",
+      "classificationReason": "非常适合训练“按行统计”的思路。",
+      "pitfall": "把每一行的统计变量放到循环外，导致多行之间互相污染。",
+      "questionText": "题目描述\n有 n 个礼盒，每个礼盒里有 k 件商品，每件商品都有一个价格。\n需要按照以下规则对礼盒排序：\n1. 先按礼盒总价格从小到大排序；\n2. 如果总价格相同，按礼盒中最贵商品的价格从小到大排序；\n3. 如果仍然相同，按礼盒中最便宜商品的价格从小到大排序；\n4. 如果仍然相同，按礼盒编号从小到大排序。\n请输出排序后的礼盒编号。\n\n输入格式\n第一行输入两个整数 n、k，分别表示礼盒数量和每个礼盒中商品的数量。\n接下来 n 行，每行输入 k 个整数，第 i 行表示第 i 个礼盒中各商品的价格。\n\n输出格式\n输出一行，包含排序后的礼盒编号。编号从 1 开始，结果用空格分隔。\n\n样例\n\n样例 1 输入\n4 3\n3 5 2\n4 1 5\n2 2 4\n3 4 3\n\n样例 1 输出\n3 4 2 1\n\n样例 1 解释\n先比较总价，再比较最大值、最小值，最后用礼盒编号打破平局。\n\n数据范围\n原卷数据范围中的公式位仍有少量缺失，但题意和排序规则已经完整可读。",
+      "rawQuestionText": "礼盒排序\n时间限制：1.0 s\n内存限制：512.0 MB\n3.2.1 题目描述\n商店推出了许多礼盒，每个礼盒中包含 k 件商品，每件商品都有一个价格。\n现在需要对这些礼盒进行排序，排序规则如下：\n1. 先按礼盒总价格从小到大排序；\n2. 如果总价格相同，按礼盒中最贵商品的价格从小到大排序；\n3. 如果仍然相同，按礼盒中最便宜商品的价格从小到大排序；\n4. 如果仍然相同，按礼盒编号从小到大排序。\n请输出排序后的礼盒编号。\n3.2.2 输入格式\n第一行包含两个整数 和 ，分别表示礼盒数量和每个礼盒中商品的数量。\n接下来 行，每行包含 个整数，第 行表示第 个礼盒中各商品的价格。\n3.2.3 输出格式\n输出一行，包含排序后的礼盒编号（编号从 开始），用空格分隔。\n3.2.4样例\n3.2.4.1 输入样例\n1\n2\n3\n4\n5\n4 3\n3 5 2\n4 1 5\n2 2 4\n3 4 3\n3.2.4.2 输出样例\n1\n3 4 2 1\n3.2.5样例解释\n4 个礼盒分别为：\n编 号 商 品 价 格 总 价 最 大 值 最 小 值\n1 3 5 2 10 5 2\n2 4 1 5 10 5 1\n3 2 2 4 8 4 2\n4 3 4 3 10 4 3\n排序过程：\n1. 按总价排序，3号礼盒总价最小；\n2. 其余总价均为 10，再按最大值排序，4号最大值更小；\n3. 1号和2号最大值相同，再按最小值排序，2号更小。\n最终顺序为：3 4 2 1\n3.2.6 数据范围\n保证 ， ，商品价格 。",
+      "answerText": "以行为单位统计，再把每行统计结果汇总处理。",
+      "analysisText": "这题虽然题面是排序，但排序之前要先把每一行礼盒的统计量算出来，所以本质上先是二维数组统计题。",
+      "studyGuide": {
+        "reading": "先把每个礼盒看成二维数组的一行，再按排序规则提取总和、最大值、最小值这些行级信息。",
+        "why2d": "输入天然是 `n` 个礼盒、每个礼盒 `k` 个商品，最方便的保存方式就是 `n×k` 的二维数组。",
+        "loops": "第一层双重循环逐行统计每个礼盒的特征值，第二步再对统计结果做排序。",
+        "key": "要把“逐行统计”和“排序比较”分成两个阶段，不要一边读一边乱比较。",
+        "pitfall": "最容易错在把每一行的统计变量放在循环外，或者排序关键字顺序写反。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nstruct Combo {\n    int sum, mx, mn, id;\n};\n\nbool cmp(const Combo &a, const Combo &b) {\n    if (a.sum != b.sum) {\n        return a.sum < b.sum;\n    }\n    if (a.mx != b.mx) {\n        return a.mx < b.mx;\n    }\n    if (a.mn != b.mn) {\n        return a.mn < b.mn;\n    }\n    return a.id < b.id;\n}\n\nint main() {\n    int n, k;\n    cin >> n >> k;\n\n    vector<Combo> boxes(n);\n    for (int i = 0; i < n; i++) {\n        boxes[i].sum = 0;\n        boxes[i].mx = -1;\n        boxes[i].mn = 1000000000;\n        boxes[i].id = i + 1;\n\n        for (int j = 0; j < k; j++) {\n            int value;\n            cin >> value;\n            boxes[i].sum += value;\n            boxes[i].mx = max(boxes[i].mx, value);\n            boxes[i].mn = min(boxes[i].mn, value);\n        }\n    }\n\n    sort(boxes.begin(), boxes.end(), cmp);\n\n    for (int i = 0; i < n; i++) {\n        cout << boxes[i].id;\n        if (i + 1 < n) {\n            cout << \" \";\n        }\n    }\n    cout << endl;\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2026年3月.pdf"
+    },
+    {
+      "id": "q-2023-06-program-2",
+      "lectureId": "lecture-3",
+      "topicId": "lecture-3-core-basic",
+      "paper": "4级2023年6月.pdf",
+      "paperLabel": "2023年6月",
+      "paperKey": "2023-06",
+      "year": 2023,
+      "month": 6,
+      "type": "programming",
+      "questionNumber": 2,
+      "title": "图像压缩",
+      "summary": "在二维图像矩阵上做灰阶统计或压缩处理。",
+      "classificationReason": "属于二维数组 + 计数的综合应用题。",
+      "pitfall": "只顾局部值变化，却漏掉全局计数或边界处理。",
+      "questionText": "图像压缩\n【问题描述】\n图像是由很多的像素点组成的。如果用 0 表示黑，255 表示白，0 和 255 之\n间的值代表不同程度的灰色， 则可以用一个字节表达一个像素 （取值范围为十进\n制 0-255、十六进制 00-FF）。这样的像素组成的图像，称为 256 级灰阶的灰度\n图像。\n现在希望将 256 级灰阶的灰度图像压缩为 16 级灰阶，即每个像素的取值范\n围为十进制 0-15、 十六进制 0-F。 压缩规则为： 统计出每种灰阶的数量，取数量\n最多的前 16 种灰阶（如某种灰阶的数量与另外一种灰阶的数量相同，则以灰阶\n值从小到大为序），分别编号 0-F（最多的编号为 0，以此类推）。其他灰阶转\n换到最近的 16 种灰阶之一\n， 将某个点灰阶数与 16 种灰阶种的一种相减， 绝对值\n最小即为最近，如果绝对值相等，则编号较小的灰阶更近。\n【输入描述】\n输入第 1 行为一个正整数�，表示接下来有�行数据组成一副 256 级灰阶的\n灰度图像。约定 10 ≤ � ≤ 20。\n第 2 行开始的�行，每行为长度相等且为偶数的字符串，每两个字符用十六\n进制表示一个像素。约定输入的灰度图像至少有 16 种灰阶。约定每行最多 20\n个像素。\n【输出描述】\n第一行输出压缩选定的 16 种灰阶的十六进制编码，共计 32 个字符。\n第二行开始的�行，输出压缩后的图像，每个像素一位十六进制数表示压缩\n后的灰阶值。\n【样例输入 1】\n10\n00FFCFAB00FFAC09071B5CCFAB76\n00AFCBAB11FFAB09981D34CFAF56\n01BFCEAB00FFAC0907F25FCFBA65\n10FBCBAB11FFAB09981DF4CFCA67\n00FFCBFB00FFAC0907A25CCFFC76\n00FFCBAB1CFFCB09FC1AC4CFCF67\n01FCCBAB00FFAC0F071A54CFBA65\n10EFCBAB11FFAB09981B34CFCF67\n01FFCBAB00FFAC0F071054CFAC76\n1000CBAB11FFAB0A981B84CFCF66\n【样例输出 1】\nABCFFF00CB09AC07101198011B6776FC\n321032657CD10E\n36409205ACC16D\nB41032657FD16D\n8F409205ACF14D\n324F326570D1FE\n3240C245FC411D\nBF4032687CD16D\n8F409205ACC11D\nB240326878D16E\n83409205ACE11D\n【样例解释 1】",
+      "rawQuestionText": "图像压缩\n【问题描述】\n图像是由很多的像素点组成的。如果用 0 表示黑，255 表示白，0 和 255 之\n间的值代表不同程度的灰色， 则可以用一个字节表达一个像素 （取值范围为十进\n制 0-255、十六进制 00-FF）。这样的像素组成的图像，称为 256 级灰阶的灰度\n图像。\n现在希望将 256 级灰阶的灰度图像压缩为 16 级灰阶，即每个像素的取值范\n围为十进制 0-15、 十六进制 0-F。 压缩规则为： 统计出每种灰阶的数量，取数量\n最多的前 16 种灰阶（如某种灰阶的数量与另外一种灰阶的数量相同，则以灰阶\n值从小到大为序），分别编号 0-F（最多的编号为 0，以此类推）。其他灰阶转\n换到最近的 16 种灰阶之一\n， 将某个点灰阶数与 16 种灰阶种的一种相减， 绝对值\n最小即为最近，如果绝对值相等，则编号较小的灰阶更近。\n【输入描述】\n输入第 1 行为一个正整数�，表示接下来有�行数据组成一副 256 级灰阶的\n灰度图像。约定 10 ≤ � ≤ 20。\n第 2 行开始的�行，每行为长度相等且为偶数的字符串，每两个字符用十六\n进制表示一个像素。约定输入的灰度图像至少有 16 种灰阶。约定每行最多 20\n个像素。\n【输出描述】\n第一行输出压缩选定的 16 种灰阶的十六进制编码，共计 32 个字符。\n第二行开始的�行，输出压缩后的图像，每个像素一位十六进制数表示压缩\n后的灰阶值。\n【样例输入 1】\n10\n00FFCFAB00FFAC09071B5CCFAB76\n00AFCBAB11FFAB09981D34CFAF56\n01BFCEAB00FFAC0907F25FCFBA65\n10FBCBAB11FFAB09981DF4CFCA67\n00FFCBFB00FFAC0907A25CCFFC76\n00FFCBAB1CFFCB09FC1AC4CFCF67\n01FCCBAB00FFAC0F071A54CFBA65\n10EFCBAB11FFAB09981B34CFCF67\n01FFCBAB00FFAC0F071054CFAC76\n1000CBAB11FFAB0A981B84CFCF66\n【样例输出 1】\nABCFFF00CB09AC07101198011B6776FC\n321032657CD10E\n36409205ACC16D\nB41032657FD16D\n8F409205ACF14D\n324F326570D1FE\n3240C245FC411D\nBF4032687CD16D\n8F409205ACC11D\nB240326878D16E\n83409205ACE11D\n【样例解释 1】",
+      "answerText": "把图像看成二维数组，按题意遍历像素并维护统计结果。",
+      "analysisText": "这题题面很长，但核心工作非常明确：把图像当作二维数组遍历，并对灰度值做计数和映射。",
+      "studyGuide": {
+        "reading": "题目虽然长，但核心是读入灰度图后统计每种灰阶出现次数，再按规则压缩映射。",
+        "why2d": "图像的每个像素都有行列位置，天然适合用二维数组逐像素处理。",
+        "loops": "先用双重循环遍历整张图做计数，再根据映射关系重新双重循环输出压缩结果。",
+        "key": "关键是把“统计频次”和“重新映射”分成两个阶段，避免边统计边改值。",
+        "pitfall": "最容易错在只关注单个像素怎么变，却漏掉全局频次排序和相同频次时的次序规则。"
+      },
+      "referenceCode": "#include <iostream>\n#include <cstring>\nusing namespace std;\n\nint image[20][20];\nint hist_count[256];\nint palette[16];\n\nint hex_to_int(char ch) {\n    if (ch <= '9') {\n        return ch - '0';\n    }\n    return ch - 'A' + 10;\n}\n\nchar int_to_hex(int value) {\n    if (value >= 10) {\n        return char(value - 10 + 'A');\n    }\n    return char(value + '0');\n}\n\nint find_nearest_level(int gray) {\n    int best_id = 0;\n    int best_dist = 1000000000;\n\n    for (int i = 0; i < 16; i++) {\n        int dist = gray - palette[i];\n        if (dist < 0) {\n            dist = -dist;\n        }\n        if (dist < best_dist) {\n            best_dist = dist;\n            best_id = i;\n        }\n    }\n\n    return best_id;\n}\n\nint main() {\n    int n;\n    cin >> n;\n    memset(hist_count, 0, sizeof(hist_count));\n\n    // 1. 读入十六进制灰度图，转成 0..255 灰度并统计频次。\n    // 2. 按题意生成 16 个代表灰度，保存到 palette[]。\n    // 3. 枚举每个像素，映射到最近的灰度等级后输出。\n    // 这里保留题目里的核心辅助函数，便于课堂继续补全。\n\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2023年6月.pdf"
+    },
+    {
+      "id": "q-2025-06-program-1",
+      "lectureId": "lecture-4",
+      "topicId": "lecture-4-core-grid",
+      "paper": "4级2025年6月.pdf",
+      "paperLabel": "2025年6月",
+      "paperKey": "2025-06",
+      "year": 2025,
+      "month": 6,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "画布裁剪",
+      "summary": "在字符矩阵中按给定范围裁剪并输出指定子矩阵。",
+      "classificationReason": "是字符网格读入与切片输出的标准入门题。",
+      "pitfall": "字符串下标和二维数组下标偏一位，导致裁剪位置错开。",
+      "questionText": "题目描述\n给定一张字符画布，画布共有 n 行 m 列，每个位置都是一个可见字符。\n现在要从原画布中裁剪出一个子矩形，只保留第 x1 行到第 x2 行、第 y1 列到第 y2 列的内容。\n请输出裁剪后的画布。\n\n输入格式\n第一行输入两个正整数 n、m，表示画布的行数与列数。\n第二行输入四个正整数 x1、x2、y1、y2，表示需要保留的行列边界。\n接下来 n 行，每行输入一个长度为 m 的字符串，表示画布内容。\n\n输出格式\n输出共 x2 - x1 + 1 行，每行输出裁剪后的对应字符串。\n\n样例\n\n样例 1 输入\n3 5\n2 2 2 4\n.....\n.>_<.\n.....\n\n样例 1 输出\n>_<\n\n样例 2 输入\n5 5\n1 3 2 4\nAbCdE\nfGhIk\nLmNoP\nqRsTu\nVwXyZ\n\n样例 2 输出\nbCd\nGhI\nmNo\n\n数据范围\n根据参考程序使用的数组大小可看出，本题的行列规模在百级范围内。",
+      "rawQuestionText": "画布裁剪\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题目描述\n小 A 在高为 宽为 的矩形画布上绘制了一幅画。由于画布边缘留白太多，小 A 想适当地裁剪画布，只保留画的主\n体。具体来说，画布可以视为 行 列的字符矩阵，其中的字符均为 ASCII 码位于 之间的可见字符，小 A\n只保留画布中由第 行到第 行、第 列到第 列构成的子矩阵。\n小 A 将画布交给了你，你能帮他完成画布的裁剪吗？\n3.1.2 输入格式\n第一行，两个正整数 ，分别表示画布的行数与列数。\n第二行，四个正整数 ，表示保留的行列边界。\n接下来 行，每行一个长度为 的字符串，表示画布内容。\n3.1.3 输出格式\n输出共 行，每行一个长度为 的字符串，表示裁剪后的画布。\n3.1.4 样例\n3.1.4.1 输入样例 1\n1\n3 5\n2\n2 2 2 4\n3\n.....\n4\n.>\n<.\n_\n5\n.....\n3.1.4.2 输出样例 1\n1\n>\n<\n_\n3.1.4.3 输入样例 2\n1\n2\n3\n4\n5\n6\n7\n5 5\n1 2 3 4\nAbCdE\nfGhIk\nLmNoP\nqRsTu\nVwXyZ",
+      "answerText": "先读入整个字符矩阵，再按给定左上角和宽高输出子矩阵。",
+      "analysisText": "这题最适合训练“读入整个字符网格后，再按给定范围输出子矩阵”的基本动作。",
+      "studyGuide": {
+        "reading": "先认出题目要求的是保留一个行列范围，所以本质上就是从原画布里截出一个子矩阵。",
+        "why2d": "画布本身就是字符矩阵，裁剪操作就是在二维数组里按范围复制或输出。",
+        "loops": "第一步按行读入整张画布，第二步在 `[x1..x2] × [y1..y2]` 范围上双重循环输出。",
+        "key": "关键是把题面给出的范围统一成代码使用的下标体系，再按行输出裁剪结果。",
+        "pitfall": "最容易错在范围是 1 下标却按 0 下标直接使用，导致裁剪整体偏一格。"
+      },
+      "referenceCode": "#include <cstdio>\n\nconst int N = 105;\nint n, m;\nchar s[N][N];\nint x1, x2, y1, y2;\n\nint main() {\n    scanf(\"%d%d\", &n, &m);\n    scanf(\"%d%d%d%d\", &x1, &x2, &y1, &y2);\n\n    for (int i = 1; i <= n; i++) {\n        scanf(\"%s\", s[i] + 1);\n    }\n\n    for (int i = x1; i <= x2; i++) {\n        s[i][y2 + 1] = '\\0';\n        printf(\"%s\\n\", s[i] + y1);\n    }\n\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年6月.pdf"
+    },
+    {
+      "id": "q-2025-03-program-1",
+      "lectureId": "lecture-4",
+      "topicId": "lecture-4-core-grid",
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "paperKey": "2025-03",
+      "year": 2025,
+      "month": 3,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "荒地开垦",
+      "summary": "在 `.` / `#` 网格图中判断清理一处杂物后最多能开垦多少块荒地。",
+      "classificationReason": "非常适合讲四方向邻居判断和边界检查。",
+      "pitfall": "没有在检查四邻时先判越界，或忘了清除最多一处杂物的分支。",
+      "questionText": "题目描述\n给定一张 n 行 m 列的网格图，字符 '.' 表示荒地，字符 '#' 表示杂物。\n一块没有杂物的荒地可以开垦，当且仅当它上、下、左、右四个方向相邻的格子都没有杂物。\n你可以选择至多一个位置清除杂物，使该位置变成荒地。请问最多能够开垦多少块荒地？\n\n输入格式\n第一行输入两个正整数 n、m。\n接下来 n 行，每行输入一个长度为 m、且仅包含 '.' 和 '#' 的字符串，表示网格图。\n\n输出格式\n输出一个整数，表示在清除至多一个杂物后，最多能够开垦的荒地块数。\n\n样例\n\n样例 1 输入\n3 5\n.....\n.#..#\n.....\n\n样例 1 输出\n11\n\n样例 1 解释\n移除第二行从左数第 2 个位置的杂物后，可以开垦的荒地数量达到最大值 11。\n\n数据范围\n根据参考程序中的断言可以恢复：1 <= n, m <= 1000。",
+      "rawQuestionText": "荒地开垦\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题面描述\n小杨有一大片荒地，可以表示为一个 行 列的网格图。\n小杨想要开垦这块荒地，但荒地中一些位置存在杂物，对于一块不存在杂物的荒地，该荒地可以开垦当且仅当其上\n下左右四个方向相邻的格子均不存在杂物。\n小杨可以选择至多一个位置，清除该位置的杂物，移除杂物后该位置变为荒地。小杨想知道在清除至多一个位置的\n杂物的情况下，最多能够开垦多少块荒地。\n3.1.2 输入格式\n第一行包含两个正整数 ，含义如题面所示。\n之后 行，每行包含一个长度为 代表该位置为杂物。\n且仅包含字符 . 和 # 的字符串。如果为 . ，代表该位置为荒地，如果为 # ，\n3.1.3 输出格式\n输出一个整数，代表在清除至多一个位置的杂物的情况下，最多能够开垦的荒地块数。\n3.1.4 样例\n3.1.5 输入样例1\n1\n2\n3\n4\n3 5\n.....\n.#..#\n.....\n3.1.6 输出样例1\n1\n11\n3.1.7 样例解释\n移除第二行从左数第二块空地的杂物后：\n1\n.....\n2\n....#\n3\n.....\n第一行从左数前 块荒地，第二行从左数前 块荒地，第三行从左数前 块荒地，均可开垦， 。\n3.1.8 数据范围\n对于全部数据，保证有 。",
+      "answerText": "核心是对每个格子统计四个方向的杂物情况，再讨论保留/清除一处杂物。",
+      "analysisText": "这题不是暴力枚举清除位置就结束了，关键是围绕每个格子去看上下左右是否满足可开垦条件。",
+      "studyGuide": {
+        "reading": "题目真正要数的是“哪些格子在清理至多一个杂物后可以开垦”，所以要围绕格子检查四邻。",
+        "why2d": "荒地本身是一张字符网格，每个位置是否可开垦只和它上下左右的格子有关。",
+        "loops": "外层枚举格子或清理位置，内层围绕该格子检查四个方向是否满足条件。",
+        "key": "关键是先把四方向检查写稳，再去讨论“清理 0 个或 1 个杂物”的分支。",
+        "pitfall": "最容易错在四邻判断前没有先判越界，或者把“最多一处”写成“必须清一处”。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nconst int N = 1005;\nchar mat[N][N];\nint gain[N][N];\nconst int d[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};\n\nint main() {\n    int n, m;\n    scanf(\"%d%d\", &n, &m);\n\n    for (int i = 1; i <= n; i++) {\n        scanf(\"%s\", mat[i] + 1);\n    }\n\n    int base = 0;\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            int blocked_count = 0;\n            int blocked_dir = -1;\n\n            for (int k = 0; k < 4; k++) {\n                int nx = i + d[k][0];\n                int ny = j + d[k][1];\n                if (mat[nx][ny] == '#') {\n                    blocked_count++;\n                    blocked_dir = k;\n                }\n            }\n\n            if (mat[i][j] == '.' && blocked_count == 0) {\n                base++;\n            } else if (mat[i][j] == '.' && blocked_count == 1) {\n                int nx = i + d[blocked_dir][0];\n                int ny = j + d[blocked_dir][1];\n                gain[nx][ny]++;\n            } else if (mat[i][j] == '#' && blocked_count == 0) {\n                gain[i][j]++;\n            }\n        }\n    }\n\n    int extra = 0;\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            extra = max(extra, gain[i][j]);\n        }\n    }\n\n    printf(\"%d\\n\", base + extra);\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf"
+    },
+    {
+      "id": "q-2024-09-program-1",
+      "lectureId": "lecture-4",
+      "topicId": "lecture-4-core-grid",
+      "paper": "4级2024年9月.pdf",
+      "paperLabel": "2024年9月",
+      "paperKey": "2024-09",
+      "year": 2024,
+      "month": 9,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "黑白方块",
+      "summary": "在字符网格中判断是否存在满足条件的 4×4 图案。",
+      "classificationReason": "可以从字符矩阵平滑过渡到局部图案判断。",
+      "pitfall": "把字符 `'0'`、`'1'` 和数字 `0`、`1` 混用。",
+      "questionText": "题目描述\n给定一张由 0/1 字符组成的网格图，请判断其中是否存在一个满足条件的 4×4 子矩形。\n目标图案可直接理解为下面这个 4×4 模式：\n0000\n0110\n0110\n0000\n也就是说，第一行和第四行全相同，中间两行也具有固定模式。\n如果存在这样的子矩形，输出 Yes；否则输出 No。\n\n输入格式\n第一行输入一个正整数 T，表示测试用例组数。\n每组测试用例先输入两个正整数 n、m。\n接下来输入 n 行，每行一个长度为 m 的 0/1 串，表示网格图。\n\n输出格式\n对于每组测试用例，如果存在满足条件的 4×4 子矩形，输出 Yes；否则输出 No。\n\n样例\n\n样例 1 输入\n3\n1 4\n0110\n5 5\n00000\n01100\n01100\n00001\n01100\n5 5\n00000\n01100\n01110\n00001\n01100\n\n样例 1 输出\nNo\nYes\nNo\n\n样例 1 解释\n第二组测试数据中存在满足条件的 4×4 子矩形，目标形状正是题目描述中的 4×4 模式。\n\n数据范围\n原卷数据范围处仍有少量字符缺失，但题目核心结构已经完整恢复。",
+      "rawQuestionText": "黑白方块\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题面描述\n小杨有一个 行 列的网格图，其中每个格子要么是白色，要么是黑色。\n小杨想知道网格图中是否存在一个满足如下条件的子矩形：\n子矩形由 行 列组成；\n子矩形的第 行 和第 行只包含白色格子；\n对于子矩形的第 行 和第 行，只有第 个和第 个格子是白色的，其余格子都是黑色的；\n请你编写程序帮助小杨判断。\n3.1.2 输入格式\n第一行包含一个正整数 ，代表测试用例组数。\n接下来是 组测试用例。对于每组测试用例，\n一共 行。\n第一行包含两个正整数 ，含义如题面所示。\n之后 行，每行一个长度为 的 串，代表网格图第 行格子的颜色，如果为 ，则对应格子为白色，否则为黑\n色。\n3.1.3 输出格式\n对于每组测试用例，如果存在，输出 Yes，否则输出 No。\n3.1.4 样例1\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n3\n1 4\n0110\n5 5\n00000\n01100\n01100\n00001\n01100\n5 5\n00000\n01100\n01110",
+      "answerText": "枚举 4×4 左上角，再检查窗口内图案是否满足要求。",
+      "analysisText": "这题的切入口是识别固定 `4×4` 图案，因此主循环先枚举左上角，细节判断交给局部检查。",
+      "studyGuide": {
+        "reading": "题目已经把目标图案尺寸固定成 `4×4`，所以最自然的想法就是枚举每个可能左上角。",
+        "why2d": "黑白格图案依赖行列位置关系，只有放在二维数组里看才清楚。",
+        "loops": "主循环枚举 `4×4` 左上角，`check()` 内再逐格检查图案条件。",
+        "key": "关键是把固定图案的每一行要求写清楚，特别是中间两行哪些格子必须白、哪些必须黑。",
+        "pitfall": "最容易错在把字符 `'0'`、`'1'` 和数字 `0`、`1` 混用，或者窗口范围多枚举了一格。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nconst int N = 110;\nint w[N][N];\nint pattern[4][4];\n\nbool check(int x, int y) {\n    for (int i = 0; i < 4; i++) {\n        for (int j = 0; j < 4; j++) {\n            if (w[x + i][y + j] != pattern[i][j]) {\n                return false;\n            }\n        }\n    }\n    return true;\n}\n\nint main() {\n    int t;\n    cin >> t;\n\n    for (int j = 1; j < 3; j++) {\n        pattern[1][j] = 1;\n        pattern[2][j] = 1;\n    }\n\n    while (t--) {\n        int n, m;\n        cin >> n >> m;\n\n        for (int i = 1; i <= n; i++) {\n            string s;\n            cin >> s;\n            for (int j = 1; j <= m; j++) {\n                w[i][j] = s[j - 1] - '0';\n            }\n        }\n\n        bool found = false;\n        for (int i = 1; i <= n - 3; i++) {\n            for (int j = 1; j <= m - 3; j++) {\n                if (check(i, j)) {\n                    found = true;\n                }\n            }\n        }\n\n        cout << (found ? \"Yes\\n\" : \"No\\n\");\n    }\n\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年9月.pdf"
+    },
+    {
+      "id": "q-2026-03-program-1",
+      "lectureId": "lecture-5",
+      "topicId": "lecture-5-core-local",
+      "paper": "4级2026年3月.pdf",
+      "paperLabel": "2026年3月",
+      "paperKey": "2026-03",
+      "year": 2026,
+      "month": 3,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "山之谷",
+      "summary": "通过八方向比较判断山峰或山谷的数量。",
+      "classificationReason": "八方向邻域判断的典型真题。",
+      "pitfall": "八方向数组漏写某个偏移，或者把自己也算进邻域里。",
+      "questionText": "题目描述\n给定一张 n 行 m 列的海拔网格图，第 i 行第 j 列的数字表示该位置的海拔。\n如果某个格子的海拔不高于它所有相邻格子的海拔，就称它为“山谷”。\n这里的相邻格子包括上、下、左、右、左上、右上、左下、右下 8 个方向。\n请你统计整张地图中山谷的数量。\n\n输入格式\n第一行输入两个整数 n、m，表示山地的大小。\n接下来 n 行，每行输入 m 个整数，表示海拔。\n\n输出格式\n输出一个整数，表示山谷的数量。\n\n样例\n\n样例 1 输入\n3 5\n7 6 6 7 9\n6 5 6 7 6\n6 5 7 8 9\n\n样例 1 输出\n3\n\n样例 1 解释\n样例中共有 3 个位置满足“海拔不高于 8 个方向所有相邻格子”的条件。\n\n数据范围\n原卷数据范围中的公式位仍不完整，但题目本体、样例和判断条件已恢复清楚。",
+      "rawQuestionText": "山之谷\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题目描述\n现有一片山地，可以视为一个 行 列的网格图，第 行 列的海拔为 。\n如果一个单元格的海拔不高于其所有相邻单元格（相邻包括上、下、左、右、左上、右上、左下、右下，最多 个\n方向）的海拔，则称该单元格为山谷。\n请你数一数该片山地中有多少山谷。\n3.1.2 输入格式\n第一行包含 个整数 ，表示山地的大小。\n之后 行，每行包含 个整数 ，表示海拔。\n3.1.3 输出格式\n输出 1 行，包含 1 个整数 ，表示山谷的数量。\n3.1.4样例\n3.1.4.1 输入样例\n1\n2\n3\n4\n3 5\n7 6 6 7 9\n6 5 6 7 6\n6 5 7 8 9\n3.1.4.2 输出样例\n1\n3\n3.1.5样例解释\n样例 1 如图所示，绿色单元格代表山谷：\n3.1.6 数据范围\n保证 ， 。",
+      "answerText": "枚举每个格子，遍历 8 个方向并完成局部比较。",
+      "analysisText": "这题是一道标准八方向题，真正考的是邻域枚举是否完整、边界是否稳定。",
+      "studyGuide": {
+        "reading": "先抓住“相邻包括 8 个方向”，这已经决定了解题骨架不是四方向，而是八方向遍历。",
+        "why2d": "海拔图是一个数值网格，每个格子的山谷判定都依赖周围 8 个格子。",
+        "loops": "外层双重循环枚举每个中心格，内层循环 8 个方向完成邻域比较。",
+        "key": "关键是把 8 个偏移数组写完整，并保持中心格不参与和自己比较。",
+        "pitfall": "最容易错在漏方向、越界判断写晚，或者把“自己”也算进相邻格子里。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nconst int N = 205;\nconst int dx[8] = {-1, -1, -1, 0, 0, 1, 1, 1};\nconst int dy[8] = {-1, 0, 1, -1, 1, -1, 0, 1};\nint h[N][N];\n\nint main() {\n    int n, m;\n    cin >> n >> m;\n\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            cin >> h[i][j];\n        }\n    }\n\n    int peak_count = 0;\n    int valley_count = 0;\n\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            bool is_peak = true;\n            bool is_valley = true;\n\n            for (int k = 0; k < 8; k++) {\n                int nx = i + dx[k];\n                int ny = j + dy[k];\n                if (nx < 1 || nx > n || ny < 1 || ny > m) {\n                    continue;\n                }\n                if (h[i][j] <= h[nx][ny]) {\n                    is_peak = false;\n                }\n                if (h[i][j] >= h[nx][ny]) {\n                    is_valley = false;\n                }\n            }\n\n            peak_count += is_peak;\n            valley_count += is_valley;\n        }\n    }\n\n    // 按题目要求输出山峰/山谷统计结果。\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2026年3月.pdf"
+    },
+    {
+      "id": "q-2025-09-program-1",
+      "lectureId": "lecture-5",
+      "topicId": "lecture-5-core-local",
+      "paper": "4级2025年9月.pdf",
+      "paperLabel": "2025年9月",
+      "paperKey": "2025-09",
+      "year": 2025,
+      "month": 9,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "排兵布阵",
+      "summary": "在 0/1 网格中寻找满足条件的合法最大矩形或局部区域。",
+      "classificationReason": "适合作为子矩形与局部判断的综合题。",
+      "pitfall": "子矩形左上角的枚举范围写错，导致漏块或越界。",
+      "questionText": "题目描述\n给定一张 n 行 m 列的 0/1 网格，值为 1 的位置适合排兵，值为 0 的位置不适合排兵。\n现在需要从网格中选择一个矩形区域，且该矩形内所有位置都必须是 1。\n请输出能够选择的最大矩形面积。\n\n输入格式\n第一行输入两个正整数 n、m。\n接下来 n 行，每行输入 m 个整数 0 或 1，表示该位置是否适合排兵。\n\n输出格式\n输出一个整数，表示全由 1 组成的最大矩形所包含的格子数。\n\n样例\n\n样例 1 输入\n4 3\n0 1 1\n1 0 1\n0 1 1\n1 1 1\n\n样例 1 输出\n4\n\n样例 2 输入\n3 5\n1 0 1 0 1\n0 1 0 1 0\n0 1 1 1 0\n\n样例 2 输出\n3\n\n数据范围\n原卷数据范围里的公式位仍有缺失，但题意和样例已经可以稳定用于课堂讲解。",
+      "rawQuestionText": "排兵布阵\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题目描述\n作为将军，你自然需要合理地排兵布阵。地图可以视为 行 列的网格，适合排兵的网格以 1 标注，不适合排兵\n的网格以 0 标注。现在你需要在地图上选择一个矩形区域排兵，这个矩形区域内不能包含不适合排兵的网格。请问\n可选择的矩形区域最多能包含多少网格？\n3.1.2 输入格式\n第一行，两个正整数 ，分别表示地图网格的行数与列数。\n接下来 行，每行 个整数 ，表示各行中的网格是否适合排兵。\n3.1.3 输出格式\n一行，\n3.1.4样例\n3.1.4.1 输入样例 1\n一个整数，表示适合排兵的矩形区域包含的最大网格数。\n1\n2\n3\n4\n5\n4 3\n0 1 1\n1 0 1\n0 1 1\n1 1 1\n3.1.4.2 输出样例 1\n1\n4\n3.1.4.3 输入样例 2\n1\n2\n3 5\n1 0 1 0 1\n3\n4\n0 1 0 1 0\n0 1 1 1 0\n3.1.4.4 输出样例 2\n1\n3\n3.1.5 数据范围\n对于所有测试点，保证 ， 。",
+      "answerText": "先固定左上角，再按题意扩展区域并校验局部条件。",
+      "analysisText": "这题表面上像最大矩形，落到二维数组专题里更重要的是先理解“枚举一个区域，再判断是否合法”的框架。",
+      "studyGuide": {
+        "reading": "先把题目看成“找一个全是 1 的合法子矩形”，这样思路就会自然转成区域枚举与合法性判断。",
+        "why2d": "地图是 0/1 网格，任何候选区域都由左上角、右下角和内部格子共同决定。",
+        "loops": "可以先枚举左上角，再扩展右下角或宽高，并用局部检查判断当前矩形是否合法。",
+        "key": "关键是枚举范围不要漏也不要越界，并尽量把“是否合法”独立成清晰判断。",
+        "pitfall": "最容易错在左上角和右下角范围配合不好，或者发现一个 0 后没有及时终止当前检查。"
+      },
+      "referenceCode": "#include <algorithm>\n#include <cstdio>\nusing namespace std;\n\nconst int N = 15;\nint a[N][N];\n\nint main() {\n    int n, m;\n    scanf(\"%d%d\", &n, &m);\n\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            scanf(\"%d\", &a[i][j]);\n        }\n    }\n\n    int ans = 0;\n    for (int top = 1; top <= n; top++) {\n        for (int left = 1; left <= m; left++) {\n            for (int bottom = top; bottom <= n; bottom++) {\n                int ok = 1;\n                for (int right = left; right <= m; right++) {\n                    for (int row = top; row <= bottom; row++) {\n                        ok &= a[row][right];\n                    }\n                    if (!ok) {\n                        break;\n                    }\n                    ans = max(ans, (right - left + 1) * (bottom - top + 1));\n                }\n            }\n        }\n    }\n\n    printf(\"%d\\n\", ans);\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年9月.pdf"
+    },
+    {
+      "id": "q-2024-06-program-1",
+      "lectureId": "lecture-5",
+      "topicId": "lecture-5-core-local",
+      "paper": "4级2024年6月.pdf",
+      "paperLabel": "2024年6月",
+      "paperKey": "2024-06",
+      "year": 2024,
+      "month": 6,
+      "type": "programming",
+      "questionNumber": 1,
+      "title": "黑白方块（拔高）",
+      "summary": "在更大范围内寻找满足平衡条件的子矩形。",
+      "classificationReason": "适合作为子矩形枚举的拔高训练。",
+      "pitfall": "没有把局部检查函数抽出来，导致代码难以维护。",
+      "questionText": "题目描述\n给定一张由 0/1 字符组成的网格图。\n对于任意一个子矩形，如果其中黑色格子和白色格子的数量相同，就称这个子矩形是“平衡的”。\n请你求出最大的平衡子矩形所包含的格子数；如果不存在，输出 0。\n\n输入格式\n第一行输入两个正整数 n、m。\n接下来 n 行，每行输入一个长度为 m 的 0/1 串，表示网格图。\n\n输出格式\n输出一个整数，表示最大的平衡子矩形面积；如果不存在，输出 0。\n\n样例\n\n样例 1 输入\n4 5\n00000\n01111\n00011\n00011\n\n样例 1 输出\n16\n\n样例 1 解释\n样例中存在一个面积为 16 的平衡子矩形，它是答案。\n\n数据范围\n原卷样例解释中的坐标公式位仍不完整，但题意、输入输出和样例已经足够用于教学。",
+      "rawQuestionText": "黑白方块\n时间限制：1.0 s\n内存限制：512.0 MB\n3.1.1 题面描述\n小杨有一个 行 列的网格图，其中每个格子要么是白色，要么是黑色。\n对于网格图中的一个子矩形，小杨认为它是平衡的当且仅当其中黑色格子与白色格子数量相同。\n小杨想知道最大的平衡子矩形包含了多少个格子。\n3.1.2 输入格式\n第一行包含两个正整数 ，含义如题面所示。\n之后 行，每行一个长度为 的 串，代表网格图第 行格子的颜色，如果为 ，则对应格子为白色，否则为黑\n色。\n3.1.3 输出格式\n输出一个整数，代表最大的平衡子矩形包含格子的数量，如果不存在则输出 。\n3.1.4 样例1\n1\n2\n3\n4\n5\n4 5\n00000\n01111\n00011\n00011\n1\n16\n3.1.5 样例解释\n对于样例1，假设 ( ) 代表第 行第 列，最大的平衡子矩形的四个顶点分别为 ( )，( )，( )，( )。\n3.1.6 数据范围\n对于全部数据，保证有 。",
+      "answerText": "围绕局部窗口判断条件写 `check()`，再做系统枚举。",
+      "analysisText": "这题属于子矩形枚举的拔高版，关键不是一开始就写最优，而是先把“枚举范围 + 局部判断”写对。",
+      "studyGuide": {
+        "reading": "题目在问最大的平衡子矩形，所以第一步仍然是枚举候选子矩形，第二步才是检查黑白数量关系。",
+        "why2d": "子矩形问题天然建立在二维数组上，只有明确左上角和范围，才能谈局部统计。",
+        "loops": "主循环枚举子矩形起点和范围，检查函数里再统计黑白格数量或其他局部条件。",
+        "key": "关键是把“枚举”和“检查”分开写，否则代码很快就会因为变量太多而失控。",
+        "pitfall": "最容易错在检查函数写得太散，导致同一个窗口被重复统计或者局部变量没有重置。"
+      },
+      "referenceCode": "#include <bits/stdc++.h>\nusing namespace std;\n\nconst int N = 55;\nint w[N][N];\n\nbool check(int xa, int ya, int xb, int yb) {\n    int count[2] = {0, 0};\n    for (int i = xa; i <= xb; i++) {\n        for (int j = ya; j <= yb; j++) {\n            count[w[i][j]]++;\n        }\n    }\n    return count[0] == count[1];\n}\n\nint main() {\n    int n, m;\n    cin >> n >> m;\n\n    for (int i = 1; i <= n; i++) {\n        string s;\n        cin >> s;\n        for (int j = 1; j <= m; j++) {\n            w[i][j] = s[j - 1] - '0';\n        }\n    }\n\n    int ans = 0;\n    for (int i = 1; i <= n; i++) {\n        for (int j = 1; j <= m; j++) {\n            for (int ii = i; ii <= n; ii++) {\n                for (int jj = j; jj <= m; jj++) {\n                    if (check(i, j, ii, jj)) {\n                        ans = max(ans, (ii - i + 1) * (jj - j + 1));\n                    }\n                }\n            }\n        }\n    }\n\n    cout << ans << \"\\n\";\n    return 0;\n}",
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年6月.pdf"
+    },
+    {
+      "id": "q-2025-06-single-2",
+      "lectureId": "lecture-6",
+      "topicId": "lecture-6-core-matrix",
+      "paper": "4级2025年6月.pdf",
+      "paperLabel": "2025年6月",
+      "paperKey": "2025-06",
+      "year": 2025,
+      "month": 6,
+      "type": "single_choice",
+      "questionNumber": 2,
+      "title": "二维数组参数的错误写法",
+      "summary": "判断二维数组作为函数参数时哪种写法不合法。",
+      "classificationReason": "有助于补强矩阵整体传参的意识。",
+      "pitfall": "把二维数组参数写成 `int a[][]` 这类未指定列数的形式。",
+      "questionText": "第2题 下面的函数接收一个行 列的二维数组并输出其中元素，则横线上不能填写（ ）。\n1\n2\n3\n4\n5\nvoid printArray(________) {\nfor (int i = 0; i < 3; ++i)\nfor (int j = 0; j < 4; ++j)\nstd::cout << arr[i][j] << \" \";\n}\nA. int arr[3][4]\nB. int arr[][4]\nC. int (*arr)[4]\nD. int** arr",
+      "rawQuestionText": "第2题 下面的函数接收一个行 列的二维数组并输出其中元素，则横线上不能填写（ ）。\n1\n2\n3\n4\n5\nvoid printArray(________) {\nfor (int i = 0; i < 3; ++i)\nfor (int j = 0; j < 4; ++j)\nstd::cout << arr[i][j] << \" \";\n}\nA. int arr[3][4]\nB. int arr[][4]\nC. int (*arr)[4]\nD. int** arr",
+      "answerText": "二维数组传参时不能省略列数，错误写法通常是第二维不完整。",
+      "analysisText": "这题和第 2 讲传参题一脉相承，只是放到最后一讲重新强调“矩阵整体”意识。\n\n如果连参数类型都写不完整，后面谈矩阵级操作就没有稳定的承载对象。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年6月.pdf"
+    },
+    {
+      "id": "q-2025-06-single-3",
+      "lectureId": "lecture-6",
+      "topicId": "lecture-6-core-matrix",
+      "paper": "4级2025年6月.pdf",
+      "paperLabel": "2025年6月",
+      "paperKey": "2025-06",
+      "year": 2025,
+      "month": 6,
+      "type": "single_choice",
+      "questionNumber": 3,
+      "title": "连续空间模拟二维数组",
+      "summary": "考查 `int arr[3][4]` 与线性连续空间之间的对应关系。",
+      "classificationReason": "可以作为矩阵整体思维的过渡题。",
+      "pitfall": "看不出二维下标和一维偏移之间的映射。",
+      "questionText": "第3题 在C++中， int arr[3][4] 和 int* arr = new int[12] 均可模拟一个行 列的二维数组。关于这两种方\n式，下面说法错误的是（ ）。\nA. int arr[3][4] 在栈上分配空间，适合数组较小的情况；\nB. int* arr = new int[12] 在堆上分配空间，数组较大时也适用；\nC. 这两种方式申请的内存空间都是连续的。\nD. 这两种方式申请的内存都能自动释放。",
+      "rawQuestionText": "第3题 在C++中， int arr[3][4] 和 int* arr = new int[12] 均可模拟一个行 列的二维数组。关于这两种方\n式，下面说法错误的是（ ）。\nA. int arr[3][4] 在栈上分配空间，适合数组较小的情况；\nB. int* arr = new int[12] 在堆上分配空间，数组较大时也适用；\nC. 这两种方式申请的内存空间都是连续的。\nD. 这两种方式申请的内存都能自动释放。",
+      "answerText": "二维数组本质上按行连续存储，可以映射到一维连续空间。",
+      "analysisText": "这题考的是二维到一维的映射关系，而不是单纯背公式。\n\n最容易错的是把 `i * m + j` 里的 `m` 写成 `n`，本质还是没把列数当成一整行长度。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年6月.pdf"
+    },
+    {
+      "id": "q-2025-03-judge-5",
+      "lectureId": "lecture-6",
+      "topicId": "lecture-6-core-matrix",
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "paperKey": "2025-03",
+      "year": 2025,
+      "month": 3,
+      "type": "judgement",
+      "questionNumber": 5,
+      "title": "矩阵整体操作意识",
+      "summary": "围绕二维数组整体传参或矩阵模拟的判断题。",
+      "classificationReason": "用于衔接矩阵对象思维和后续翻转/转置拓展。",
+      "pitfall": "只记局部元素访问，忽略整个矩阵在函数与内存中的整体形态。",
+      "questionText": "第5题 执行下述代码，将输出（ ）。\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\nvoid swap(int a, int &b) {\nint temp = a;\na = b;\nb = temp;\n}\nint main() {\nint x = 1, y = 2;\nswap(x, y);\nstd::cout << x << y;\nreturn 0;\n}\nA. 12\nB. 21\nC. 22",
+      "rawQuestionText": "第5题 执行下述代码，将输出（ ）。\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\nvoid swap(int a, int &b) {\nint temp = a;\na = b;\nb = temp;\n}\nint main() {\nint x = 1, y = 2;\nswap(x, y);\nstd::cout << x << y;\nreturn 0;\n}\nA. 12\nB. 21\nC. 22",
+      "answerText": "二维数组既能按元素访问，也能按整行和整体矩阵理解。",
+      "analysisText": "这题是第 6 讲的收口判断题，目的是提醒学生：二维数组既能按元素看，也能按整行、按整体矩阵看。\n\n如果只会 `a[i][j]` 这一种视角，很多矩阵题都会觉得突然变难。",
+      "studyGuide": null,
+      "referenceCode": null,
+      "contentStatus": "success",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf"
+    }
+  ],
+  "extractionReport": [
+    {
+      "paper": "4级2023年6月.pdf",
+      "paperLabel": "2023年6月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2023年6月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2023年6月.txt",
+      "successQuestionIds": [
+        "q-2023-06-single-12",
+        "q-2023-06-program-2"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2024年12月.pdf",
+      "paperLabel": "2024年12月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年12月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2024年12月.txt",
+      "successQuestionIds": [
+        "q-2024-12-single-8"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2024年3月.pdf",
+      "paperLabel": "2024年3月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年3月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2024年3月.txt",
+      "successQuestionIds": [
+        "q-2024-03-single-4",
+        "q-2024-03-single-5"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2024年6月.pdf",
+      "paperLabel": "2024年6月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年6月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2024年6月.txt",
+      "successQuestionIds": [
+        "q-2024-06-program-1"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2024年9月.pdf",
+      "paperLabel": "2024年9月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2024年9月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2024年9月.txt",
+      "successQuestionIds": [
+        "q-2024-09-single-7",
+        "q-2024-09-single-8",
+        "q-2024-09-program-1"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2025年12月.pdf",
+      "paperLabel": "2025年12月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年12月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2025年12月.txt",
+      "successQuestionIds": [
+        "q-2025-12-single-3",
+        "q-2025-12-single-4",
+        "q-2025-12-judge-3",
+        "q-2025-12-program-1"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2025年3月.pdf",
+      "paperLabel": "2025年3月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年3月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2025年3月.txt",
+      "successQuestionIds": [
+        "q-2025-03-single-9",
+        "q-2025-03-single-8",
+        "q-2025-03-program-2",
+        "q-2025-03-program-1",
+        "q-2025-03-judge-5"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2025年6月.pdf",
+      "paperLabel": "2025年6月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年6月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2025年6月.txt",
+      "successQuestionIds": [
+        "q-2025-06-program-1",
+        "q-2025-06-single-2",
+        "q-2025-06-single-3"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2025年9月.pdf",
+      "paperLabel": "2025年9月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2025年9月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2025年9月.txt",
+      "successQuestionIds": [
+        "q-2025-09-program-1"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    },
+    {
+      "paper": "4级2026年3月.pdf",
+      "paperLabel": "2026年3月",
+      "sourcePath": "/Users/apple/Documents/github_coding/GESP4/真题/4级2026年3月.pdf",
+      "cachePath": "/Users/apple/Documents/github_coding/GESP4/data/cache/4级2026年3月.txt",
+      "successQuestionIds": [
+        "q-2026-03-program-2",
+        "q-2026-03-program-1"
+      ],
+      "partialQuestionIds": [],
+      "parseError": null
+    }
+  ]
+}

@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}CodeMaster 大师码教学系统{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
     <div class="page-shell system-shell">
@@ -45,5 +46,6 @@
             <span class="site-footer__tag">@ 2026 上海宝睿蒙教育科技有限公司</span>
         </footer>
     </div>
+    {% block extra_body_end %}{% endblock %}
 </body>
 </html>
