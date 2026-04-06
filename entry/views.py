@@ -1,4 +1,5 @@
-from django.http import HttpRequest, HttpResponse
+from django.core.exceptions import ObjectDoesNotExist
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 
 from .auth import (
@@ -11,8 +12,18 @@ from .auth import (
     role_required,
     set_auth_cookie,
 )
-from .shell_content import ROLE_SHELL_CONTENT
-from .student_portal_content import STUDENT_PORTAL_CONTENT
+from .models import PortalUser
+from .portal_context import (
+    ARRAY_2D_CONTENT_SLUG,
+    build_parent_page_shell,
+    build_principal_page_shell,
+    build_student_portal_page,
+    build_teacher_page_shell,
+    build_teacher_student_detail_context,
+    get_array_2d_content,
+    get_student_by_user,
+    get_student_content_access,
+)
 from .topic_content.gesp4_array_2d.context import get_topic_page_context
 
 
@@ -48,10 +59,17 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     return response
 
 
-def render_role_page(request: HttpRequest, role_key: str) -> HttpResponse:
+def get_portal_user_from_request(request: HttpRequest) -> PortalUser:
+    return PortalUser.objects.get(
+        username=request.codemaster_user["username"],
+        role=request.codemaster_user["role"],
+        is_active=True,
+    )
+
+
+def render_role_page(request: HttpRequest, role_key: str, page_shell: dict) -> HttpResponse:
     role_config = ROLE_CONFIG[role_key]
     user = request.codemaster_user
-    page_shell = ROLE_SHELL_CONTENT[role_key]
     return render(
         request,
         "entry/role_page.html",
@@ -69,7 +87,12 @@ def render_role_page(request: HttpRequest, role_key: str) -> HttpResponse:
 def render_student_portal_page(request: HttpRequest, page_key: str) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
     user = request.codemaster_user
-    page_shell = STUDENT_PORTAL_CONTENT[page_key]
+    portal_user = get_portal_user_from_request(request)
+    entry_message = None
+    if page_key == "cpp_gesp4" and request.GET.get("locked_content") == ARRAY_2D_CONTENT_SLUG:
+        entry_message = "二维数组专题当前未开放，教师开放后才能进入真实内容。"
+
+    page_shell = build_student_portal_page(page_key, portal_user, entry_message=entry_message)
     return render(
         request,
         "entry/student_portal_page.html",
@@ -107,6 +130,12 @@ def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
 def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
     user = request.codemaster_user
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    access = get_student_content_access(student, get_array_2d_content())
+    if not access.is_open:
+        return redirect(f"/student/cpp/gesp/gesp4?locked_content={ARRAY_2D_CONTENT_SLUG}")
+
     topic_context = get_topic_page_context(request.GET.get("lecture"))
     return render(
         request,
@@ -121,14 +150,44 @@ def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
 
 @role_required("parent")
 def parent_student_profile(request: HttpRequest) -> HttpResponse:
-    return render_role_page(request, "parent")
+    return render_role_page(request, "parent", build_parent_page_shell(get_portal_user_from_request(request)))
 
 
 @role_required("teacher")
 def teacher_students(request: HttpRequest) -> HttpResponse:
-    return render_role_page(request, "teacher")
+    return render_role_page(request, "teacher", build_teacher_page_shell(get_portal_user_from_request(request)))
+
+
+@role_required("teacher")
+def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_teacher_student_detail_context(portal_user, student_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该学生") from exc
+
+    if request.method == "POST":
+        access = context["access"]
+        next_state = not access.is_open
+        access.set_open_state(is_open=next_state, granted_by=portal_user if next_state else None)
+        access.save(update_fields=["is_open", "granted_by", "granted_at", "updated_at"])
+
+        student = context["student"]
+        student.phase_label = "二维数组专题已开放" if next_state else "二维数组专题待开放"
+        student.save(update_fields=["phase_label"])
+        return redirect("teacher-student-detail", student_id=student_id)
+
+    return render(
+        request,
+        "entry/teacher_student_detail.html",
+        {
+            "role_label": ROLE_CONFIG["teacher"]["label"],
+            "username": request.codemaster_user["username"],
+            **context,
+        },
+    )
 
 
 @role_required("principal")
 def principal_dashboard(request: HttpRequest) -> HttpResponse:
-    return render_role_page(request, "principal")
+    return render_role_page(request, "principal", build_principal_page_shell())

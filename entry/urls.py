@@ -10,6 +10,7 @@ from .views import (
     student_cpp_gesp4,
     student_cpp_gesp4_array_2d,
     student_courses,
+    teacher_student_detail,
     teacher_students,
 )
 
@@ -24,5 +25,6 @@ urlpatterns = [
     path("student/cpp/gesp/gesp4/array-2d", student_cpp_gesp4_array_2d, name="student-cpp-gesp4-array-2d"),
     path("parent/student-profile", parent_student_profile, name="parent-student-profile"),
     path("teacher/students", teacher_students, name="teacher-students"),
+    path("teacher/students/<int:student_id>", teacher_student_detail, name="teacher-student-detail"),
     path("principal/dashboard", principal_dashboard, name="principal-dashboard"),
 ]

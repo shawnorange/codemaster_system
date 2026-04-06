@@ -4,9 +4,12 @@ from functools import wraps
 from typing import Any
 
 from django.core import signing
+from django.db.utils import OperationalError, ProgrammingError
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+
+from .models import PortalUser
 
 
 AUTH_COOKIE_NAME = "codemaster_auth"
@@ -25,19 +28,19 @@ ROLE_CONFIG = {
         "label": "家长",
         "landing_url_name": "parent-student-profile",
         "page_title": "家长学生档案",
-        "page_description": "统一系统壳下的家长查看入口，当前以学生信息卡和关注事项占位，为下一步接入档案与反馈做准备。",
+        "page_description": "家长端当前聚焦孩子基础信息和已开放学习内容，先打通专题开放后的最小可见闭环。",
     },
     "teacher": {
         "label": "教师",
         "landing_url_name": "teacher-students",
         "page_title": "教师学生管理",
-        "page_description": "统一系统壳下的教师工作入口，当前以学生列表和教学提醒占位，为下一步接入课堂管理和反馈记录预留位置。",
+        "page_description": "教师端当前只做最小闭环：查看负责学生，并为学生开放或关闭二维数组专题。",
     },
     "principal": {
         "label": "校长",
         "landing_url_name": "principal-dashboard",
         "page_title": "校长校区概览",
-        "page_description": "统一系统壳下的校区总览入口，当前以概览卡片和重点事项占位，为下一步接入运营与教学数据预留结构。",
+        "page_description": "校长端当前提供最基础的开放概览，用来验证学生、教师与内容开放记录已经打通。",
     },
 }
 
@@ -49,7 +52,33 @@ TEST_ACCOUNTS = {
 }
 
 
+def _build_user_payload(portal_user: PortalUser) -> dict[str, str]:
+    role_config = ROLE_CONFIG[portal_user.role]
+    return {
+        "id": str(portal_user.id),
+        "username": portal_user.username,
+        "full_name": portal_user.full_name,
+        "role": portal_user.role,
+        "role_label": role_config["label"],
+        "landing_url": reverse(role_config["landing_url_name"]),
+    }
+
+
+def _query_portal_users() -> list[PortalUser]:
+    try:
+        return list(PortalUser.objects.filter(is_active=True).order_by("id"))
+    except (OperationalError, ProgrammingError):
+        return []
+
+
 def list_test_accounts() -> list[dict[str, str]]:
+    db_accounts = _query_portal_users()
+    if db_accounts:
+        return [
+            {"username": account.username, "role_label": ROLE_CONFIG[account.role]["label"]}
+            for account in db_accounts
+        ]
+
     return [
         {"username": username, "role_label": ROLE_CONFIG[account["role"]]["label"]}
         for username, account in TEST_ACCOUNTS.items()
@@ -57,6 +86,18 @@ def list_test_accounts() -> list[dict[str, str]]:
 
 
 def authenticate_credentials(username: str, password: str) -> dict[str, str] | None:
+    try:
+        portal_user = (
+            PortalUser.objects.filter(username=username, password=password, is_active=True)
+            .order_by("id")
+            .first()
+        )
+    except (OperationalError, ProgrammingError):
+        portal_user = None
+
+    if portal_user:
+        return _build_user_payload(portal_user)
+
     account = TEST_ACCOUNTS.get(username)
     if not account or password != DEFAULT_TEST_PASSWORD:
         return None
@@ -87,9 +128,20 @@ def get_authenticated_user(request: HttpRequest) -> dict[str, str] | None:
 
     username = payload.get("username")
     role = payload.get("role")
-    account = TEST_ACCOUNTS.get(username)
     role_config = ROLE_CONFIG.get(role)
-    if not account or account["role"] != role or not role_config:
+    if not role_config:
+        return None
+
+    try:
+        portal_user = PortalUser.objects.filter(username=username, role=role, is_active=True).first()
+    except (OperationalError, ProgrammingError):
+        portal_user = None
+
+    if portal_user:
+        return _build_user_payload(portal_user)
+
+    account = TEST_ACCOUNTS.get(username)
+    if not account or account["role"] != role:
         return None
 
     return {

@@ -99,7 +99,7 @@
             {% elif role_key == "parent" %}
                 <div class="profile-shell">
                     <div class="profile-header">
-                        <div class="profile-avatar">林</div>
+                        <div class="profile-avatar">{{ page_shell.student_profile.avatar|default:"学" }}</div>
                         <div class="profile-header__content">
                             <h4>{{ page_shell.student_profile.name }}</h4>
                             <p>{{ page_shell.student_profile.summary }}</p>
@@ -121,38 +121,87 @@
                     </div>
 
                     <div class="profile-highlight">
-                        <span>最近课程</span>
-                        <strong>{{ page_shell.student_profile.recent_lesson }}</strong>
+                        <span>{{ page_shell.profile_highlight_label|default:"最近课程" }}</span>
+                        <strong>{{ page_shell.profile_highlight_value|default:page_shell.student_profile.recent_lesson }}</strong>
                     </div>
+
+                    {% if page_shell.content_items %}
+                        <div class="content-access-list">
+                            {% for item in page_shell.content_items %}
+                                <article class="content-access-card content-access-card--{{ item.state }}">
+                                    <div class="content-access-card__top">
+                                        <div>
+                                            <h5>{{ item.title }}</h5>
+                                            <p>{{ item.subtitle }}</p>
+                                        </div>
+                                        <span class="state-pill state-pill--{{ item.state }}">{{ item.status_text }}</span>
+                                    </div>
+                                    <p class="content-access-card__description">{{ item.description }}</p>
+                                    <div class="content-access-card__footer">
+                                        <span>{{ item.hint }}</span>
+                                        {% if item.route_path %}
+                                            <a href="{{ item.route_path }}">进入内容</a>
+                                        {% endif %}
+                                    </div>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                 </div>
             {% elif role_key == "teacher" %}
                 <div class="teacher-table">
                     <div class="teacher-table__header">
                         <span>学生</span>
                         <span>年级</span>
-                        <span>课程</span>
-                        <span>状态</span>
-                        <span>跟进备注</span>
+                        <span>当前方向</span>
+                        <span>专题状态</span>
+                        <span>说明</span>
+                        <span>操作</span>
                     </div>
                     {% for student in page_shell.students %}
                         <div class="teacher-table__row">
                             <strong>{{ student.name }}</strong>
                             <span>{{ student.grade }}</span>
                             <span>{{ student.course }}</span>
-                            <span class="teacher-table__status">{{ student.status }}</span>
+                            <span class="teacher-table__status teacher-table__status--{{ student.state }}">{{ student.status }}</span>
                             <span>{{ student.note }}</span>
+                            <a class="teacher-table__action" href="{{ student.action_href }}">{{ student.action_label }}</a>
                         </div>
                     {% endfor %}
                 </div>
             {% elif role_key == "principal" %}
-                <div class="overview-grid">
-                    {% for card in page_shell.overview_cards %}
-                        <article class="overview-card">
-                            <span>{{ card.title }}</span>
-                            <strong>{{ card.value }}</strong>
-                            <p>{{ card.description }}</p>
-                        </article>
-                    {% endfor %}
+                <div class="principal-stack">
+                    <div class="overview-grid">
+                        {% for card in page_shell.overview_cards %}
+                            <article class="overview-card">
+                                <span>{{ card.title }}</span>
+                                <strong>{{ card.value }}</strong>
+                                <p>{{ card.description }}</p>
+                            </article>
+                        {% endfor %}
+                    </div>
+
+                    <div class="recent-access-panel">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Recent Access</p>
+                            <h3>最近开放记录</h3>
+                            <p>当前先保留最基础的内容开放概览，用来验证闭环已经形成。</p>
+                        </div>
+
+                        {% if page_shell.recent_access_records %}
+                            <div class="recent-access-list">
+                                {% for item in page_shell.recent_access_records %}
+                                    <article class="recent-access-item">
+                                        <strong>{{ item.student_name }} · {{ item.content_title }}</strong>
+                                        <span>操作人：{{ item.granted_by }}</span>
+                                        <span>开放时间：{{ item.granted_at }}</span>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="entry-hint-bar">当前还没有已开放记录。</div>
+                        {% endif %}
+                    </div>
                 </div>
             {% endif %}
         </section>
