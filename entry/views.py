@@ -12,15 +12,18 @@ from .auth import (
     role_required,
     set_auth_cookie,
 )
+from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .models import PortalUser
 from .portal_context import (
-    ARRAY_2D_CONTENT_SLUG,
+    build_gesp4_reserved_topic_page,
+    build_phase_label,
     build_parent_page_shell,
     build_principal_page_shell,
     build_student_portal_page,
     build_teacher_page_shell,
     build_teacher_student_detail_context,
-    get_array_2d_content,
+    get_gesp4_topic_access_items,
+    get_gesp4_topic_content,
     get_student_by_user,
     get_student_content_access,
 )
@@ -88,11 +91,8 @@ def render_student_portal_page(request: HttpRequest, page_key: str) -> HttpRespo
     role_config = ROLE_CONFIG["student"]
     user = request.codemaster_user
     portal_user = get_portal_user_from_request(request)
-    entry_message = None
-    if page_key == "cpp_gesp4" and request.GET.get("locked_content") == ARRAY_2D_CONTENT_SLUG:
-        entry_message = "二维数组专题当前未开放，教师开放后才能进入真实内容。"
-
-    page_shell = build_student_portal_page(page_key, portal_user, entry_message=entry_message)
+    locked_topic_slug = request.GET.get("locked_content") if page_key == "cpp_gesp4" else None
+    page_shell = build_student_portal_page(page_key, portal_user, locked_topic_slug=locked_topic_slug)
     return render(
         request,
         "entry/student_portal_page.html",
@@ -128,24 +128,52 @@ def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
 
 @role_required("student")
 def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
+    return _render_gesp4_topic_page(request, ARRAY_2D_CONTENT_SLUG)
+
+
+def _render_gesp4_topic_page(request: HttpRequest, topic_slug: str) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
     user = request.codemaster_user
     portal_user = get_portal_user_from_request(request)
     student = get_student_by_user(portal_user)
-    access = get_student_content_access(student, get_array_2d_content())
-    if not access.is_open:
-        return redirect(f"/student/cpp/gesp/gesp4?locked_content={ARRAY_2D_CONTENT_SLUG}")
+    try:
+        content = get_gesp4_topic_content(topic_slug)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该专题") from exc
 
-    topic_context = get_topic_page_context(request.GET.get("lecture"))
+    access = get_student_content_access(student, content)
+    if not access.is_open:
+        return redirect(f"/student/cpp/gesp/gesp4?locked_content={topic_slug}")
+
+    if topic_slug == ARRAY_2D_CONTENT_SLUG:
+        topic_context = get_topic_page_context(request.GET.get("lecture"))
+        return render(
+            request,
+            "entry/topics/gesp4_array_2d_page.html",
+            {
+                "role_label": role_config["label"],
+                "username": user["username"],
+                **topic_context,
+            },
+        )
+
+    page_shell = build_gesp4_reserved_topic_page(topic_slug)
     return render(
         request,
-        "entry/topics/gesp4_array_2d_page.html",
+        "entry/student_portal_page.html",
         {
             "role_label": role_config["label"],
+            "page_title": page_shell["page_title"],
+            "page_description": page_shell["page_description"],
+            "page_shell": page_shell,
             "username": user["username"],
-            **topic_context,
         },
     )
+
+
+@role_required("student")
+def student_cpp_gesp4_topic(request: HttpRequest, topic_slug: str) -> HttpResponse:
+    return _render_gesp4_topic_page(request, topic_slug)
 
 
 @role_required("parent")
@@ -167,13 +195,19 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
         raise Http404("未找到该学生") from exc
 
     if request.method == "POST":
-        access = context["access"]
+        topic_slug = request.POST.get("topic_slug", "").strip()
+        try:
+            content = get_gesp4_topic_content(topic_slug)
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该专题") from exc
+        access = get_student_content_access(context["student"], content)
         next_state = not access.is_open
         access.set_open_state(is_open=next_state, granted_by=portal_user if next_state else None)
         access.save(update_fields=["is_open", "granted_by", "granted_at", "updated_at"])
 
         student = context["student"]
-        student.phase_label = "二维数组专题已开放" if next_state else "二维数组专题待开放"
+        open_count = sum(1 for item in get_gesp4_topic_access_items(student) if item["is_open"])
+        student.phase_label = build_phase_label(open_count)
         student.save(update_fields=["phase_label"])
         return redirect("teacher-student-detail", student_id=student_id)
 

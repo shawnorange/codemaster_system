@@ -28,19 +28,19 @@ ROLE_CONFIG = {
         "label": "家长",
         "landing_url_name": "parent-student-profile",
         "page_title": "家长学生档案",
-        "page_description": "家长端当前聚焦孩子基础信息和已开放学习内容，先打通专题开放后的最小可见闭环。",
+        "page_description": "家长端当前聚焦孩子基础信息和 GESP4 已开放专题，先打通多专题开放后的最小可见闭环。",
     },
     "teacher": {
         "label": "教师",
         "landing_url_name": "teacher-students",
         "page_title": "教师学生管理",
-        "page_description": "教师端当前只做最小闭环：查看负责学生，并为学生开放或关闭二维数组专题。",
+        "page_description": "教师端当前聚焦 GESP4 多专题开放：查看负责学生，并为学生逐个专题执行开放或关闭。",
     },
     "principal": {
         "label": "校长",
         "landing_url_name": "principal-dashboard",
         "page_title": "校长校区概览",
-        "page_description": "校长端当前提供最基础的开放概览，用来验证学生、教师与内容开放记录已经打通。",
+        "page_description": "校长端当前提供 GESP4 多专题的最基础开放概览，用来验证学生、教师与内容开放记录已经打通。",
     },
 }
 

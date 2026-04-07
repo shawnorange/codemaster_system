@@ -40,7 +40,7 @@
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Student Snapshot</p>
                 <h3>学生信息与专题开放动作</h3>
-                <p>当前仅控制一个真实内容项：C++ &gt; GESP &gt; GESP4 &gt; 二维数组专题。</p>
+                <p>当前已升级为 GESP4 多专题最小通用开放框架。教师可以逐个专题执行开放或关闭操作。</p>
             </div>
 
             <div class="teacher-detail-stack">
@@ -53,38 +53,47 @@
                     {% endfor %}
                 </div>
 
-                <section class="access-control-card access-control-card--{{ access_state }}">
-                    <div class="access-control-card__header">
-                        <div>
-                            <p class="section-heading__eyebrow">Content Access</p>
-                            <h4>{{ content.title }}</h4>
-                        </div>
-                        <span class="state-pill state-pill--{{ access_state }}">{{ access.is_open|yesno:"已开放,未开放" }}</span>
-                    </div>
+                <div class="topic-access-grid">
+                    {% for item in topic_access_items %}
+                        <section class="access-control-card access-control-card--{{ item.state }}">
+                            <div class="access-control-card__header">
+                                <div>
+                                    <p class="section-heading__eyebrow">{{ item.order_label }}</p>
+                                    <h4>{{ item.title }}</h4>
+                                </div>
+                                <div class="topic-access-card__pills">
+                                    <span class="state-pill state-pill--{{ item.state }}">{{ item.status_text }}</span>
+                                    <span class="state-pill state-pill--future">{{ item.content_mode_text }}</span>
+                                </div>
+                            </div>
 
-                    <div class="focus-entry">
-                        <div class="focus-entry__top">
-                            <span class="focus-entry__label">目标内容路径</span>
-                            <span class="state-pill state-pill--future">真实内容路由</span>
-                        </div>
-                        <div class="focus-entry__path">
-                            <span>C++</span>
-                            <i></i>
-                            <span>GESP</span>
-                            <i></i>
-                            <span>GESP4</span>
-                            <i></i>
-                            <span>二维数组专题</span>
-                        </div>
-                        <strong>{{ content.route_path }}</strong>
-                        <p>{{ toggle_help }}</p>
-                    </div>
+                            <p class="content-access-card__description">{{ item.summary }}</p>
 
-                    <form method="post" class="access-control-card__form">
-                        {% csrf_token %}
-                        <button type="submit" class="login-button access-control-card__button">{{ toggle_label }}</button>
-                    </form>
-                </section>
+                            <div class="focus-entry">
+                                <div class="focus-entry__top">
+                                    <span class="focus-entry__label">目标内容路径</span>
+                                    <span class="state-pill state-pill--future">{{ item.subtitle }}</span>
+                                </div>
+                                <div class="focus-entry__path">
+                                    {% for path_item in item.path_items %}
+                                        <span>{{ path_item }}</span>
+                                        {% if not forloop.last %}
+                                            <i></i>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                                <strong>{{ item.route_path }}</strong>
+                                <p>{{ item.teacher_note }}</p>
+                            </div>
+
+                            <form method="post" class="access-control-card__form">
+                                {% csrf_token %}
+                                <input type="hidden" name="topic_slug" value="{{ item.slug }}">
+                                <button type="submit" class="login-button access-control-card__button">{{ item.toggle_label }}</button>
+                            </form>
+                        </section>
+                    {% endfor %}
+                </div>
             </div>
         </section>
 

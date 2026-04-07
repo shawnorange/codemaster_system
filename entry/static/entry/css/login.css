@@ -1387,6 +1387,44 @@ body::before {
     gap: 16px;
 }
 
+.topic-chip-grid,
+.topic-access-grid,
+.topic-overview-list {
+    display: grid;
+    gap: 14px;
+}
+
+.topic-chip-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.topic-chip-card {
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(15, 103, 184, 0.12);
+    background: rgba(240, 248, 255, 0.8);
+}
+
+.topic-chip-card strong,
+.topic-chip-card span {
+    display: block;
+}
+
+.topic-chip-card strong {
+    color: var(--primary-deep);
+    font-size: 0.98rem;
+}
+
+.topic-chip-card span {
+    margin-top: 8px;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.topic-access-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .content-access-card,
 .recent-access-panel,
 .access-control-card {
@@ -1456,6 +1494,13 @@ body::before {
     font-size: 0.9rem;
     font-weight: 700;
     text-decoration: none;
+}
+
+.topic-access-card__pills {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .teacher-table {
@@ -1530,7 +1575,8 @@ body::before {
 }
 
 .access-control-card__button {
-    max-width: 320px;
+    width: 100%;
+    max-width: none;
 }
 
 .recent-access-panel {
@@ -1667,7 +1713,9 @@ body::before {
     .reserved-note-grid,
     .course-grid,
     .overview-grid,
-    .teacher-detail-grid {
+    .teacher-detail-grid,
+    .topic-chip-grid,
+    .topic-access-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -1746,7 +1794,8 @@ body::before {
     .focus-entry__top,
     .content-access-card__top,
     .content-access-card__footer,
-    .access-control-card__header {
+    .access-control-card__header,
+    .topic-access-card__pills {
         flex-direction: column;
         align-items: flex-start;
     }

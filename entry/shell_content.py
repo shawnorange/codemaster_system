@@ -140,9 +140,9 @@ ROLE_SHELL_CONTENT = {
     },
     "parent": {
         "hero_eyebrow": "Parent Workspace",
-        "section_eyebrow": "Profile Shell",
-        "section_title": "学生信息卡壳子",
-        "section_description": "家长页先以学生信息卡为主，后续可在现有结构上接入学习档案、课堂反馈和沟通记录。",
+        "section_eyebrow": "Student Profile",
+        "section_title": "孩子当前专题开放情况",
+        "section_description": "家长页当前聚焦孩子基础信息和 GESP4 多专题开放情况，后续可继续承接学习档案、课堂反馈和沟通记录。",
         "summary_cards": [
             {"label": "本周课程", "value": "2 节", "hint": "与课程安排同步占位"},
             {"label": "课堂反馈", "value": "1 条待查看", "hint": "后续接真实教师反馈"},
@@ -164,7 +164,7 @@ ROLE_SHELL_CONTENT = {
         ],
         "support_label": "Parent Notes",
         "support_title": "家长关注点",
-        "support_description": "这一列保留给家长端的重点提醒和沟通入口，当前仅展示结构占位。",
+        "support_description": "这一列保留给家长端的重点提醒和沟通入口，当前先围绕专题开放与内容进入做最小展示。",
         "support_items": [
             {"title": "课程出勤", "description": "后续会补入每次到课、请假与补课状态。"},
             {"title": "课堂反馈", "description": "后续会在此接教师点评和课后建议。"},
@@ -174,8 +174,8 @@ ROLE_SHELL_CONTENT = {
     "teacher": {
         "hero_eyebrow": "Teacher Workspace",
         "section_eyebrow": "Student List",
-        "section_title": "学生列表壳子",
-        "section_description": "教师页先以学生列表为核心结构，后续可继续接入点名、学习进度、课堂反馈和分班管理。",
+        "section_title": "教师学生列表",
+        "section_description": "教师页当前以学生列表和 GESP4 多专题开放状态为核心结构，后续可继续接入点名、学习进度和课堂反馈。",
         "summary_cards": [
             {"label": "在读学员", "value": "36 人", "hint": "当前班级学生数量占位"},
             {"label": "今日课程", "value": "4 节", "hint": "按教师日程入口预留"},
@@ -213,7 +213,7 @@ ROLE_SHELL_CONTENT = {
         ],
         "support_label": "Teaching Notes",
         "support_title": "教学提醒",
-        "support_description": "这一列保留给教师端的备课提醒、班级事项和课后跟进提示。",
+        "support_description": "这一列保留给教师端的专题开放说明、班级事项和后续教学动作提示。",
         "support_items": [
             {"title": "课前确认", "description": "下一步可在此挂接课件、名单与设备检查项。"},
             {"title": "课后记录", "description": "后续将预留课堂表现、作业完成和点评入口。"},
@@ -223,8 +223,8 @@ ROLE_SHELL_CONTENT = {
     "principal": {
         "hero_eyebrow": "Principal Workspace",
         "section_eyebrow": "Overview Shell",
-        "section_title": "概览卡片壳子",
-        "section_description": "校长页先以概览卡片和关注面板为核心结构，后续可平滑接入校区运营、教学排布和数据看板。",
+        "section_title": "多专题开放概览",
+        "section_description": "校长页当前以 GESP4 多专题开放概览为核心结构，后续可平滑接入校区运营、教学排布和数据看板。",
         "summary_cards": [
             {"label": "在读学员", "value": "128", "hint": "当前校区总人数占位"},
             {"label": "本周课次", "value": "42 节", "hint": "教学运行总览入口"},
@@ -238,7 +238,7 @@ ROLE_SHELL_CONTENT = {
         ],
         "support_label": "Campus Focus",
         "support_title": "本周关注点",
-        "support_description": "这一列保留给校区管理层的关键提醒和待处理事项，当前先展示统一壳子。",
+        "support_description": "这一列保留给校区管理层的关键提醒和待处理事项，当前先展示多专题开放相关提示。",
         "support_items": [
             {"title": "教学节奏", "description": "后续可在此汇总课次执行、缺勤和补课提醒。"},
             {"title": "师资排布", "description": "后续将预留教师排课冲突与人力负载入口。"},
