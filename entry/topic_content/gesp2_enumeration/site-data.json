@@ -1,0 +1,1830 @@
+{
+  "meta": {
+    "title": "枚举法",
+    "subtitle": "GESP2 枚举法专题页，按能力梯度、题组结构、模板库、教学演示和课堂讲解顺序组织成完整专题内容。",
+    "eyebrow": "GESP2 / Enumeration Topic",
+    "phase": "GESP2",
+    "hero_note": "当前版本不再是轻量讲义页，而是带可收缩导航、21 道代表题、9 组模板、4 个演示模块与调试面板的专题页第一版。"
+  },
+  "summary_cards": [
+    {
+      "label": "能力板块",
+      "value": "5 组",
+      "hint": "入门 / 按位 / 嵌套 / 图形输出 / break"
+    },
+    {
+      "label": "代表题目",
+      "value": "21 道",
+      "hint": "按教学使用价值筛出的真题和编程题"
+    },
+    {
+      "label": "模板块",
+      "value": "10 个",
+      "hint": "按场景拆成可直接讲解和复用的模板"
+    },
+    {
+      "label": "教学演示",
+      "value": "4 组",
+      "hint": "每组都带动画区 / Debug 区 / 代码区"
+    },
+    {
+      "label": "覆盖真题",
+      "value": "10 套",
+      "hint": "来自 2023-2026 的 GESP2 真题源文件"
+    }
+  ],
+  "sidebar_groups": [
+    {
+      "title": "专题概览",
+      "note": "先建立枚举法的整体结构，再进入题组和演示。",
+      "items": [
+        {
+          "label": "专题概览",
+          "href": "#topic-overview",
+          "target_id": "topic-overview"
+        },
+        {
+          "label": "知识点说明",
+          "href": "#knowledge-overview",
+          "target_id": "knowledge-overview"
+        },
+        {
+          "label": "解题骨架",
+          "href": "#strategy-map",
+          "target_id": "strategy-map"
+        }
+      ]
+    },
+    {
+      "title": "教学演示",
+      "note": "点击后会切换到对应模块，并在下方显示动画区、Debug 区和代码区。",
+      "items": [
+        {
+          "label": "演示总览",
+          "href": "#demo-lab",
+          "target_id": "demo-lab"
+        },
+        {
+          "label": "单层枚举演示",
+          "href": "#demo-lab",
+          "target_id": "demo-lab",
+          "demo_target": "single-loop"
+        },
+        {
+          "label": "按位枚举演示",
+          "href": "#demo-lab",
+          "target_id": "demo-lab",
+          "demo_target": "digit-loop"
+        },
+        {
+          "label": "双层枚举演示",
+          "href": "#demo-lab",
+          "target_id": "demo-lab",
+          "demo_target": "double-loop"
+        },
+        {
+          "label": "图形输出演示",
+          "href": "#demo-lab",
+          "target_id": "demo-lab",
+          "demo_target": "grid-output"
+        }
+      ]
+    },
+    {
+      "title": "能力题组",
+      "note": "按能力梯度而不是按题号堆叠，老师可以直接按组讲。",
+      "items": [
+        {
+          "label": "枚举法入门",
+          "href": "#group-beginner",
+          "target_id": "group-beginner"
+        },
+        {
+          "label": "按位枚举 / 数字处理",
+          "href": "#group-digit",
+          "target_id": "group-digit"
+        },
+        {
+          "label": "双层枚举 / 嵌套处理",
+          "href": "#group-nested",
+          "target_id": "group-nested"
+        },
+        {
+          "label": "图形 / 矩阵输出",
+          "href": "#group-grid-output",
+          "target_id": "group-grid-output"
+        },
+        {
+          "label": "边界、break 与提早退出",
+          "href": "#group-break-boundary",
+          "target_id": "group-break-boundary"
+        }
+      ]
+    },
+    {
+      "title": "模板与误区",
+      "note": "模板先讲场景，再讲代码；误区区块负责课堂追问。",
+      "items": [
+        {
+          "label": "模板库",
+          "href": "#template-lab",
+          "target_id": "template-lab"
+        },
+        {
+          "label": "常见错误",
+          "href": "#pitfalls",
+          "target_id": "pitfalls"
+        },
+        {
+          "label": "纳入边界",
+          "href": "#scope-boundary",
+          "target_id": "scope-boundary"
+        }
+      ]
+    },
+    {
+      "title": "教学安排",
+      "note": "看题源覆盖、讲课顺序和课堂使用建议。",
+      "items": [
+        {
+          "label": "真题覆盖",
+          "href": "#coverage",
+          "target_id": "coverage"
+        },
+        {
+          "label": "教学使用说明",
+          "href": "#teaching-notes",
+          "target_id": "teaching-notes"
+        }
+      ]
+    }
+  ],
+  "overview": {
+    "description": "枚举法的关键不是“把所有情况暴力试一遍”，而是先把候选空间说清楚，再把候选对象按顺序逐个检查。GESP2 里很多题目看起来不同，但本质上都围绕几个核心动作：枚举一个数、枚举一个数位、枚举一对候选、枚举行列位置、枚举一段输出结构。",
+    "points": [
+      "先定枚举对象：是枚举 candidate、枚举 digit、枚举 (i, j) 数对，还是枚举行列位置。",
+      "再定边界：从 0 还是 1 开始，是否包含 N，本题能不能只枚举到 sqrt(N)，什么时候必须跑完整个范围。",
+      "把判定和处理拆开：先判断是否满足条件，再决定输出、计数、更新答案或 break。",
+      "看题目要“一个答案”还是“所有答案”：这决定 break 是否合法，也决定是否要继续枚举后续候选。",
+      "图形输出题如果核心是“逐行逐列判断当前字符”，本质上也是枚举；但如果规则系统过于复杂，就会逐渐转向独立的图形构造专题。"
+    ],
+    "signals": [
+      {
+        "title": "要求找出所有满足条件的对象",
+        "description": "例如所有因子、所有相邻因数对、区间内满足条件的整数，通常直接联想到枚举。"
+      },
+      {
+        "title": "需要逐位拆数字",
+        "description": "回文数、自守数、与 7 有关、美丽数统计，本质上都是在枚举一个数的每一位。"
+      },
+      {
+        "title": "要尝试一对候选或双层结构",
+        "description": "哥德巴赫、统计与 5 有关的数、区间内孪生素数，都需要外层和内层的配合。"
+      },
+      {
+        "title": "输出是逐格生成的",
+        "description": "对角线矩阵、栅栏、星号金字塔、等差矩阵，只要核心是按位置逐个决定输出内容，就仍然属于枚举训练。"
+      }
+    ]
+  },
+  "method_principles": [
+    {
+      "title": "先说清“我在枚举谁”",
+      "description": "不要先写 for，再回头想逻辑。先用自然语言说明：我当前枚举的是一个 candidate、一位 digit、一个数对还是一个网格位置。",
+      "tip": "如果学生说不清当前在枚举谁，代码通常会把判定、输出和更新写乱。"
+    },
+    {
+      "title": "边界必须有理由",
+      "description": "优秀的枚举代码不是“跑得通”，而是每个边界都能解释：为什么从 1 开始、为什么只到 sqrt(N)、为什么这里必须包含末端。",
+      "tip": "课堂上一定要把边界说成自然语言，而不是只背循环写法。"
+    },
+    {
+      "title": "先判定，再处理",
+      "description": "推荐先用 ok 或临时变量承接条件结果，再做输出、计数或更新答案，这样代码更稳，也更容易讲。",
+      "tip": "初学者最怕把输出、计数和判断混在一条 if 里。"
+    },
+    {
+      "title": "看题意决定是否 break",
+      "description": "有的题只要找到一个答案即可停止，例如质数判定、哥德巴赫拆分；有的题必须找全体答案，绝不能提前退出。",
+      "tip": "break 改变的不只是效率，更是题意。"
+    },
+    {
+      "title": "按位题必须保护原值",
+      "description": "凡是反复做 /10、%10 的题，都要先保存原数，否则循环结束后就没法比较或输出原信息。",
+      "tip": "回文数、自守数和完整漂亮数这类题，最常见错误就是把原值用坏了。"
+    },
+    {
+      "title": "图形输出题先分清外层和内层职责",
+      "description": "外层往往控制第几行、第几层，内层负责当前行要输出哪些字符。先把职责分清，再写双重循环。",
+      "tip": "一旦把行和列的职责写反，输出就会整体错位。"
+    }
+  ],
+  "demo_modules": [
+    {
+      "id": "single-loop",
+      "title": "单层枚举演示",
+      "subtitle": "因子搜索：candidate 逐步推进，输出与计数同步更新",
+      "summary": "展示 candidate 如何从起点推进到终点，如何判断当前候选是否命中，以及答案列表和计数如何同步变化。",
+      "tags": [
+        "单层枚举",
+        "输出所有解",
+        "同步计数"
+      ],
+      "related_questions": [
+        "2023 年 12 月 第 3 题",
+        "2023 年 12 月 第 15 题"
+      ],
+      "code_lines": [
+        "int cnt = 0;",
+        "for (int candidate = 1; candidate <= n; candidate++) {",
+        "    bool ok = (n % candidate == 0);",
+        "    if (ok) {",
+        "        cout << candidate << ' ';",
+        "        cnt++;",
+        "    }",
+        "}"
+      ],
+      "steps": [
+        {
+          "label": "Step 1 · candidate = 1",
+          "explanation": "从第一个合法候选开始。1 一定能整除 n，所以这是最容易建立“枚举范围 + 命中条件”的第一步。",
+          "teacher_prompt": "让学生先回答：为什么这里不能从 0 开始？为什么 1 一定要被检查？",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "当前 candidate",
+              "value": "1"
+            },
+            {
+              "label": "条件判断",
+              "value": "12 % 1 == 0"
+            },
+            {
+              "label": "当前是否命中",
+              "value": "true"
+            },
+            {
+              "label": "当前计数 cnt",
+              "value": "1"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "n",
+              "value": "12"
+            },
+            {
+              "label": "candidate",
+              "value": "1"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            },
+            {
+              "label": "output",
+              "value": "\"1 \""
+            }
+          ],
+          "preview_title": "当前输出",
+          "preview_rows": [
+            "1"
+          ]
+        },
+        {
+          "label": "Step 2 · candidate = 2",
+          "explanation": "继续推进 candidate。因为 2 也是因子，所以命中后需要同步更新答案列表和计数。",
+          "teacher_prompt": "强调“判定”和“更新”是两件事：先算出 ok，再决定是否 push_back。",
+          "current_line": 6,
+          "animation_cards": [
+            {
+              "label": "当前 candidate",
+              "value": "2"
+            },
+            {
+              "label": "条件判断",
+              "value": "12 % 2 == 0"
+            },
+            {
+              "label": "当前是否命中",
+              "value": "true"
+            },
+            {
+              "label": "当前计数 cnt",
+              "value": "2"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "n",
+              "value": "12"
+            },
+            {
+              "label": "candidate",
+              "value": "2"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            },
+            {
+              "label": "output",
+              "value": "\"1 2 \""
+            }
+          ],
+          "preview_title": "当前输出",
+          "preview_rows": [
+            "1 2"
+          ]
+        },
+        {
+          "label": "Step 3 · candidate = 5",
+          "explanation": "5 不是因子。这一步的重点是：没命中时也必须继续推进循环，而不是停住。",
+          "teacher_prompt": "问学生：如果这题要求所有因子，为什么这里不能 break？",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "当前 candidate",
+              "value": "5"
+            },
+            {
+              "label": "条件判断",
+              "value": "12 % 5 != 0"
+            },
+            {
+              "label": "当前是否命中",
+              "value": "false"
+            },
+            {
+              "label": "当前计数 cnt",
+              "value": "4"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "n",
+              "value": "12"
+            },
+            {
+              "label": "candidate",
+              "value": "5"
+            },
+            {
+              "label": "ok",
+              "value": "false"
+            },
+            {
+              "label": "output",
+              "value": "\"1 2 3 4 \""
+            }
+          ],
+          "preview_title": "当前输出",
+          "preview_rows": [
+            "1 2 3 4",
+            "本轮未追加新答案"
+          ]
+        },
+        {
+          "label": "Step 4 · candidate = 12",
+          "explanation": "末端候选也要检查。很多学生把边界写成 candidate < n，会在最后一步漏掉 n 本身。",
+          "teacher_prompt": "这一步最适合板书：为什么必须写 <= n，而不是 < n？",
+          "current_line": 6,
+          "animation_cards": [
+            {
+              "label": "当前 candidate",
+              "value": "12"
+            },
+            {
+              "label": "条件判断",
+              "value": "12 % 12 == 0"
+            },
+            {
+              "label": "当前是否命中",
+              "value": "true"
+            },
+            {
+              "label": "当前计数 cnt",
+              "value": "6"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "n",
+              "value": "12"
+            },
+            {
+              "label": "candidate",
+              "value": "12"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            },
+            {
+              "label": "output",
+              "value": "\"1 2 3 4 6 12 \""
+            }
+          ],
+          "preview_title": "当前输出",
+          "preview_rows": [
+            "1 2 3 4 6 12"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "digit-loop",
+      "title": "按位枚举演示",
+      "subtitle": "回文数与按位构造：末位提取、原值保护、reverse 更新",
+      "summary": "展示 n、digit、reversed 如何变化，帮助学生建立按位拆数的循环直觉。",
+      "tags": [
+        "按位处理",
+        "原值保护",
+        "while 循环"
+      ],
+      "related_questions": [
+        "2024 年 3 月 第 12 题",
+        "2025 年 6 月 第 15 题"
+      ],
+      "code_lines": [
+        "int original = n;",
+        "int reversed = 0;",
+        "while (n > 0) {",
+        "    int digit = n % 10;",
+        "    reversed = reversed * 10 + digit;",
+        "    n /= 10;",
+        "}",
+        "bool ok = (reversed == original);"
+      ],
+      "steps": [
+        {
+          "label": "Step 1 · 取第一位",
+          "explanation": "先保护 original，再开始 while。第一轮从 1221 取出末位 1，并把 reversed 从 0 更新到 1。",
+          "teacher_prompt": "先追问：如果不额外保存 original，循环结束后还能不能判断回文？",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "当前 n",
+              "value": "1221"
+            },
+            {
+              "label": "取出的 digit",
+              "value": "1"
+            },
+            {
+              "label": "剩余数字",
+              "value": "122"
+            },
+            {
+              "label": "当前 reversed",
+              "value": "1"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "n",
+              "value": "1221 -> 122"
+            },
+            {
+              "label": "digit",
+              "value": "1"
+            },
+            {
+              "label": "reversed",
+              "value": "1"
+            }
+          ],
+          "preview_title": "构造轨迹",
+          "preview_rows": [
+            "reversed: 0 -> 1"
+          ]
+        },
+        {
+          "label": "Step 2 · 继续取末位",
+          "explanation": "第二轮 digit = 2。重点是 reversed 先乘 10 再加 digit，否则就不是向左扩展而是简单相加。",
+          "teacher_prompt": "板书解释 reversed = reversed * 10 + digit 的“左移一位”含义。",
+          "current_line": 5,
+          "animation_cards": [
+            {
+              "label": "当前 n",
+              "value": "122"
+            },
+            {
+              "label": "取出的 digit",
+              "value": "2"
+            },
+            {
+              "label": "剩余数字",
+              "value": "12"
+            },
+            {
+              "label": "当前 reversed",
+              "value": "12"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "n",
+              "value": "122 -> 12"
+            },
+            {
+              "label": "digit",
+              "value": "2"
+            },
+            {
+              "label": "reversed",
+              "value": "12"
+            }
+          ],
+          "preview_title": "构造轨迹",
+          "preview_rows": [
+            "reversed: 1 -> 12"
+          ]
+        },
+        {
+          "label": "Step 3 · 中间轮次",
+          "explanation": "第三轮再取出一个 2，reversed 由 12 变成 122。这个阶段最容易把 n /= 10 漏掉，导致死循环。",
+          "teacher_prompt": "强调按位题每一轮都要做三件事：取末位、更新答案、去末位。",
+          "current_line": 6,
+          "animation_cards": [
+            {
+              "label": "当前 n",
+              "value": "12"
+            },
+            {
+              "label": "取出的 digit",
+              "value": "2"
+            },
+            {
+              "label": "剩余数字",
+              "value": "1"
+            },
+            {
+              "label": "当前 reversed",
+              "value": "122"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "n",
+              "value": "12 -> 1"
+            },
+            {
+              "label": "digit",
+              "value": "2"
+            },
+            {
+              "label": "reversed",
+              "value": "122"
+            }
+          ],
+          "preview_title": "构造轨迹",
+          "preview_rows": [
+            "reversed: 12 -> 122"
+          ]
+        },
+        {
+          "label": "Step 4 · 最后一位",
+          "explanation": "最后一轮取出末位 1，reversed 更新为 1221，随后 n 变成 0，while 循环结束。",
+          "teacher_prompt": "让学生说出 while 结束的时机：不是 digit 处理完，而是 n 被除到 0。",
+          "current_line": 5,
+          "animation_cards": [
+            {
+              "label": "当前 n",
+              "value": "1"
+            },
+            {
+              "label": "取出的 digit",
+              "value": "1"
+            },
+            {
+              "label": "剩余数字",
+              "value": "0"
+            },
+            {
+              "label": "当前 reversed",
+              "value": "1221"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "n",
+              "value": "1 -> 0"
+            },
+            {
+              "label": "digit",
+              "value": "1"
+            },
+            {
+              "label": "reversed",
+              "value": "1221"
+            }
+          ],
+          "preview_title": "构造轨迹",
+          "preview_rows": [
+            "reversed: 122 -> 1221"
+          ]
+        },
+        {
+          "label": "Step 5 · 比较原值",
+          "explanation": "循环结束后再比较 reversed 和 original。因为 original 被保护住了，所以可以稳定判断是否回文。",
+          "teacher_prompt": "对照自守数题：它也是按位比较，只是同时维护 N1 和 M1 两个变量。",
+          "current_line": 8,
+          "animation_cards": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "reversed",
+              "value": "1221"
+            },
+            {
+              "label": "比较结果",
+              "value": "true"
+            },
+            {
+              "label": "最终结论",
+              "value": "是回文数"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "original",
+              "value": "1221"
+            },
+            {
+              "label": "n",
+              "value": "0"
+            },
+            {
+              "label": "reversed",
+              "value": "1221"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            }
+          ],
+          "preview_title": "比较结果",
+          "preview_rows": [
+            "reversed == original"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "double-loop",
+      "title": "双层枚举演示",
+      "subtitle": "哥德巴赫与嵌套枚举：外层目标、内层配对、命中后 break",
+      "summary": "展示外层变量和内层变量如何变化，以及一旦命中条件为何可以 break。",
+      "tags": [
+        "双层循环",
+        "配对搜索",
+        "命中即停止"
+      ],
+      "related_questions": [
+        "2025 年 3 月 第 12 题",
+        "2025 年 9 月 第 13 题"
+      ],
+      "code_lines": [
+        "bool found = false;",
+        "for (int even = 10; even <= 12; even += 2) {",
+        "    for (int j = 2; j < even; j++) {",
+        "        bool ok = (even == 10 && j == 3) || (even == 12 && j == 5);",
+        "        if (ok) {",
+        "            answerA = j;",
+        "            answerB = even - j;",
+        "            found = true;",
+        "            break;",
+        "        }",
+        "    }",
+        "}"
+      ],
+      "steps": [
+        {
+          "label": "Step 1 · even = 10, j = 2",
+          "explanation": "外层先固定 even = 10，内层从最小可行候选 j = 2 开始试。此时 2 + 8 不满足“两个都是质数”。",
+          "teacher_prompt": "先让学生指出：这道题当前同时在枚举哪两个量？",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "外层 even",
+              "value": "10"
+            },
+            {
+              "label": "内层 j",
+              "value": "2"
+            },
+            {
+              "label": "当前配对",
+              "value": "(2, 8)"
+            },
+            {
+              "label": "是否命中",
+              "value": "false"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "even",
+              "value": "10"
+            },
+            {
+              "label": "j",
+              "value": "2"
+            },
+            {
+              "label": "ok",
+              "value": "false"
+            },
+            {
+              "label": "found",
+              "value": "false"
+            }
+          ],
+          "preview_title": "当前结果",
+          "preview_rows": [
+            "尚未找到 10 的质数拆分"
+          ]
+        },
+        {
+          "label": "Step 2 · even = 10, j = 3",
+          "explanation": "继续内层枚举到 j = 3，此时 3 和 7 都是质数，命中条件。",
+          "teacher_prompt": "让学生说清楚：这一步为什么可以直接记录答案？",
+          "current_line": 5,
+          "animation_cards": [
+            {
+              "label": "外层 even",
+              "value": "10"
+            },
+            {
+              "label": "内层 j",
+              "value": "3"
+            },
+            {
+              "label": "当前配对",
+              "value": "(3, 7)"
+            },
+            {
+              "label": "是否命中",
+              "value": "true"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "even",
+              "value": "10"
+            },
+            {
+              "label": "j",
+              "value": "3"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            },
+            {
+              "label": "found",
+              "value": "true"
+            }
+          ],
+          "preview_title": "当前结果",
+          "preview_rows": [
+            "10 = 3 + 7",
+            "内层循环本轮可 break"
+          ]
+        },
+        {
+          "label": "Step 3 · 切到 even = 12",
+          "explanation": "外层推进到下一个偶数 12。上一轮内层虽然 break 了，但外层还要继续处理新的目标 even。",
+          "teacher_prompt": "借这一步讲清楚：break 只跳出当前内层，不会结束整段外层枚举。",
+          "current_line": 2,
+          "animation_cards": [
+            {
+              "label": "外层 even",
+              "value": "12"
+            },
+            {
+              "label": "内层 j",
+              "value": "2"
+            },
+            {
+              "label": "当前配对",
+              "value": "(2, 10)"
+            },
+            {
+              "label": "是否命中",
+              "value": "false"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "even",
+              "value": "12"
+            },
+            {
+              "label": "j",
+              "value": "2"
+            },
+            {
+              "label": "ok",
+              "value": "false"
+            },
+            {
+              "label": "found",
+              "value": "false（新一轮重置）"
+            }
+          ],
+          "preview_title": "当前结果",
+          "preview_rows": [
+            "开始枚举 12 的拆分"
+          ]
+        },
+        {
+          "label": "Step 4 · even = 12, j = 5",
+          "explanation": "经过 j = 2、3、4 后，j = 5 时命中 5 + 7。此时 again 可以 break，因为题目只要一组答案。",
+          "teacher_prompt": "问学生：如果题目改成“输出所有拆分”，这一句 break 还能留吗？",
+          "current_line": 8,
+          "animation_cards": [
+            {
+              "label": "外层 even",
+              "value": "12"
+            },
+            {
+              "label": "内层 j",
+              "value": "5"
+            },
+            {
+              "label": "当前配对",
+              "value": "(5, 7)"
+            },
+            {
+              "label": "是否命中",
+              "value": "true"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "even",
+              "value": "12"
+            },
+            {
+              "label": "j",
+              "value": "5"
+            },
+            {
+              "label": "ok",
+              "value": "true"
+            },
+            {
+              "label": "found",
+              "value": "true"
+            }
+          ],
+          "preview_title": "当前结果",
+          "preview_rows": [
+            "12 = 5 + 7",
+            "找到一组答案后结束内层"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grid-output",
+      "title": "图形输出演示",
+      "subtitle": "对角线矩阵输出：当前行、当前列、当前字符和最终图形同步生成",
+      "summary": "展示双重循环如何一行一列地构造输出，适合作为“图形输出是否属于枚举法”的第一版演示。",
+      "tags": [
+        "图形输出",
+        "矩阵构造",
+        "双重循环"
+      ],
+      "related_questions": [
+        "2023 年 9 月 第 7 题",
+        "2024 年 12 月 第 14 题"
+      ],
+      "code_lines": [
+        "for (int i = 0; i < n; i++) {",
+        "    string row = \"\";",
+        "    for (int j = 0; j < n; j++) {",
+        "        char ch = (i == j ? '1' : '0');",
+        "        row += ch;",
+        "    }",
+        "    cout << row << '\\n';",
+        "}"
+      ],
+      "steps": [
+        {
+          "label": "Step 1 · 第 0 行第 0 列",
+          "explanation": "外层 i = 0，内层 j = 0。因为 i == j，所以当前位置输出 1。",
+          "teacher_prompt": "先讲“当前位置是谁”，再讲“当前字符为何是 1”。图形题最怕学生只看结果，不看位置。",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "当前行 i",
+              "value": "0"
+            },
+            {
+              "label": "当前列 j",
+              "value": "0"
+            },
+            {
+              "label": "当前输出字符",
+              "value": "1"
+            },
+            {
+              "label": "当前行内容",
+              "value": "1"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "i",
+              "value": "0"
+            },
+            {
+              "label": "j",
+              "value": "0"
+            },
+            {
+              "label": "ch",
+              "value": "'1'"
+            },
+            {
+              "label": "row",
+              "value": "\"1\""
+            }
+          ],
+          "preview_title": "已生成图形",
+          "preview_rows": [
+            "1"
+          ]
+        },
+        {
+          "label": "Step 2 · 第 0 行第 1 列",
+          "explanation": "j 推进到 1。此时 i != j，所以当前字符改为 0，继续拼到 row 后面。",
+          "teacher_prompt": "强调图形输出题的关键：不是一次输出整行，而是逐列决定当前字符。",
+          "current_line": 5,
+          "animation_cards": [
+            {
+              "label": "当前行 i",
+              "value": "0"
+            },
+            {
+              "label": "当前列 j",
+              "value": "1"
+            },
+            {
+              "label": "当前输出字符",
+              "value": "0"
+            },
+            {
+              "label": "当前行内容",
+              "value": "10"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "i",
+              "value": "0"
+            },
+            {
+              "label": "j",
+              "value": "1"
+            },
+            {
+              "label": "ch",
+              "value": "'0'"
+            },
+            {
+              "label": "row",
+              "value": "\"10\""
+            }
+          ],
+          "preview_title": "已生成图形",
+          "preview_rows": [
+            "10"
+          ]
+        },
+        {
+          "label": "Step 3 · 第 0 行完成",
+          "explanation": "内层结束后，row 已经变成 100，随后输出整行。外层再推进到下一行。",
+          "teacher_prompt": "让学生分清：内层负责“构造当前行”，外层负责“换到下一行”。",
+          "current_line": 7,
+          "animation_cards": [
+            {
+              "label": "当前行 i",
+              "value": "0"
+            },
+            {
+              "label": "当前列 j",
+              "value": "完成本行"
+            },
+            {
+              "label": "当前输出字符",
+              "value": "row 输出"
+            },
+            {
+              "label": "当前行内容",
+              "value": "100"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "i",
+              "value": "0"
+            },
+            {
+              "label": "j",
+              "value": "2（本行最后一列后结束）"
+            },
+            {
+              "label": "row",
+              "value": "\"100\""
+            },
+            {
+              "label": "输出缓冲",
+              "value": "[\"100\"]"
+            }
+          ],
+          "preview_title": "已生成图形",
+          "preview_rows": [
+            "100"
+          ]
+        },
+        {
+          "label": "Step 4 · 第 1 行第 1 列",
+          "explanation": "来到下一行，当前位置又回到对角线，所以字符重新变成 1。",
+          "teacher_prompt": "对照单层枚举题，引导学生理解：图形题只是把候选从一个数换成了一个位置。",
+          "current_line": 4,
+          "animation_cards": [
+            {
+              "label": "当前行 i",
+              "value": "1"
+            },
+            {
+              "label": "当前列 j",
+              "value": "1"
+            },
+            {
+              "label": "当前输出字符",
+              "value": "1"
+            },
+            {
+              "label": "当前行内容",
+              "value": "01"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "i",
+              "value": "1"
+            },
+            {
+              "label": "j",
+              "value": "1"
+            },
+            {
+              "label": "ch",
+              "value": "'1'"
+            },
+            {
+              "label": "row",
+              "value": "\"01\""
+            }
+          ],
+          "preview_title": "已生成图形",
+          "preview_rows": [
+            "100",
+            "01"
+          ]
+        },
+        {
+          "label": "Step 5 · 三行都完成",
+          "explanation": "当所有位置都枚举完成后，最终图形就是 100 / 010 / 001。图形题的本质仍然是按候选位置逐个判断。",
+          "teacher_prompt": "这一步可以顺势对比星号金字塔：位置变了、规则变了，但枚举骨架没有变。",
+          "current_line": 8,
+          "animation_cards": [
+            {
+              "label": "当前行 i",
+              "value": "完成"
+            },
+            {
+              "label": "当前列 j",
+              "value": "完成"
+            },
+            {
+              "label": "最终输出字符",
+              "value": "按位置决定"
+            },
+            {
+              "label": "最终图形",
+              "value": "100 / 010 / 001"
+            }
+          ],
+          "debug_rows": [
+            {
+              "label": "i",
+              "value": "0..2"
+            },
+            {
+              "label": "j",
+              "value": "0..2"
+            },
+            {
+              "label": "当前规则",
+              "value": "i == j -> '1' else '0'"
+            },
+            {
+              "label": "输出缓冲",
+              "value": "[\"100\", \"010\", \"001\"]"
+            }
+          ],
+          "preview_title": "已生成图形",
+          "preview_rows": [
+            "100",
+            "010",
+            "001"
+          ]
+        }
+      ]
+    }
+  ],
+  "ability_groups": [
+    {
+      "id": "group-beginner",
+      "title": "枚举法入门",
+      "summary": "先把“候选范围 + 判定条件 + 处理动作”的基本骨架写稳，重点是边界和输出顺序。",
+      "goal": "能完成单层枚举、输出所有答案、按题目要求组织顺序。",
+      "questions": [
+        {
+          "source": "2023 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 3 题",
+          "difficulty": "基础",
+          "title": "按从小到大输出 N 的所有因子",
+          "prompt": "补全循环，让程序输出能整除 N 的所有数。例如 N = 18 时输出 1 2 3 6 9 18。",
+          "ability_point": "单层枚举 / 输出所有解",
+          "classification_reason": "最标准的枚举法入门题，候选对象是 candidate，范围是 1 到 N。",
+          "pitfall": "最容易把上界写成 candidate < N，直接漏掉 N 本身；也有人从 0 开始，导致取模非法。",
+          "template_ref": "单层枚举模板",
+          "teacher_prompt": "课堂上一定要追问：为什么 1 和 N 都必须被检查？",
+          "answer": "从 1 枚举到 N，只要满足 n % candidate == 0 就输出 candidate。关键点是循环边界必须写成 candidate <= n，不能漏掉 N 本身。"
+        },
+        {
+          "source": "2023 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 6 题",
+          "difficulty": "基础",
+          "title": "按从大到小输出 N 的所有因子",
+          "prompt": "输入 N 后，要求按从大到小顺序输出所有因子。",
+          "ability_point": "单层枚举 / 顺序控制",
+          "classification_reason": "题目本质没变，变化点只是枚举顺序，适合训练“步长和方向也服务题意”。",
+          "pitfall": "如果写成 i > 1，会漏掉因子 1；如果仍从小到大枚举，输出顺序就错了。",
+          "template_ref": "单层枚举模板",
+          "teacher_prompt": "问学生：题目没改条件，为什么循环方向却要改？",
+          "answer": "把循环方向改成从 N 递减到 1。只要 i 能整除 N，就输出 i；题目改的不是判定条件，而是枚举顺序。"
+        },
+        {
+          "source": "2023 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 11 题",
+          "difficulty": "基础+",
+          "title": "输出 1 到 100 的完全平方数",
+          "prompt": "枚举 1 到 100 的整数，判断哪些数是完全平方数，再按要求输出。",
+          "ability_point": "判定 + 输出",
+          "classification_reason": "把“枚举候选数”和“设计判定条件”结合起来，是从因子题过渡到条件题的好材料。",
+          "pitfall": "学生容易直接写浮点比较，课堂上要强调判定条件必须稳定、可解释。",
+          "template_ref": "判定 + 计数模板",
+          "teacher_prompt": "引导学生比较：这题的难点是循环，还是判定条件？",
+          "answer": "更自然的办法是枚举平方根 i：只要 i * i <= 100，就输出 i * i。这样候选更少，也避免了不稳定的浮点比较。"
+        },
+        {
+          "source": "2023 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 15 题",
+          "difficulty": "变式",
+          "title": "找出所有相邻因数对",
+          "prompt": "输入 N，例如 12，要输出所有相邻因数对 (1,2)、(2,3)、(3,4)。",
+          "ability_point": "单层枚举 / 相邻关系判断",
+          "classification_reason": "依然是单层枚举，但条件从“单个数满足”变成“两个相邻数同时满足”，适合作为入门变式。",
+          "pitfall": "如果只检查 i 而不检查 i + 1，就会把题做浅；从 2 开始枚举还会漏掉 (1,2)。",
+          "template_ref": "区间枚举 + 筛选模板",
+          "teacher_prompt": "让学生口述：这里枚举的是一个数，还是一对相邻数？",
+          "answer": "先枚举较小的那个数 i，再同时判断 i 和 i + 1 是否都能整除 N。若都满足，就输出 (i, i + 1)。"
+        }
+      ]
+    },
+    {
+      "id": "group-digit",
+      "title": "按位枚举 / 数字处理",
+      "summary": "这一组题的核心是：把整数拆成一位一位来处理。每次取末位、处理末位，再去掉末位。",
+      "goal": "能完成数位拆分、重组、统计和逐位比较。",
+      "questions": [
+        {
+          "source": "2023 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 4 题",
+          "difficulty": "基础",
+          "title": "对称数判断",
+          "prompt": "判断输入的整数是否为对称数，例如 1221、12321 是，对 123、972 不是。",
+          "ability_point": "按位枚举 / 反向构造",
+          "classification_reason": "这题适合讲“为什么要先保存原数”和“按位处理的 while 循环何时结束”。",
+          "pitfall": "如果直接在原变量上做 /10，又没有额外保存原数，循环结束后就没法比较。",
+          "template_ref": "按位处理模板",
+          "teacher_prompt": "写代码前先问学生：除了 n 之外，还要不要额外保留一个 original？",
+          "answer": "先保存 original = n，再用 while (n > 0) 把 n 的每一位倒着取出来，构造 reversed。最后比较 reversed == original，相等就是对称数。"
+        },
+        {
+          "source": "2024 年 3 月",
+          "question_type": "单选题",
+          "question_no": "第 12 题",
+          "difficulty": "基础+",
+          "title": "回文数反向构造",
+          "prompt": "在 while (n > 0) 中不断取末位，补全 a = _________，最后判断 a 是否等于原数。",
+          "ability_point": "按位枚举 / 数位重建",
+          "classification_reason": "这题比“是否回文”更适合教学，因为学生必须真正理解 reversed = reversed * 10 + digit 的构造过程。",
+          "pitfall": "最常见错误是忘记 reversed 先乘 10，导致每次只是把末位相加而不是向左移位。",
+          "template_ref": "按位处理模板",
+          "teacher_prompt": "让学生解释乘 10 的动作，而不是只背公式。",
+          "answer": "横线应填 a * 10 + n % 10。乘 10 是为了给新取出的末位腾出个位位置，再把当前 digit 接到后面。"
+        },
+        {
+          "source": "2024 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 15 题",
+          "difficulty": "变式",
+          "title": "判断一个数是否与 7 有关",
+          "prompt": "如果一个数能被 7 整除，或者数位中含有 7，就称它与 7 有关。题目通过 while (!Flag && M) 逐位检查。",
+          "ability_point": "按位枚举 / 条件短路",
+          "classification_reason": "非常适合讲 break 的按位题：一旦找到 7 就可以停止，不必继续扫完所有位。",
+          "pitfall": "删掉 M /= 10 会死循环；删掉 break 虽不一定死循环，但会让逻辑和效率都变差。",
+          "template_ref": "找到一个答案即可停止模板",
+          "teacher_prompt": "追问：这题为什么可以在找到 7 后立即停止？",
+          "answer": "满足条件有两种：这个数本身能被 7 整除，或者某一位数字等于 7。按位扫描时一旦发现 digit == 7，就已经可以确定答案为“有关”。"
+        },
+        {
+          "source": "2025 年 6 月",
+          "question_type": "单选题",
+          "question_no": "第 15 题",
+          "difficulty": "进阶",
+          "title": "自守数判断中的逐位比较",
+          "prompt": "判断 N 的平方末尾若干位是否与 N 本身一致，需要同步维护 N1 和 M1，并逐位比较 N1 % 10 与 M1 % 10。",
+          "ability_point": "双变量按位处理 / 逐位比较",
+          "classification_reason": "它比普通回文题更进一步：不仅要拆位，还要同时维护两个不断变化的数。",
+          "pitfall": "很多学生会错误地把 while (N1 > 0) 改成 while (N > 0)，导致拿原值参与循环。",
+          "template_ref": "按位处理模板",
+          "teacher_prompt": "让学生说清楚：N、N1、M1 三个变量分别负责什么。",
+          "answer": "先算平方数 M1 = N * N，再用 N1 保存原数 N。循环中比较 N1 % 10 和 M1 % 10，随后让 N1 /= 10、M1 /= 10；只要 N1 的每一位都对上，N 就是自守数。"
+        }
+      ]
+    },
+    {
+      "id": "group-nested",
+      "title": "双层枚举 / 嵌套处理",
+      "summary": "当一个候选对象不够用时，就要把两个层次叠起来：外层决定当前目标，内层负责进一步检查或统计。",
+      "goal": "能区分“配对搜索”“区间统计”和“外层枚举数字、内层枚举数位”三种嵌套结构。",
+      "questions": [
+        {
+          "source": "2025 年 3 月",
+          "question_type": "单选题",
+          "question_no": "第 12 题",
+          "difficulty": "进阶",
+          "title": "哥德巴赫猜想验证",
+          "prompt": "对 4 到 1000 的偶数，逐个检查是否能拆成两个质数之和，并输出其中一组拆分。",
+          "ability_point": "双层枚举 / 配对搜索",
+          "classification_reason": "这是配对型双层枚举的代表题：外层枚举偶数，内层枚举拆分项 j，再判断 j 和 i - j。",
+          "pitfall": "根据题意只需要一组答案，所以 break 应该留在找到答案之后；如果移错位置会漏解或多解。",
+          "template_ref": "双层配对模板",
+          "teacher_prompt": "让学生明确：break 跳出的是哪一层，题目又要几组答案。",
+          "answer": "外层先枚举偶数，内层枚举拆分项 j。每次都检查 j 和 even - j 是否都为质数；一旦找到一组可行拆分，就输出并 break 跳出内层。"
+        },
+        {
+          "source": "2026 年 3 月",
+          "question_type": "编程题 1",
+          "question_no": "试题名称：数数",
+          "difficulty": "进阶",
+          "title": "统计区间内的美丽数数量",
+          "prompt": "给定范围和目标数字，统计区间内有多少个整数的数位中恰好包含指定数量的目标数字。",
+          "ability_point": "外层枚举数字 / 内层按位统计",
+          "classification_reason": "这题把“枚举每个数”和“枚举每个数位”叠起来了，是枚举专题里最典型的综合题之一。",
+          "pitfall": "学生容易忘记每个新数字都要把计数器清零，也容易把区间边界写漏。",
+          "template_ref": "判定 + 计数模板",
+          "teacher_prompt": "课堂上要追问：外层和内层各在枚举谁？",
+          "answer": "外层枚举区间里的每个整数 x，内层用 while 按位统计 x 中目标数字出现的次数。如果次数恰好等于题目要求，就把答案计数加一。"
+        },
+        {
+          "source": "2025 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 13 题",
+          "difficulty": "进阶",
+          "title": "统计 1 到 999 中与 5 有关的数",
+          "prompt": "先枚举 1 到 999 的整数；若能被 5 整除则直接计数，否则再用 while 逐位检查是否包含数字 5。",
+          "ability_point": "外层区间枚举 / 内层按位扫描",
+          "classification_reason": "这道题同时包含“直接命中”和“继续拆位判断”两条支线，非常适合讲嵌套结构中的 continue 与 break。",
+          "pitfall": "如果在内层 while 中找到 5 后不 break，会造成重复判定；如果外层 continue 用错位置，会跳过后续逻辑。",
+          "template_ref": "区间枚举 + 筛选模板",
+          "teacher_prompt": "让学生画出外层和内层的执行流，明确 continue 和 break 各影响哪一层。",
+          "answer": "先枚举 1 到 999 的每个整数。若 x % 5 == 0，直接计数；否则再按位扫描，一旦发现某一位等于 5 就计数并停止当前数字的数位扫描。"
+        },
+        {
+          "source": "2024 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 13 题",
+          "difficulty": "进阶",
+          "title": "区间内输出相隔为 2 的孪生素数",
+          "prompt": "给定整数 N、M，在区间内依次枚举 i，若 i 和 i + 2 都是质数，则输出这对数。",
+          "ability_point": "区间枚举 / 邻接配对判断",
+          "classification_reason": "虽然外层只有一重 for，但每个候选都要配对检查 i 与 i + 2，属于典型的枚举 + 条件组合题。",
+          "pitfall": "如果上界写成 i <= M，会越界检查 i + 2；如果没有先保证 N < M，边界解释就会变得混乱。",
+          "template_ref": "区间枚举 + 筛选模板",
+          "teacher_prompt": "引导学生分析：为什么这里要看 i 和 i + 2，而不是只看 i？",
+          "answer": "在区间里枚举较小的那个质数 i，再同时判断 i 和 i + 2 是否都为质数。若都成立，就输出这一对孪生素数。"
+        }
+      ]
+    },
+    {
+      "id": "group-grid-output",
+      "title": "图形 / 矩阵输出",
+      "summary": "这一组题统一收在“位置枚举”下：外层控制第几行、第几层，内层决定当前列或当前字符。",
+      "goal": "能把图形输出题讲成“按位置枚举”的问题，而不是纯粹背图案。",
+      "questions": [
+        {
+          "source": "2023 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 7 题",
+          "difficulty": "基础",
+          "title": "输出 N 行 N 列的对角线矩阵",
+          "prompt": "输出 N 行 N 列的矩阵，对角线为 1，其余位置为 0，需要补全判断条件。",
+          "ability_point": "双层枚举 / 位置判断",
+          "classification_reason": "这题非常适合建立“外层枚举行、内层枚举列”的直觉，是图形输出纳入枚举法的最佳入口。",
+          "pitfall": "不少学生会把 i == j 写成赋值，或者根本没有意识到‘位置’本身就是枚举对象。",
+          "template_ref": "双层构造模板",
+          "teacher_prompt": "让学生先说位置，再说字符：当前输出的是第几行第几列，为什么是 1。",
+          "answer": "用双重循环枚举行号 i 和列号 j。若 i == j，就输出 1；否则输出 0。内层负责当前行的每一列，外层负责换到下一行。"
+        },
+        {
+          "source": "2024 年 3 月",
+          "question_type": "单选题",
+          "question_no": "第 13 题",
+          "difficulty": "基础+",
+          "title": "栅栏图形构造",
+          "prompt": "给定段数和每段长度，输出一个栅栏图形，段与段之间用 + 分隔，段内用 - 填充。",
+          "ability_point": "双层枚举 / 结构化输出",
+          "classification_reason": "这题适合告诉学生：有些双层枚举不是找数对，而是在外层控制结构、内层控制内容。",
+          "pitfall": "学生常把换行和分隔符的位置写错，说明外层和内层的职责没有分清楚。",
+          "template_ref": "图形 / 矩阵输出模板",
+          "teacher_prompt": "板书时把‘段’和‘段内字符’分别画出来，再写循环。",
+          "answer": "外层枚举当前是第几段，内层枚举这一段里要输出多少个 '-'。段与段之间按题意输出 '+' 或换行，关键是把“段”和“段内字符”分成两层。"
+        },
+        {
+          "source": "2024 年 12 月",
+          "question_type": "单选题",
+          "question_no": "第 14 题",
+          "difficulty": "变式",
+          "title": "星号金字塔输出",
+          "prompt": "给定高度 height，逐行输出左右对称的星号金字塔，并正确处理每行前导空格与星号数量。",
+          "ability_point": "双层枚举 / 行内构造",
+          "classification_reason": "这题的教学价值在于外层控制第几层，内层分别控制空格和星号数，适合讲‘每一层输出规则’。",
+          "pitfall": "学生很容易只顾着星号数量，忘了每行前导空格也需要单独枚举。",
+          "template_ref": "图形 / 矩阵输出模板",
+          "teacher_prompt": "让学生先列出第 i 行需要几个空格、几个星号，再写代码。",
+          "answer": "对第 i 行，先输出 height - i 个空格，再输出 2 * i - 1 个星号。外层控制层数，内层分别负责空格区和星号区。"
+        },
+        {
+          "source": "2025 年 6 月",
+          "question_type": "单选题",
+          "question_no": "第 15 题",
+          "difficulty": "变式",
+          "title": "分层数字图形输出",
+          "prompt": "输入层数后，逐行输出长度递增的数字图形，每一行数字按照固定规则衔接生成。",
+          "ability_point": "双层枚举 / 按行输出",
+          "classification_reason": "它适合训练‘当前行内容’这一中间变量意识，也能帮助学生理解为什么输出题要按行思考。",
+          "pitfall": "学生经常只盯着最终图形，忘了每一行都是独立构造出来的。",
+          "template_ref": "输出缓存 / 按行构造模板",
+          "teacher_prompt": "课堂上先让学生只构造第 1 行、第 2 行，再推广到一般第 i 行。",
+          "answer": "先固定当前行 i，再根据题目给出的规则决定这一行要输出多少个数字、起始数字是多少。把每一行当成独立构造单元，再逐行输出。"
+        },
+        {
+          "source": "2025 年 3 月",
+          "question_type": "编程题 1",
+          "question_no": "试题名称：等差矩阵",
+          "difficulty": "进阶",
+          "title": "构造每行每列都是等差数列的矩阵",
+          "prompt": "输出一个 n 行 m 列的矩阵，使得矩阵的每一行和每一列都是等差数列。",
+          "ability_point": "双层枚举 / 公式化输出",
+          "classification_reason": "它说明图形或矩阵输出不一定只能靠条件判断，也可以在位置枚举后直接用公式生成。",
+          "pitfall": "如果学生没有把 (i, j) 当作当前枚举位置，就会把公式写错或把行列搞反。",
+          "template_ref": "双层构造模板",
+          "teacher_prompt": "问学生：这个矩阵里真正被枚举的，是一个数字，还是一个位置 (i, j)？",
+          "answer": "真正被枚举的是当前位置 (i, j)。在确定行号和列号后，再用题目给出的等差关系公式直接算出这一格应该输出的值。"
+        }
+      ]
+    },
+    {
+      "id": "group-break-boundary",
+      "title": "边界、break 与提早退出",
+      "summary": "这一组题不一定计算更复杂，但最容易错。它们帮助学生建立‘何时提前停、何时必须继续’的判断力。",
+      "goal": "能写出带 break 的判定题，并解释为什么这里可以提前退出。",
+      "questions": [
+        {
+          "source": "2023 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 8 题",
+          "difficulty": "基础+",
+          "title": "质数判断中的 break 位置",
+          "prompt": "判断 N 是否为质数，题目要求在横线处填入合适代码，核心点是找到一个因子后如何及时结束。",
+          "ability_point": "找到一个反例即可停止",
+          "classification_reason": "这是讲 break 最直接的题：质数判断不是‘找所有因子’，而是‘找到一个因子就能判否’。",
+          "pitfall": "把 continue 当 break 用，会让程序继续枚举；而题目真正需要的是一旦发现因子就结束。",
+          "template_ref": "找到一个答案即可停止模板",
+          "teacher_prompt": "引导学生说出：这题的目标是找一个反例，还是找全体因子？",
+          "answer": "当发现 n % i == 0 时，说明已经找到一个因子，可以立刻把 is_prime 置为 false 并 break。因为判定质数只需要一个反例，不需要找全体因子。"
+        },
+        {
+          "source": "2024 年 6 月",
+          "question_type": "单选题",
+          "question_no": "第 12 题",
+          "difficulty": "进阶",
+          "title": "用 i * i > N 提前结束质数判断",
+          "prompt": "代码中先判断 if (i * i > N) break，再检查 N % i == 0，问这段逻辑为什么成立。",
+          "ability_point": "边界压缩 / 提前退出",
+          "classification_reason": "它能把‘边界不一定要跑满 N’这个思想讲透，是枚举优化最适合 GESP2 的入口。",
+          "pitfall": "学生容易只背写法，却不知道为什么检查到 sqrt(N) 就够了。",
+          "template_ref": "边界压缩模板",
+          "teacher_prompt": "课堂上一定要用成对因子来解释 sqrt(N)，不能只背模板。",
+          "answer": "因为因子总是成对出现：如果 n = a × b，那么较小的一个不超过 sqrt(n)。所以一旦 i * i > n 还没找到因子，就可以确定后面也不会再出现新的较小因子。"
+        },
+        {
+          "source": "2024 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 14 题",
+          "difficulty": "进阶",
+          "title": "找到一个因子就输出 NO",
+          "prompt": "题目让学生在质数判定代码中补出条件，只要发现一个因子就输出 NO 并停止。",
+          "ability_point": "判定型枚举 / 快速否定",
+          "classification_reason": "把‘判定条件’和‘提前停止’绑在一起，适合作为 break 专题的收口题。",
+          "pitfall": "如果把条件写成 num / i == 0 而不是 num % i == 0，逻辑就完全错位。",
+          "template_ref": "找到一个答案即可停止模板",
+          "teacher_prompt": "追问：为什么这里是“找到一个因子就够”，而不是继续把所有因子找全？",
+          "answer": "应判断 num % i == 0。只要发现一个因子，就已经能判定这个数不是质数，所以立即输出 NO 并停止即可。"
+        },
+        {
+          "source": "2025 年 9 月",
+          "question_type": "单选题",
+          "question_no": "第 13 题",
+          "difficulty": "进阶",
+          "title": "遇到数位 5 后立即停止扫描",
+          "prompt": "在统计 1 到 999 中与 5 有关的数时，若当前数位已经出现 5，就可以 break 结束当前数字的数位扫描。",
+          "ability_point": "按位扫描 / 命中即停",
+          "classification_reason": "它比‘与 7 有关’更强调嵌套循环中的 break：外层继续，内层停止。",
+          "pitfall": "学生很容易把 break 和 continue 搞混，导致计数重复或内层不停地扫完整个数字。",
+          "template_ref": "找到一个答案即可停止模板",
+          "teacher_prompt": "让学生先画出循环层级，再回答 break 会跳出哪一层。",
+          "answer": "当当前 digit == 5 时，就可以确认这个数与 5 有关，因此只需 break 结束当前数字的按位扫描；外层枚举下一个整数继续进行。"
+        }
+      ]
+    }
+  ],
+  "template_blocks": [
+    {
+      "id": "template-single-loop",
+      "title": "单层枚举模板",
+      "scenario": "适用于：在一个连续范围里找所有满足条件的答案。",
+      "caution": "循环边界一定要写成可解释的范围，尤其要确认末端是否需要包含。",
+      "points": [
+        "先写候选范围，再写命中条件。",
+        "满足条件后再输出或记录答案。",
+        "要找全体答案时不能提前 break。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    bool first = true;\n    for (int candidate = 1; candidate <= n; candidate++) {\n        if (n % candidate == 0) {\n            if (!first) {\n                cout << ' ';\n            }\n            cout << candidate;\n            first = false;\n        }\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-range-filter",
+      "title": "区间枚举 + 筛选模板",
+      "scenario": "适用于：在一个区间里逐个尝试候选，再按规则决定是否输出或处理。",
+      "caution": "区间题最容易错的是起点、终点和步长；一定先把区间说清楚。",
+      "points": [
+        "外层枚举一个区间内的所有候选。",
+        "每个候选都要独立判断，不能把上一轮状态带进来。",
+        "适合孪生素数、与 5 有关的数这类题。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int left, right;\n    cin >> left >> right;\n    for (int candidate = left; candidate <= right; candidate++) {\n        if (candidate % 2 == 0) {\n            cout << candidate << '\\n';\n        }\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-count",
+      "title": "判定 + 计数模板",
+      "scenario": "适用于：要统计满足条件的对象数量，而不是把它们全部输出。",
+      "caution": "每轮都要重新初始化本轮状态变量，不能让上一次的判断结果污染本轮。",
+      "points": [
+        "count 放在循环外，只在条件成立时更新。",
+        "需要额外状态变量时，务必在每轮开始前重置。",
+        "适合完全平方数统计、美丽数统计。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int left, right;\n    cin >> left >> right;\n    int count = 0;\n    for (int x = left; x <= right; x++) {\n        bool ok = false;\n        // 在这里写判定逻辑\n        if (ok) {\n            count++;\n        }\n    }\n    cout << count;\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-digit",
+      "title": "按位处理模板",
+      "scenario": "适用于：回文数、自守数、与 7 有关、完整漂亮数这类需要逐位拆分整数的题。",
+      "caution": "必须保护原始值；每次处理一位后，都要让 n /= 10 进入下一轮。",
+      "points": [
+        "digit = n % 10 取末位。",
+        "n /= 10 去掉末位。",
+        "需要反向构造时用 reversed = reversed * 10 + digit。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    int original = n;\n    int reversed = 0;\n    while (n > 0) {\n        int digit = n % 10;\n        reversed = reversed * 10 + digit;\n        n /= 10;\n    }\n    cout << (reversed == original);\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-double-pair",
+      "title": "双层配对模板",
+      "scenario": "适用于：给定一个目标值，从候选对里找满足条件的组合。",
+      "caution": "如果题目只需要找到一组可行解，要在内层找到答案后及时 break。",
+      "points": [
+        "外层枚举目标对象，内层枚举配对项。",
+        "一旦命中条件，要先看题意决定能否 break。",
+        "适合哥德巴赫猜想这类拆分题。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int even;\n    cin >> even;\n    for (int j = 2; j < even; j++) {\n        bool prime_a = true;\n        if (j < 2) {\n            prime_a = false;\n        }\n        for (int d = 2; d * d <= j; d++) {\n            if (j % d == 0) {\n                prime_a = false;\n                break;\n            }\n        }\n\n        int other = even - j;\n        bool prime_b = true;\n        if (other < 2) {\n            prime_b = false;\n        }\n        for (int d = 2; d * d <= other; d++) {\n            if (other % d == 0) {\n                prime_b = false;\n                break;\n            }\n        }\n\n        if (prime_a && prime_b) {\n            cout << j << ' ' << other;\n            break;\n        }\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-double-construct",
+      "title": "双层构造模板",
+      "scenario": "适用于：矩阵、网格、图形、表格输出这类“外层控制结构、内层控制位置”的题。",
+      "caution": "必须先说清外层负责什么、内层负责什么，再写循环。",
+      "points": [
+        "外层通常控制行、段、层数。",
+        "内层通常控制列、每段长度或当前字符。",
+        "换行往往和外层循环绑定。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    for (int i = 0; i < n; i++) {\n        for (int j = 0; j < n; j++) {\n            if (i == j) {\n                cout << 1;\n            } else {\n                cout << 0;\n            }\n        }\n        cout << '\\n';\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-grid-output",
+      "title": "图形 / 矩阵输出模板",
+      "scenario": "适用于：逐行构造输出，再整体输出当前行内容的图形题。",
+      "caution": "输出题不能只盯着最终图案，必须把“当前行内容如何构造”明确写出来。",
+      "points": [
+        "外层先固定当前行。",
+        "内层逐列决定当前字符。",
+        "每一行完成后再统一输出。"
+      ],
+      "code": "#include <iostream>\n#include <string>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    for (int i = 0; i < n; i++) {\n        string row = \"\";\n        for (int j = 0; j < n; j++) {\n            char ch = (i == j ? '1' : '0');\n            row += ch;\n        }\n        cout << row << '\\n';\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-boundary",
+      "title": "边界压缩模板",
+      "scenario": "适用于：原本可以枚举到 N，但利用性质后只需要枚举到更小边界。",
+      "caution": "不要只背 i * i <= N，要先解释为什么成对因子使得平方根之后的部分无需再查。",
+      "points": [
+        "先找成对出现的结构，例如因子 a 和 N / a。",
+        "超过 sqrt(N) 后，后面的情况前面已经检查过。",
+        "课堂上要先讲数学理由，再讲代码写法。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    bool is_prime = true;\n    if (n < 2) {\n        is_prime = false;\n    }\n    for (int i = 2; i * i <= n; i++) {\n        if (n % i == 0) {\n            is_prime = false;\n            break;\n        }\n    }\n    if (is_prime) {\n        cout << \"YES\";\n    } else {\n        cout << \"NO\";\n    }\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-break",
+      "title": "找到一个答案即可停止模板",
+      "scenario": "适用于：只要找到一个反例、一个因子或一组满足条件的答案，就可以立即结束的题。",
+      "caution": "这一类题的重点不是枚举多少，而是明确‘停在哪里’。题目要找全体答案时不能套这个模板。",
+      "points": [
+        "先定义什么叫‘已经找到答案’。",
+        "找到后及时更新状态并 break。",
+        "要找所有答案时，绝对不能提前退出。"
+      ],
+      "code": "#include <iostream>\nusing namespace std;\n\nint main() {\n    int n;\n    cin >> n;\n    bool ok = true;\n    for (int i = 2; i < n; i++) {\n        if (n % i == 0) {\n            ok = false;\n            break;\n        }\n    }\n    cout << (ok ? \"YES\" : \"NO\");\n    return 0;\n}\n"
+    },
+    {
+      "id": "template-row-buffer",
+      "title": "输出缓存 / 按行构造模板",
+      "scenario": "适用于：每一行都要先拼好，再整体输出的数字图形或字符图形。",
+      "caution": "每一轮外层循环开始时，当前行缓存都要重新初始化，否则会把上一行残留内容带进来。",
+      "points": [
+        "先初始化当前行缓存 row。",
+        "内层逐步把字符或数字拼进 row。",
+        "当前行完成后统一输出 row。"
+      ],
+      "code": "#include <iostream>\n#include <string>\nusing namespace std;\n\nint main() {\n    int height;\n    cin >> height;\n    for (int i = 0; i < height; i++) {\n        string row = \"\";\n        for (int j = 0; j <= i; j++) {\n            row += char('0' + (i + j) % 10);\n        }\n        cout << row << '\\n';\n    }\n    return 0;\n}\n"
+    }
+  ],
+  "pitfall_panels": [
+    {
+      "title": "范围边界写错",
+      "symptom": "程序能跑，但总会漏掉第一个、最后一个，或者顺序完全不符合题意。",
+      "why": "学生只是机械套 for，没有先解释为什么从这个数开始、为什么到这个数结束。",
+      "teacher_prompt": "让学生先用自然语言说出边界理由，再允许动手写代码。",
+      "checklist": [
+        "起点是 0 还是 1？",
+        "上界是 N、N - 1 还是 sqrt(N)？",
+        "是否必须包含末端？"
+      ]
+    },
+    {
+      "title": "原值被用坏了",
+      "symptom": "按位题最后拿 0 去比较，或者想输出原数时发现变量已经被除没了。",
+      "why": "一边枚举数位，一边直接修改原变量，却没有先做备份。",
+      "teacher_prompt": "所有按位题先写 original = n，再继续讲后面的循环。",
+      "checklist": [
+        "是否提前保存了原始数字？",
+        "循环结束后还要不要用原值？",
+        "n 和 original 的分工是否清晰？"
+      ]
+    },
+    {
+      "title": "break 用错层级",
+      "symptom": "题意只要一个答案，却一直跑完整个循环；或者题目要找所有答案，却被 break 提前截断。",
+      "why": "学生不知道当前 break 跳出的是哪一层循环，也没先确认题目到底要‘一个’还是‘全部’。",
+      "teacher_prompt": "讲 break 之前先画出循环层级图，再问清楚‘你想跳出哪一层’。",
+      "checklist": [
+        "题目是找一个答案还是所有答案？",
+        "当前 break 会跳出内层还是外层？",
+        "跳出后还需要继续处理别的对象吗？"
+      ]
+    },
+    {
+      "title": "判定条件和处理动作混在一起",
+      "symptom": "学生会在一条 if 里同时输出、计数、改变量，排错时找不到真正的问题点。",
+      "why": "没有建立‘先判定、后处理’的代码结构意识。",
+      "teacher_prompt": "先写 bool ok 或单独 if，再在下一段里做输出/计数，强制拆成两步。",
+      "checklist": [
+        "这一段是在判定，还是在处理结果？",
+        "count 是否只在条件成立时变化？",
+        "输出是否混进了判断表达式里？"
+      ]
+    },
+    {
+      "title": "图形题把行和列职责写反",
+      "symptom": "输出总是整体歪掉，或者每一行内容重复，看起来像‘图形逻辑全错了’。",
+      "why": "学生没有先明确外层负责第几行、内层负责当前列或当前字符。",
+      "teacher_prompt": "在黑板上先画出 i 和 j 的含义，再写循环。不要直接从图案倒推代码。",
+      "checklist": [
+        "外层循环是否明确控制当前行？",
+        "内层循环是否明确控制当前列？",
+        "换行是否跟外层绑定？"
+      ]
+    },
+    {
+      "title": "按行输出却忘了重置当前行缓存",
+      "symptom": "第二行开始莫名带着第一行残留内容，输出越来越长。",
+      "why": "把 row 放在外层循环外面，或者忘记每一轮重新赋空字符串。",
+      "teacher_prompt": "只要题目要逐行输出，就让学生先找‘当前行缓存’放在哪里初始化。",
+      "checklist": [
+        "row 是不是每轮都重新初始化？",
+        "当前行完成后是否立即输出？",
+        "上一行内容有没有可能残留到下一行？"
+      ]
+    }
+  ],
+  "coverage_items": [
+    {
+      "source": "2023 年 12 月",
+      "count": "4 题",
+      "focus": "因子升序、对称数、完全平方数、相邻因数对"
+    },
+    {
+      "source": "2023 年 9 月",
+      "count": "3 题",
+      "focus": "因子降序、对角线矩阵、质数判定中的 break"
+    },
+    {
+      "source": "2024 年 3 月",
+      "count": "2 题",
+      "focus": "回文数反向构造、栅栏图形"
+    },
+    {
+      "source": "2024 年 6 月",
+      "count": "1 题",
+      "focus": "i * i > N 的边界压缩"
+    },
+    {
+      "source": "2024 年 9 月",
+      "count": "2 题",
+      "focus": "质数判定条件、与 7 有关的数位扫描"
+    },
+    {
+      "source": "2024 年 12 月",
+      "count": "2 题",
+      "focus": "孪生素数区间搜索、星号金字塔输出"
+    },
+    {
+      "source": "2025 年 3 月",
+      "count": "2 题",
+      "focus": "哥德巴赫猜想、等差矩阵构造"
+    },
+    {
+      "source": "2025 年 6 月",
+      "count": "2 题",
+      "focus": "自守数逐位比较、分层数字输出"
+    },
+    {
+      "source": "2025 年 9 月",
+      "count": "2 题",
+      "focus": "与 5 有关的数统计、对角数字矩阵输出"
+    },
+    {
+      "source": "2026 年 3 月",
+      "count": "1 题",
+      "focus": "编程题《数数》，外层枚举数字、内层统计数位"
+    }
+  ],
+  "scope_decisions": [
+    {
+      "title": "本批纳入枚举法专题",
+      "summary": "这些题的核心思维仍然是‘枚举当前位置，再决定当前输出或判定结果’。",
+      "items": [
+        "对角线矩阵输出",
+        "栅栏图形构造",
+        "星号金字塔输出",
+        "分层数字图形输出",
+        "等差矩阵构造"
+      ]
+    },
+    {
+      "title": "建议后续单独开专题",
+      "summary": "这些题虽然仍然会用循环，但教学重点已经开始偏向图形规则拆解、复杂构造与多条件组合，不宜在枚举入门专题里塞得过重。",
+      "items": [
+        "日字矩阵",
+        "N 字矩阵",
+        "更复杂的字符画与规则组合图案"
+      ]
+    }
+  ],
+  "teaching_sequence": [
+    {
+      "title": "第 1 步：先用因子题建立单层枚举骨架",
+      "description": "先把边界、判定和输出顺序写稳，不急着讲复杂技巧。"
+    },
+    {
+      "title": "第 2 步：过渡到按位处理",
+      "description": "从对称数和回文数切入，建立原值保护、digit 提取和 reversed 构造。"
+    },
+    {
+      "title": "第 3 步：进入嵌套枚举",
+      "description": "先讲数数和与 5 有关的数这类‘外层枚举数字、内层枚举数位’的综合结构。"
+    },
+    {
+      "title": "第 4 步：单独讲图形 / 矩阵输出",
+      "description": "把对角线矩阵和星号金字塔讲成‘位置枚举’，避免学生只背图案。"
+    },
+    {
+      "title": "第 5 步：专门讲 break 和边界压缩",
+      "description": "把质数判定、与 7 有关、sqrt(N) 边界压缩放到一组里单独收口。"
+    },
+    {
+      "title": "第 6 步：最后再做综合题",
+      "description": "等单层、按位、双层和图形输出都讲完，再让学生做哥德巴赫或数数这类综合题。"
+    }
+  ],
+  "teaching_notes": [
+    {
+      "title": "课堂讲解顺序建议",
+      "description": "建议按‘单层枚举 -> 按位处理 -> 嵌套枚举 -> 图形输出 -> break 与边界 -> 综合题’推进，而不是一开始就丢综合编程题。"
+    },
+    {
+      "title": "板书时一定把边界写成自然语言",
+      "description": "例如‘从 1 开始，因为 0 不能做因子；到 N 结束，因为 N 本身也可能是因子’，让学生真正理解范围来源。"
+    },
+    {
+      "title": "每讲完一类题都追问三件事",
+      "description": "你在枚举谁？你的边界为什么这样写？如果找到一个答案后要不要 break？这三问能快速暴露理解漏洞。"
+    },
+    {
+      "title": "演示模块要先讲变量，再讲结论",
+      "description": "单层题先看 candidate、digit 题先看 n 和 reversed、双层题先看 even 和 j、图形题先看 i 和 j。"
+    },
+    {
+      "title": "图形输出题不要讲成纯背图案",
+      "description": "只要老师先把‘当前行 / 当前列 / 当前字符’讲清楚，学生就更容易把图形题迁移回枚举思维。"
+    }
+  ],
+  "source_files": [
+    "project_inputs/gesp2_exam_sources/2级2023年12月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2023年9月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2024年3月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2024年6月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2024年9月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2024年12月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2025年3月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2025年6月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2025年9月.pdf",
+    "project_inputs/gesp2_exam_sources/2级2026年3月.pdf"
+  ]
+}

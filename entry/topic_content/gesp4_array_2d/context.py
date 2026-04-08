@@ -1,18 +1,25 @@
 from __future__ import annotations
 
 import json
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 
 TOPIC_DIR = Path(__file__).resolve().parent
 SITE_DATA_PATH = TOPIC_DIR / "site-data.json"
+_SITE_DATA_CACHE: dict[str, Any] | None = None
+_SITE_DATA_MTIME_NS: int | None = None
 
 
-@lru_cache(maxsize=1)
 def load_site_data() -> dict[str, Any]:
-    return json.loads(SITE_DATA_PATH.read_text(encoding="utf-8"))
+    global _SITE_DATA_CACHE, _SITE_DATA_MTIME_NS
+
+    current_mtime_ns = SITE_DATA_PATH.stat().st_mtime_ns
+    if _SITE_DATA_CACHE is None or _SITE_DATA_MTIME_NS != current_mtime_ns:
+        _SITE_DATA_CACHE = json.loads(SITE_DATA_PATH.read_text(encoding="utf-8"))
+        _SITE_DATA_MTIME_NS = current_mtime_ns
+
+    return _SITE_DATA_CACHE
 
 
 def get_topic_page_context(lecture_id: str | None = None) -> dict[str, Any]:

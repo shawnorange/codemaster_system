@@ -12,9 +12,11 @@ from .auth import (
     role_required,
     set_auth_cookie,
 )
+from .gesp2_catalog import ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .models import LessonHourLedger, PortalUser, RewardRecord, TeacherEvaluation
 from .portal_context import (
+    build_gesp2_reserved_topic_page,
     build_gesp4_reserved_topic_page,
     build_parent_page_shell,
     build_principal_page_shell,
@@ -22,11 +24,13 @@ from .portal_context import (
     build_teacher_course_detail_context,
     build_teacher_page_shell,
     build_teacher_student_detail_context,
+    get_gesp2_knowledge_content,
     get_gesp4_topic_access_items,
     get_gesp4_topic_content,
     get_student_by_user,
     get_student_content_access,
 )
+from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
 from .topic_content.gesp4_array_2d.context import get_topic_page_context
 
 
@@ -127,6 +131,11 @@ def student_cpp_gesp(request: HttpRequest) -> HttpResponse:
 
 
 @role_required("student")
+def student_cpp_gesp2(request: HttpRequest) -> HttpResponse:
+    return render_student_portal_page(request, "cpp_gesp2")
+
+
+@role_required("student")
 def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
     return render_student_portal_page(request, "cpp_gesp4")
 
@@ -182,9 +191,55 @@ def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
     return _render_gesp4_topic_page(request, ARRAY_2D_CONTENT_SLUG)
 
 
+def _render_gesp2_topic_page(request: HttpRequest, topic_slug: str) -> HttpResponse:
+    role_config = ROLE_CONFIG["student"]
+    try:
+        content = get_gesp2_knowledge_content(topic_slug)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该知识点") from exc
+
+    if topic_slug == ENUMERATION_METHOD_CONTENT_SLUG:
+        topic_context = get_gesp2_enumeration_page_context(view_mode="student")
+        return render(
+            request,
+            "entry/topics/gesp2_enumeration_page.html",
+            {
+                "role_label": role_config["label"],
+                **build_shell_identity_context(request),
+                **topic_context,
+            },
+        )
+
+    page_shell = build_gesp2_reserved_topic_page(topic_slug)
+    return render(
+        request,
+        "entry/student_portal_page.html",
+        {
+            "role_label": role_config["label"],
+            "page_title": page_shell["page_title"],
+            "page_description": page_shell["page_description"],
+            "page_shell": page_shell,
+            **build_shell_identity_context(request),
+        },
+    )
+
+
+@role_required("teacher")
+def teacher_cpp_gesp2_enumeration(request: HttpRequest) -> HttpResponse:
+    topic_context = get_gesp2_enumeration_page_context(view_mode="teacher")
+    return render(
+        request,
+        "entry/topics/gesp2_enumeration_page.html",
+        {
+            "role_label": ROLE_CONFIG["teacher"]["label"],
+            **build_shell_identity_context(request),
+            **topic_context,
+        },
+    )
+
+
 def _render_gesp4_topic_page(request: HttpRequest, topic_slug: str) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
-    user = request.codemaster_user
     portal_user = get_portal_user_from_request(request)
     student = get_student_by_user(portal_user)
     try:
@@ -225,6 +280,11 @@ def _render_gesp4_topic_page(request: HttpRequest, topic_slug: str) -> HttpRespo
 @role_required("student")
 def student_cpp_gesp4_topic(request: HttpRequest, topic_slug: str) -> HttpResponse:
     return _render_gesp4_topic_page(request, topic_slug)
+
+
+@role_required("student")
+def student_cpp_gesp2_topic(request: HttpRequest, topic_slug: str) -> HttpResponse:
+    return _render_gesp2_topic_page(request, topic_slug)
 
 
 @role_required("parent")

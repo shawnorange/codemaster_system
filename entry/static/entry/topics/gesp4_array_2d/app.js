@@ -13,6 +13,7 @@ const statusLabels = {
 const topicAppRoot = document.querySelector(".gesp4-array-topic");
 const questionTemplate = document.getElementById("question-card-template");
 const TEACHER_MODE_STORAGE_KEY = "gesp4-teacher-mode";
+const SIDEBAR_COLLAPSE_STORAGE_KEY = "gesp4-array-sidebar-collapsed";
 const animationState = {
   runtimes: new Map(),
   activeModuleId: null,
@@ -304,13 +305,14 @@ async function bootstrap() {
     renderHomePage(data);
   }
 
+  setupSidebarToggle();
   setupToggles();
   setupAnimationHotkeys();
   if (pageMode === "lecture") {
     setupLectureTeachingUI();
-    setupNavHighlight();
-    scrollToHashTarget();
   }
+  setupNavHighlight();
+  scrollToHashTarget();
 }
 
 async function loadSiteData() {
@@ -390,30 +392,6 @@ function renderHomeMeta(data) {
     ]),
   );
 
-  const reportGrid = document.getElementById("report-grid");
-  reportGrid.replaceChildren();
-  buildPaperCoverageRows(data.questions).forEach((row) => {
-    const card = document.createElement("article");
-    card.className = "report-card";
-
-    const title = document.createElement("h4");
-    title.textContent = row.paperLabel;
-
-    const badge = createStatusTag("success", `${row.questionCount} 道题`);
-
-    const extracted = document.createElement("strong");
-    extracted.textContent = String(row.lectureTitles.length);
-
-    const label = document.createElement("span");
-    label.textContent = `涉及 ${row.lectureTitles.join("、")}`;
-
-    const typeSummary = document.createElement("span");
-    typeSummary.className = "source-path";
-    typeSummary.textContent = `题型：${row.typeLabels.join("、")}`;
-
-    card.append(title, badge, extracted, label, typeSummary);
-    reportGrid.append(card);
-  });
 }
 
 function renderHomeOutline(lectures) {
@@ -421,6 +399,16 @@ function renderHomeOutline(lectures) {
   if (!navRoot) {
     return;
   }
+
+  const sectionList = document.createElement("div");
+  sectionList.className = "outline-anchor-list";
+  sectionList.append(
+    createNavLink({ text: "专题概览", level: 1, href: createTopicHomeHref("overview"), targetId: "overview" }),
+    createNavLink({ text: "专题导读", level: 1, href: createTopicHomeHref("topic-intro"), targetId: "topic-intro" }),
+    createNavLink({ text: "学习主线", level: 1, href: createTopicHomeHref("learning-path"), targetId: "learning-path" }),
+    createNavLink({ text: "内容编排", level: 1, href: createTopicHomeHref("content-map"), targetId: "content-map" }),
+    createNavLink({ text: "讲次目录", level: 1, href: createTopicHomeHref("lecture-directory"), targetId: "lecture-directory" }),
+  );
 
   const lectureRow = document.createElement("div");
   lectureRow.className = "outline-chip-row";
@@ -435,6 +423,7 @@ function renderHomeOutline(lectures) {
   });
 
   navRoot.replaceChildren(
+    createOutlineGroup("首页区块", "快速定位专题首页的核心内容区。", sectionList),
     createOutlineGroup("按讲次进入", "目录只保留专题内部跳转和讲次入口，不再承担站级导航。", lectureRow),
     createOutlineGroup("学习主线", "按知识递进组织，方便后续直接挂进系统内容层。", stageGrid),
   );
@@ -690,6 +679,17 @@ function renderLectureOutline(lectures, currentLecture) {
     return;
   }
 
+  const lectureOverview = document.createElement("div");
+  lectureOverview.className = "outline-anchor-list";
+  lectureOverview.append(
+    createNavLink({
+      text: "本讲概览",
+      level: 1,
+      href: createLectureHref(currentLecture.id, "lecture-overview"),
+      targetId: "lecture-overview",
+    }),
+  );
+
   const lectureRow = document.createElement("div");
   lectureRow.className = "outline-chip-row";
   lectures.forEach((lecture) => {
@@ -747,6 +747,7 @@ function renderLectureOutline(lectures, currentLecture) {
   });
 
   const groups = [
+    createOutlineGroup("页面定位", "当前讲次的页头概览与操作入口。", lectureOverview),
     createOutlineGroup("讲次切换", `当前：${currentLecture.title}`, lectureRow),
     createOutlineGroup("详细目录", `${currentLecture.sections.length} 个一级模块`, sectionList),
   ];
@@ -896,8 +897,8 @@ function createLectureHref(lectureId, anchorId = "") {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function createTopicHomeHref() {
-  return window.location.pathname;
+function createTopicHomeHref(anchorId = "") {
+  return anchorId ? `${window.location.pathname}#${anchorId}` : window.location.pathname;
 }
 
 function countLectureQuestions(lecture) {
@@ -940,34 +941,38 @@ function collectCoveredPapers(lecture) {
   return [...paperKeys];
 }
 
-function buildPaperCoverageRows(questions) {
-  const rows = new Map();
+function setupSidebarToggle() {
+  const workspace = document.querySelector("[data-topic-workspace]");
+  const toggleButton = document.querySelector("[data-sidebar-toggle]");
+  const label = document.querySelector("[data-sidebar-toggle-label]");
 
-  questions.forEach((question) => {
-    if (!rows.has(question.paperKey)) {
-      rows.set(question.paperKey, {
-        paperKey: question.paperKey,
-        paperLabel: question.paperLabel,
-        lectureTitles: new Set(),
-        typeLabels: new Set(),
-        questionCount: 0,
-      });
+  if (!workspace || !toggleButton || !label) {
+    return;
+  }
+
+  const applyState = (collapsed) => {
+    workspace.classList.toggle("is-sidebar-collapsed", collapsed);
+    toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    label.textContent = collapsed ? "展开导航" : "收起导航";
+  };
+
+  let persistedState = "expanded";
+  try {
+    persistedState = window.localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY) || "expanded";
+  } catch (error) {
+    console.warn("无法读取专题导航状态，将使用默认展开状态。", error);
+  }
+  applyState(persistedState === "collapsed");
+
+  toggleButton.addEventListener("click", () => {
+    const collapsed = !workspace.classList.contains("is-sidebar-collapsed");
+    applyState(collapsed);
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, collapsed ? "collapsed" : "expanded");
+    } catch (error) {
+      console.warn("无法保存专题导航状态，本次仅在当前页面生效。", error);
     }
-
-    const row = rows.get(question.paperKey);
-    row.questionCount += 1;
-    row.lectureTitles.add(question.lectureId.replace("lecture-", "第") + "讲");
-    row.typeLabels.add(typeLabels[question.type] || question.type);
   });
-
-  return [...rows.values()]
-    .sort((a, b) => b.paperKey.localeCompare(a.paperKey))
-    .map((row) => ({
-      paperLabel: row.paperLabel,
-      questionCount: row.questionCount,
-      lectureTitles: [...row.lectureTitles],
-      typeLabels: [...row.typeLabels],
-    }));
 }
 
 function getLectureChipText(lectureId) {
@@ -2170,7 +2175,7 @@ function setupNavHighlight() {
   const navLinks = [...document.querySelectorAll(".outline-anchor[data-target]")];
   const linkMap = new Map(navLinks.map((link) => [link.dataset.target, link]));
   const targets = [...document.querySelectorAll(".observe-target")].filter((target) => linkMap.has(target.id));
-  if (!navLinks.length || !targets.length) {
+  if (!navLinks.length || !targets.length || typeof window.IntersectionObserver !== "function") {
     return;
   }
 
@@ -2210,9 +2215,12 @@ function scrollToHashTarget() {
     return;
   }
 
-  window.requestAnimationFrame(() => {
-    target.scrollIntoView({ block: "start", behavior: "auto" });
-  });
+  const scroll = () => target.scrollIntoView({ block: "start", behavior: "auto" });
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(scroll);
+  } else {
+    scroll();
+  }
 }
 
 function buildLectureOneMemorySnapshot(step) {

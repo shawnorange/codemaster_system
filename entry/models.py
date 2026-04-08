@@ -90,15 +90,18 @@ class Course(models.Model):
 
 class CourseContent(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
+    content_type = models.CharField("课程类别", max_length=64, blank=True)
     slug = models.SlugField("内容标识", unique=True)
     title = models.CharField("内容名称", max_length=128)
     phase = models.CharField("所属阶段", max_length=64, blank=True)
+    sort_order = models.PositiveIntegerField("排序", default=0)
     route_path = models.CharField("访问路由", max_length=255, unique=True)
     summary = models.TextField("内容说明", blank=True)
+    has_real_content = models.BooleanField("是否已有真实内容", default=False)
     is_active = models.BooleanField("是否启用", default=True)
 
     class Meta:
-        ordering = ["id"]
+        ordering = ["course_id", "phase", "sort_order", "id"]
         verbose_name = "课程内容"
         verbose_name_plural = "课程内容"
 

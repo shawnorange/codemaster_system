@@ -6,6 +6,13 @@ from django.db.models import QuerySet, Sum
 from django.urls import reverse
 from django.utils import timezone
 
+from .gesp2_catalog import (
+    ENUMERATION_METHOD_CONTENT_SLUG,
+    GESP2_KNOWLEDGE_DEFINITIONS,
+    GESP2_KNOWLEDGE_MAP,
+    GESP2_KNOWLEDGE_SLUGS,
+    GESP2_PHASE,
+)
 from .gesp4_catalog import (
     ARRAY_2D_CONTENT_SLUG,
     GESP4_PHASE,
@@ -111,12 +118,39 @@ def get_gesp4_topic_contents() -> list[CourseContent]:
     return [content_map[slug] for slug in GESP4_TOPIC_SLUGS]
 
 
+def get_gesp2_knowledge_contents() -> list[CourseContent]:
+    content_map = {
+        content.slug: content
+        for content in CourseContent.objects.select_related("course").filter(
+            course__slug="cpp",
+            phase=GESP2_PHASE,
+            slug__in=GESP2_KNOWLEDGE_SLUGS,
+            is_active=True,
+        )
+    }
+    missing = [slug for slug in GESP2_KNOWLEDGE_SLUGS if slug not in content_map]
+    if missing:
+        raise CourseContent.DoesNotExist(f"Missing GESP2 contents: {', '.join(missing)}")
+    return [content_map[slug] for slug in GESP2_KNOWLEDGE_SLUGS]
+
+
 def get_gesp4_topic_content(topic_slug: str) -> CourseContent:
     if topic_slug not in GESP4_TOPIC_MAP:
         raise CourseContent.DoesNotExist(f"Unknown GESP4 topic: {topic_slug}")
     return CourseContent.objects.select_related("course").get(
         course__slug="cpp",
         phase=GESP4_PHASE,
+        slug=topic_slug,
+        is_active=True,
+    )
+
+
+def get_gesp2_knowledge_content(topic_slug: str) -> CourseContent:
+    if topic_slug not in GESP2_KNOWLEDGE_MAP:
+        raise CourseContent.DoesNotExist(f"Unknown GESP2 knowledge point: {topic_slug}")
+    return CourseContent.objects.select_related("course").get(
+        course__slug="cpp",
+        phase=GESP2_PHASE,
         slug=topic_slug,
         is_active=True,
     )
@@ -131,6 +165,11 @@ def get_locked_topic_message(topic_slug: str) -> str:
 
 def get_content_mode_text(topic_slug: str) -> str:
     topic_definition = GESP4_TOPIC_MAP[topic_slug]
+    return "真实内容" if topic_definition["content_mode"] == "real" else "内容预留"
+
+
+def get_gesp2_content_mode_text(topic_slug: str) -> str:
+    topic_definition = GESP2_KNOWLEDGE_MAP[topic_slug]
     return "真实内容" if topic_definition["content_mode"] == "real" else "内容预留"
 
 
@@ -270,6 +309,34 @@ def get_gesp4_topic_access_items(student: Student) -> list[dict]:
     return [_build_topic_access_item(content, access_map[content.id]) for content in contents]
 
 
+def get_gesp2_knowledge_items() -> list[dict]:
+    items = []
+    for content in get_gesp2_knowledge_contents():
+        definition = GESP2_KNOWLEDGE_MAP[content.slug]
+        is_real_content = definition["content_mode"] == "real"
+        items.append(
+            {
+                "slug": content.slug,
+                "title": content.title,
+                "subtitle": definition["subtitle"],
+                "summary": content.summary or definition["summary"],
+                "route_path": content.route_path,
+                "order_label": definition["order_label"],
+                "content_mode_text": get_gesp2_content_mode_text(content.slug),
+                "is_real_content": is_real_content,
+                "state": "open" if is_real_content else "trial",
+                "status_text": "真实内容" if is_real_content else "内容预留",
+                "action_label": "进入知识点" if is_real_content else "查看预留",
+                "note": (
+                    "首个真实教学页，已接入知识点说明、基础模板与真题区。"
+                    if is_real_content
+                    else "当前先进入统一预留页，后续可直接替换成真实知识点内容。"
+                ),
+            }
+        )
+    return items
+
+
 def _count_course_students(students: list[Student], course_title: str) -> int:
     return sum(1 for student in students if get_student_primary_course(student) == course_title)
 
@@ -281,6 +348,88 @@ def build_student_portal_page(
     locked_topic_slug: str | None = None,
 ) -> dict:
     page_shell = deepcopy(STUDENT_PORTAL_CONTENT[page_key])
+
+    if page_key == "cpp_gesp":
+        gesp2_contents = get_gesp2_knowledge_contents()
+        gesp4_contents = get_gesp4_topic_contents()
+        page_shell["summary_cards"] = [
+            {"label": "已接入层级", "value": "2 个"},
+            {"label": "首个真实内容", "value": "GESP2 · 枚举法"},
+            {"label": "专题目录", "value": f"GESP4 · {len(gesp4_contents)} 个"},
+        ]
+        page_shell["entry_hint"] = "GESP2 已接入知识点目录和“枚举法”真实内容页；GESP4 继续保留多专题目录。"
+        page_shell["portal_cards"] = [
+            {
+                "slug": "gesp1",
+                "title": "GESP1",
+                "meta": "Level 1",
+                "subtitle": "入门基础",
+                "note": "当前仍作为层级占位保留。",
+                "state": "locked",
+                "status_text": "未开放",
+            },
+            {
+                "slug": "gesp2",
+                "title": "GESP2",
+                "meta": "Level 2",
+                "subtitle": "知识点目录已接入",
+                "note": f"当前共 {len(gesp2_contents)} 个知识点目录项，枚举法已接入真实教学页。",
+                "state": "open",
+                "status_text": "已接入",
+                "featured": True,
+                "action_label": "进入 GESP2",
+                "action_href": "/student/cpp/gesp/gesp2",
+            },
+            {
+                "slug": "gesp3",
+                "title": "GESP3",
+                "meta": "Level 3",
+                "subtitle": "进阶过渡",
+                "note": "当前仍作为层级占位保留。",
+                "state": "locked",
+                "status_text": "未开放",
+            },
+            {
+                "slug": "gesp4",
+                "title": "GESP4",
+                "meta": "Level 4",
+                "subtitle": "多专题目录已接入",
+                "note": f"当前共 {len(gesp4_contents)} 个专题目录项，二维数组专题保留真实内容。",
+                "state": "open",
+                "status_text": "已接入",
+                "featured": True,
+                "action_label": "进入 GESP4",
+                "action_href": "/student/cpp/gesp/gesp4",
+            },
+        ]
+        return page_shell
+
+    if page_key == "cpp_gesp2":
+        knowledge_items = get_gesp2_knowledge_items()
+        real_count = sum(1 for item in knowledge_items if item["is_real_content"])
+        reserved_count = len(knowledge_items) - real_count
+        page_shell["portal_cards"] = [
+            {
+                "slug": item["slug"],
+                "title": item["title"],
+                "meta": f"{item['order_label']} · {item['content_mode_text']}",
+                "subtitle": item["subtitle"],
+                "note": item["note"],
+                "state": item["state"],
+                "status_text": item["status_text"],
+                "featured": item["is_real_content"],
+                "action_label": item["action_label"],
+                "action_href": item["route_path"],
+            }
+            for item in knowledge_items
+        ]
+        page_shell["summary_cards"] = [
+            {"label": "知识点总数", "value": f"{len(knowledge_items)} 个"},
+            {"label": "真实内容", "value": f"{real_count} 个"},
+            {"label": "预留内容", "value": f"{reserved_count} 个"},
+        ]
+        page_shell["entry_hint"] = "枚举法已作为 GESP2 首个真实知识点网页接入，其它知识点当前先进入统一预留页。"
+        return page_shell
 
     if page_key != "cpp_gesp4":
         return page_shell
@@ -327,6 +476,71 @@ def build_student_portal_page(
     else:
         page_shell["entry_hint"] = "GESP4 目录已接入真实读库逻辑，教师开放后即可进入对应专题。"
     return page_shell
+
+
+def build_gesp2_reserved_topic_page(topic_slug: str) -> dict:
+    content = get_gesp2_knowledge_content(topic_slug)
+    topic_definition = GESP2_KNOWLEDGE_MAP[topic_slug]
+
+    return {
+        "page_mode": "reserved",
+        "hero_eyebrow": "GESP2 Knowledge Placeholder",
+        "page_title": f"{content.title} 内容预留页",
+        "page_description": f"{content.title} 已进入 GESP2 知识点目录，当前先用统一预留页承接，后续可直接替换成真实知识点网页。",
+        "breadcrumb_items": [
+            {"label": "学生课程页", "href": "/student/courses"},
+            {"label": "C++", "href": "/student/cpp"},
+            {"label": "GESP", "href": "/student/cpp/gesp"},
+            {"label": "GESP2", "href": "/student/cpp/gesp/gesp2"},
+            {"label": content.title},
+        ],
+        "summary_cards": [
+            {"label": "当前知识点", "value": content.title, "hint": topic_definition["order_label"]},
+            {"label": "内容状态", "value": "内容预留", "hint": "已纳入真实 CourseContent 目录"},
+            {"label": "所属层级", "value": "GESP2", "hint": "后续只需替换内容主体"},
+        ],
+        "section_eyebrow": "Reserved Knowledge Page",
+        "section_title": f"{content.title} 内容预留页",
+        "section_description": "当前知识点已经进入 GESP2 知识点目录体系。后续继续补正文时，可以直接替换这里的内容主体，不需要改数据库或路由。",
+        "portal_notice": {
+            "title": "当前接入边界",
+            "description": "这批先把 GESP2 知识点目录落库，并优先把枚举法做成真实内容页。其它知识点先在这里占位。",
+            "items": [
+                "当前知识点已经拥有真实 slug、标题、排序和内容路由",
+                "学生端可以从 GESP2 目录直接进入这个预留承载页",
+                "后续只需要替换正文，不需要重做目录层",
+            ],
+        },
+        "reserved_entry": {
+            "label": topic_definition["order_label"],
+            "status_text": "内容预留",
+            "path": ["C++", "GESP", "GESP2", content.title],
+            "title": content.title,
+            "description": content.summary or topic_definition["summary"],
+        },
+        "reserved_notes": [
+            {
+                "title": "目录已落库",
+                "description": "当前知识点已经成为数据库中的真实 CourseContent 记录，而不只是页面上的一张卡片。",
+            },
+            {
+                "title": "路由已接通",
+                "description": "学生端可以从 GESP2 知识点目录直接进入这里，后续接真内容时不需要改入口。",
+            },
+            {
+                "title": "后续升级方式",
+                "description": "将来可以像枚举法一样，直接替换成完整知识点网页。",
+            },
+        ],
+        "support_label": "Knowledge Notes",
+        "support_title": "知识点预留说明",
+        "support_description": "这里说明当前知识点已经属于真实目录体系，以及后续怎样平滑升级成真实内容页。",
+        "support_items": [
+            {"title": "目录化承载", "description": "当前知识点已进入 GESP2 目录，而不是挂在静态文案里。"},
+            {"title": "可继续扩展", "description": "后续其它 GESP2 知识点可沿用同一条接入路径补页。"},
+            {"title": "与 GESP4 并存", "description": "这次新增 GESP2，不会影响 GESP4 多专题链路和二维数组页。"},
+        ],
+    }
 
 
 def build_gesp4_reserved_topic_page(topic_slug: str) -> dict:
@@ -596,8 +810,17 @@ def build_teacher_course_detail_context(portal_user: PortalUser, course_slug: st
     topic_assignment_rows: list[dict] = []
     topic_assignment_summary = None
     topic_assignment_action = ""
+    teaching_page_links: list[dict] = []
 
     if course_slug == "cpp":
+        teaching_page_links = [
+            {
+                "title": "GESP2 · 枚举法专题页",
+                "description": "教师版保留 Knowledge Overview、Common Pitfalls、Scope Boundary、Coverage 与 Teaching Notes，适合直接备课和投屏讲解。",
+                "href": reverse("teacher-cpp-gesp2-enumeration"),
+                "status_text": "教师版教学页",
+            }
+        ]
         topic_contents = get_gesp4_topic_contents()
         topic_items = []
         for content in topic_contents:
@@ -678,6 +901,7 @@ def build_teacher_course_detail_context(portal_user: PortalUser, course_slug: st
             {"label": "已开放内容", "value": str(open_content_count), "hint": "当前课程方向下的已开放内容记录数"},
         ],
         "category_items": definition["category_items"],
+        "teaching_page_links": teaching_page_links,
         "selected_topic": selected_topic,
         "topic_filter_items": topic_filter_items,
         "topic_assignment_rows": topic_assignment_rows,

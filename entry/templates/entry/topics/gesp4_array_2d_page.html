@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/topics/gesp4_array_2d/styles.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/topics/gesp4_array_2d/styles.css' %}?v=20260408b">
 {% endblock %}
 
 {% block system_content %}
@@ -25,83 +25,94 @@
 
     <section class="gesp4-array-topic" data-page="{{ topic_page_mode }}">
         <div class="page-shell">
-            <main class="content">
-                {% if topic_page_mode == "lecture" %}
-                    <section class="hero-panel">
-                        <div class="hero-copy">
-                            <p class="eyebrow">GESP4 / 讲次内容</p>
-                            <h2 id="page-title">加载中...</h2>
-                            <p id="page-subtitle" class="hero-subtitle"></p>
-                            <p id="sidebar-summary" class="topic-summary">加载中...</p>
-                            <div id="hero-actions" class="hero-actions"></div>
+            <div class="topic-workspace" data-topic-workspace>
+                <aside class="topic-sidebar">
+                    <div class="topic-sidebar-shell">
+                        <div class="topic-sidebar-topbar">
+                            <button
+                                type="button"
+                                class="topic-sidebar-toggle"
+                                data-sidebar-toggle
+                                aria-expanded="true"
+                                aria-controls="sidebar-nav"
+                            >
+                                <span class="topic-sidebar-toggle__icon">≡</span>
+                                <span class="topic-sidebar-toggle__label" data-sidebar-toggle-label>收起导航</span>
+                            </button>
+                            <span class="topic-sidebar-mini-label">专题导航</span>
                         </div>
-                        <div id="meta-grid" class="meta-grid"></div>
-                    </section>
 
-                    <section class="outline-panel outline-panel--lecture">
-                        <div class="report-header">
-                            <p class="eyebrow">Lecture Outline</p>
-                            <h3>本讲目录</h3>
-                            <p class="panel-description">讲次内容主体完整保留，导航只作为局部目录和讲次切换，不再模拟整站左侧主导航。</p>
+                        <div class="topic-sidebar-head">
+                            {% if topic_page_mode == "lecture" %}
+                                <p class="eyebrow">Lecture Navigator</p>
+                                <h3>本讲导航</h3>
+                                <p class="panel-description">按讲次、知识点、模板、动画和真题模块快速切换，阅读位置会在导航中同步高亮。</p>
+                            {% else %}
+                                <p class="eyebrow">Topic Navigator</p>
+                                <h3>专题导航</h3>
+                                <p class="panel-description">首页负责专题导读和讲次分发，左侧导航可在首页区块和讲次入口之间快速切换。</p>
+                            {% endif %}
                         </div>
-                        <nav id="sidebar-nav" class="topic-outline-nav" aria-label="本讲目录"></nav>
-                    </section>
 
-                    <div id="lecture-container" class="lecture-container"></div>
-                {% else %}
-                    <section id="overview" class="hero-panel">
-                        <div class="hero-copy">
-                            <p class="eyebrow">GESP4 / 二维数组专题</p>
-                            <h2 id="page-title">加载中...</h2>
-                            <p id="page-subtitle" class="hero-subtitle"></p>
-                            <p id="sidebar-summary" class="topic-summary">加载中...</p>
-                        </div>
-                        <div id="meta-grid" class="meta-grid"></div>
-                    </section>
+                        <nav
+                            id="sidebar-nav"
+                            class="topic-outline-nav"
+                            aria-label="{% if topic_page_mode == 'lecture' %}本讲目录{% else %}专题目录{% endif %}"
+                        ></nav>
+                    </div>
+                </aside>
 
-                    <section class="outline-panel">
-                        <div class="report-header">
-                            <p class="eyebrow">Topic Outline</p>
-                            <h3>专题目录</h3>
-                            <p class="panel-description">保留目录能力，但降级为轻量专题导览，方便后续直接作为系统内专题内容层挂载。</p>
-                        </div>
-                        <nav id="sidebar-nav" class="topic-outline-nav" aria-label="专题目录"></nav>
-                    </section>
+                <main class="content">
+                    {% if topic_page_mode == "lecture" %}
+                        <section class="hero-panel observe-target" id="lecture-overview">
+                            <div class="hero-copy">
+                                <p class="eyebrow">GESP4 / 讲次内容</p>
+                                <h2 id="page-title">加载中...</h2>
+                                <p id="page-subtitle" class="hero-subtitle"></p>
+                                <p id="sidebar-summary" class="topic-summary">加载中...</p>
+                                <div id="hero-actions" class="hero-actions"></div>
+                            </div>
+                            <div id="meta-grid" class="meta-grid"></div>
+                        </section>
 
-                    <section class="overview-grid">
-                        <article class="overview-card">
-                            <h3>专题导读</h3>
-                            <div id="tech-stack-notes" class="overview-body"></div>
-                        </article>
-                        <article class="overview-card">
-                            <h3>学习主线</h3>
-                            <div id="source-documents" class="overview-body"></div>
-                        </article>
-                        <article class="overview-card">
-                            <h3>内容编排</h3>
-                            <div id="extraction-summary" class="overview-body"></div>
-                        </article>
-                    </section>
+                        <div id="lecture-container" class="lecture-container"></div>
+                    {% else %}
+                        <section id="overview" class="hero-panel observe-target">
+                            <div class="hero-copy">
+                                <p class="eyebrow">GESP4 / 二维数组专题</p>
+                                <h2 id="page-title">加载中...</h2>
+                                <p id="page-subtitle" class="hero-subtitle"></p>
+                                <p id="sidebar-summary" class="topic-summary">加载中...</p>
+                            </div>
+                            <div id="meta-grid" class="meta-grid"></div>
+                        </section>
 
-                    <section class="report-panel">
-                        <div class="report-header">
-                            <p class="eyebrow">Past Paper Coverage</p>
-                            <h3>真题覆盖</h3>
-                            <p class="panel-description">按试卷来源查看当前专题已整理内容，方便后续接入新系统时继续补齐或扩展。</p>
-                        </div>
-                        <div id="report-grid" class="report-grid"></div>
-                    </section>
+                        <section class="overview-grid">
+                            <article id="topic-intro" class="overview-card observe-target">
+                                <h3>专题导读</h3>
+                                <div id="tech-stack-notes" class="overview-body"></div>
+                            </article>
+                            <article id="learning-path" class="overview-card observe-target">
+                                <h3>学习主线</h3>
+                                <div id="source-documents" class="overview-body"></div>
+                            </article>
+                            <article id="content-map" class="overview-card observe-target">
+                                <h3>内容编排</h3>
+                                <div id="extraction-summary" class="overview-body"></div>
+                            </article>
+                        </section>
 
-                    <section class="report-panel lecture-entry-panel">
-                        <div class="report-header">
-                            <p class="eyebrow">Lecture Directory</p>
-                            <h3>讲次目录</h3>
-                            <p class="panel-description">继续沿用旧项目已有的讲次拆分和内容主体，后续只需要替换外层壳子接入即可。</p>
-                        </div>
-                        <div id="lecture-entry-grid" class="lecture-entry-grid"></div>
-                    </section>
-                {% endif %}
-            </main>
+                        <section id="lecture-directory" class="report-panel lecture-entry-panel observe-target">
+                            <div class="report-header">
+                                <p class="eyebrow">Lecture Directory</p>
+                                <h3>讲次目录</h3>
+                                <p class="panel-description">继续沿用旧项目已有的讲次拆分和内容主体，右侧内容区保持专题首页，左侧导航负责切换讲次和首页区块。</p>
+                            </div>
+                            <div id="lecture-entry-grid" class="lecture-entry-grid"></div>
+                        </section>
+                    {% endif %}
+                </main>
+            </div>
         </div>
 
         <template id="question-card-template">
@@ -133,5 +144,5 @@
 {% endblock %}
 
 {% block extra_body_end %}
-    <script src="{% static 'entry/topics/gesp4_array_2d/app.js' %}" type="module"></script>
+    <script src="{% static 'entry/topics/gesp4_array_2d/app.js' %}?v=20260408b" type="module"></script>
 {% endblock %}

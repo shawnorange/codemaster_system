@@ -58,6 +58,32 @@
                 {% endfor %}
             </div>
 
+            {% if teaching_page_links %}
+                <section class="workbench-panel workbench-panel--recent">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Teaching Pages</p>
+                        <h3>已接入教学页</h3>
+                        <p>这里放课程维度下已经可以直接进入的教师版教学专题页。</p>
+                    </div>
+
+                    <div class="topic-work-grid">
+                        {% for item in teaching_page_links %}
+                            <article class="topic-work-card topic-work-card--open">
+                                <div class="topic-work-card__header">
+                                    <div>
+                                        <p class="section-heading__eyebrow">Teacher Topic</p>
+                                        <h4>{{ item.title }}</h4>
+                                    </div>
+                                    <span class="state-pill state-pill--future">{{ item.status_text }}</span>
+                                </div>
+                                <p class="topic-work-card__description">{{ item.description }}</p>
+                                <a class="teacher-table__action" href="{{ item.href }}">进入教师版专题页</a>
+                            </article>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endif %}
+
             {% if topic_filter_items %}
                 <section class="workbench-panel workbench-panel--topics">
                     <div class="section-heading">

@@ -1,0 +1,1123 @@
+.gesp2-enumeration-topic {
+    --bg: #f8f5ec;
+    --bg-accent: #eef7ff;
+    --panel: rgba(255, 253, 248, 0.92);
+    --panel-strong: #ffffff;
+    --line: rgba(15, 103, 184, 0.16);
+    --line-strong: rgba(15, 103, 184, 0.3);
+    --ink: #123c68;
+    --ink-soft: #54779d;
+    --accent: #0f67b8;
+    --accent-strong: #0b4f8c;
+    --accent-soft: rgba(15, 103, 184, 0.12);
+    --success: #1c7d66;
+    --warning: #b57818;
+    --shadow: 0 28px 70px rgba(15, 103, 184, 0.12);
+    --radius-lg: 28px;
+    --radius-md: 18px;
+    --radius-sm: 12px;
+    --shell-width: 1380px;
+}
+
+.gesp2-enumeration-topic,
+.gesp2-enumeration-topic * {
+    box-sizing: border-box;
+}
+
+.gesp2-enumeration-topic {
+    position: relative;
+    overflow: visible;
+    border: 1px solid rgba(15, 103, 184, 0.14);
+    border-radius: 34px;
+    background:
+        radial-gradient(circle at top left, rgba(173, 217, 255, 0.26), transparent 28%),
+        radial-gradient(circle at right 18%, rgba(15, 103, 184, 0.14), transparent 24%),
+        linear-gradient(180deg, #fbf9f2 0%, var(--bg) 100%);
+    box-shadow: 0 22px 54px rgba(15, 103, 184, 0.08);
+    color: var(--ink);
+    font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    line-height: 1.65;
+    scroll-behavior: smooth;
+}
+
+.gesp2-enumeration-topic::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(15, 103, 184, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 103, 184, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.58), transparent 78%);
+    pointer-events: none;
+}
+
+.gesp2-enumeration-topic a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.gesp2-enumeration-topic button {
+    font: inherit;
+}
+
+.gesp2-enumeration-topic code,
+.gesp2-enumeration-topic pre {
+    font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+}
+
+.gesp2-enumeration-topic .page-shell {
+    position: relative;
+    z-index: 1;
+    width: min(100%, var(--shell-width));
+    margin: 0 auto;
+    padding: 28px clamp(18px, 3vw, 40px) 48px;
+}
+
+.gesp2-enumeration-topic .topic-workspace {
+    display: grid;
+    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+}
+
+.gesp2-enumeration-topic .topic-sidebar {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+}
+
+.gesp2-enumeration-topic .topic-sidebar-shell,
+.gesp2-enumeration-topic .topic-section,
+.gesp2-enumeration-topic .hero-panel,
+.gesp2-enumeration-topic .group-card,
+.gesp2-enumeration-topic .question-card,
+.gesp2-enumeration-topic .template-card,
+.gesp2-enumeration-topic .pitfall-card,
+.gesp2-enumeration-topic .coverage-card,
+.gesp2-enumeration-topic .scope-card,
+.gesp2-enumeration-topic .sequence-item,
+.gesp2-enumeration-topic .note-item,
+.gesp2-enumeration-topic .overview-card,
+.gesp2-enumeration-topic .signal-card,
+.gesp2-enumeration-topic .process-card,
+.gesp2-enumeration-topic .metric-card,
+.gesp2-enumeration-topic .source-panel,
+.gesp2-enumeration-topic .enum-player-panel,
+.gesp2-enumeration-topic .enum-demo-tab {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+}
+
+.gesp2-enumeration-topic .topic-sidebar-shell {
+    display: grid;
+    gap: 18px;
+    padding: 20px 18px;
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+.gesp2-enumeration-topic .topic-sidebar-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .topic-sidebar-floating-label {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.36rem 0.82rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .topic-sidebar-head {
+    display: grid;
+    gap: 8px;
+}
+
+.gesp2-enumeration-topic .topic-sidebar-head h3,
+.gesp2-enumeration-topic .hero-copy h2,
+.gesp2-enumeration-topic .section-heading h3,
+.gesp2-enumeration-topic .group-card h4,
+.gesp2-enumeration-topic .question-card h5 {
+    margin: 0;
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .eyebrow,
+.gesp2-enumeration-topic .section-heading__eyebrow {
+    margin: 0;
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.gesp2-enumeration-topic .panel-description,
+.gesp2-enumeration-topic .hero-subtitle,
+.gesp2-enumeration-topic .topic-summary,
+.gesp2-enumeration-topic .section-heading p {
+    margin: 0;
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .topic-outline-nav {
+    display: grid;
+    gap: 18px;
+}
+
+.gesp2-enumeration-topic .outline-group {
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .outline-group-head {
+    display: grid;
+    gap: 6px;
+}
+
+.gesp2-enumeration-topic .outline-group-title {
+    color: var(--accent-strong);
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .outline-group-note {
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.gesp2-enumeration-topic .outline-anchor-list {
+    display: grid;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .outline-anchor {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: rgba(247, 251, 255, 0.92);
+    color: var(--ink);
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .outline-anchor:hover,
+.gesp2-enumeration-topic .outline-anchor.is-active {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.32);
+    background: rgba(225, 240, 255, 0.95);
+}
+
+.gesp2-enumeration-topic .outline-anchor small {
+    padding: 0.16rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .topic-content {
+    min-width: 0;
+    display: grid;
+    gap: 24px;
+}
+
+.gesp2-enumeration-topic .observe-target {
+    scroll-margin-top: 24px;
+}
+
+.gesp2-enumeration-topic .hero-panel,
+.gesp2-enumeration-topic .topic-section {
+    padding: 24px clamp(18px, 2.4vw, 28px);
+}
+
+.gesp2-enumeration-topic .hero-panel {
+    display: grid;
+    gap: 20px;
+}
+
+.gesp2-enumeration-topic .hero-copy {
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .hero-copy h2 {
+    font-size: clamp(1.8rem, 3vw, 2.6rem);
+}
+
+.gesp2-enumeration-topic .hero-metrics,
+.gesp2-enumeration-topic .overview-grid,
+.gesp2-enumeration-topic .signal-grid,
+.gesp2-enumeration-topic .process-grid,
+.gesp2-enumeration-topic .coverage-grid,
+.gesp2-enumeration-topic .scope-grid,
+.gesp2-enumeration-topic .sequence-grid,
+.gesp2-enumeration-topic .note-list {
+    display: grid;
+    gap: 14px;
+}
+
+.gesp2-enumeration-topic .hero-metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .overview-grid,
+.gesp2-enumeration-topic .signal-grid,
+.gesp2-enumeration-topic .process-grid,
+.gesp2-enumeration-topic .scope-grid,
+.gesp2-enumeration-topic .sequence-grid,
+.gesp2-enumeration-topic .note-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .coverage-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .metric-card,
+.gesp2-enumeration-topic .overview-card,
+.gesp2-enumeration-topic .signal-card,
+.gesp2-enumeration-topic .process-card,
+.gesp2-enumeration-topic .coverage-card,
+.gesp2-enumeration-topic .scope-card,
+.gesp2-enumeration-topic .sequence-item,
+.gesp2-enumeration-topic .note-item {
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+}
+
+.gesp2-enumeration-topic .metric-card strong {
+    color: var(--accent-strong);
+    font-size: 1.3rem;
+}
+
+.gesp2-enumeration-topic .metric-card__label,
+.gesp2-enumeration-topic .process-card span,
+.gesp2-enumeration-topic .coverage-card span,
+.gesp2-enumeration-topic .sequence-item span,
+.gesp2-enumeration-topic .question-card__meta span,
+.gesp2-enumeration-topic .enum-chip,
+.gesp2-enumeration-topic .enum-step-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.2rem 0.66rem;
+    border-radius: 999px;
+    background: #e9f3ff;
+    color: #2363af;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .group-stack,
+.gesp2-enumeration-topic .question-grid,
+.gesp2-enumeration-topic .template-grid,
+.gesp2-enumeration-topic .pitfall-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.gesp2-enumeration-topic .group-card {
+    padding: 22px;
+}
+
+.gesp2-enumeration-topic .group-card__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+}
+
+.gesp2-enumeration-topic .group-card__head p,
+.gesp2-enumeration-topic .group-meta span,
+.gesp2-enumeration-topic .question-card__prompt,
+.gesp2-enumeration-topic .question-notes dd,
+.gesp2-enumeration-topic .template-card__head span,
+.gesp2-enumeration-topic .template-card__warning,
+.gesp2-enumeration-topic .template-card__points,
+.gesp2-enumeration-topic .pitfall-card p,
+.gesp2-enumeration-topic .coverage-card p,
+.gesp2-enumeration-topic .source-list li span,
+.gesp2-enumeration-topic .enum-player-title p,
+.gesp2-enumeration-topic .enum-panel-copy p,
+.gesp2-enumeration-topic .enum-callout p,
+.gesp2-enumeration-topic .enum-preview-panel p {
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .group-meta {
+    min-width: 12rem;
+    display: grid;
+    gap: 0.35rem;
+    border-radius: 18px;
+    background: #f4f8fd;
+    padding: 0.95rem 1rem;
+}
+
+.gesp2-enumeration-topic .group-meta strong {
+    color: var(--accent-strong);
+    font-size: 1.08rem;
+}
+
+.gesp2-enumeration-topic .question-grid {
+    grid-template-columns: 1fr;
+}
+
+.gesp2-enumeration-topic .template-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .pitfall-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .question-card,
+.gesp2-enumeration-topic .template-card,
+.gesp2-enumeration-topic .pitfall-card {
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+}
+
+.gesp2-enumeration-topic .question-card__meta,
+.gesp2-enumeration-topic .tag-row,
+.gesp2-enumeration-topic .enum-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.gesp2-enumeration-topic .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.22rem 0.62rem;
+    border-radius: 999px;
+    background: #dff1e8;
+    color: #126447;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .tag--secondary {
+    background: #f0f5fb;
+    color: #315a8c;
+}
+
+.gesp2-enumeration-topic .question-notes {
+    margin: 0;
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .question-notes dt {
+    margin-bottom: 4px;
+    color: #2363af;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .question-notes dd {
+    margin: 0;
+}
+
+.gesp2-enumeration-topic .question-statement {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(247, 251, 255, 0.95);
+    border: 1px solid rgba(15, 103, 184, 0.12);
+}
+
+.gesp2-enumeration-topic .question-statement strong,
+.gesp2-enumeration-topic .question-answer-panel strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .question-inline-code {
+    border-radius: 18px;
+    background: #10253f;
+    box-shadow: 0 16px 36px rgba(9, 31, 58, 0.18);
+    overflow: hidden;
+}
+
+.gesp2-enumeration-topic .question-inline-code pre {
+    margin: 0;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+}
+
+.gesp2-enumeration-topic .question-inline-code code {
+    color: #ecf5ff;
+    font-size: 0.89rem;
+    line-height: 1.68;
+}
+
+.gesp2-enumeration-topic .question-option-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.45rem;
+    color: var(--ink);
+}
+
+.gesp2-enumeration-topic .question-option-list li {
+    padding-left: 0.1rem;
+}
+
+.gesp2-enumeration-topic .question-io-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .question-io-card {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(15, 103, 184, 0.12);
+}
+
+.gesp2-enumeration-topic .question-io-card strong,
+.gesp2-enumeration-topic .question-answer-label {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .question-io-card p,
+.gesp2-enumeration-topic .question-io-card pre {
+    margin: 0;
+}
+
+.gesp2-enumeration-topic .question-io-card pre {
+    padding: 0.85rem 0.95rem;
+    border-radius: 14px;
+    background: #10253f;
+    color: #ecf5ff;
+    overflow-x: auto;
+}
+
+.gesp2-enumeration-topic .question-answer-box {
+    display: grid;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .question-answer-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    padding: 0.58rem 0.96rem;
+    border: 1px solid rgba(15, 103, 184, 0.18);
+    border-radius: 999px;
+    background: rgba(238, 247, 255, 0.82);
+    color: var(--accent-strong);
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .question-answer-toggle:hover {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.32);
+}
+
+.gesp2-enumeration-topic .question-answer-toggle.is-locked,
+.gesp2-enumeration-topic .question-answer-toggle:disabled {
+    cursor: default;
+    opacity: 1;
+    transform: none;
+    background: rgba(220, 238, 255, 0.96);
+    border-color: rgba(15, 103, 184, 0.26);
+    color: #2e5f95;
+}
+
+.gesp2-enumeration-topic .question-answer-panel {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 251, 239, 0.98), rgba(255, 255, 255, 0.92));
+    border: 1px solid rgba(181, 120, 24, 0.22);
+}
+
+.gesp2-enumeration-topic .question-answer-panel p {
+    margin: 0;
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .question-answer-label {
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .template-card__warning {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    border-radius: 16px;
+    background: #fff8ef;
+    color: #8a5a19;
+    line-height: 1.7;
+}
+
+.gesp2-enumeration-topic .template-card__points,
+.gesp2-enumeration-topic .pitfall-card__checklist,
+.gesp2-enumeration-topic .scope-card ul {
+    margin: 0;
+    padding-left: 1.15rem;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.gesp2-enumeration-topic .code-block,
+.gesp2-enumeration-topic .enum-code-shell {
+    border-radius: 22px;
+    background: #10253f;
+    box-shadow: 0 16px 36px rgba(9, 31, 58, 0.24);
+    overflow: hidden;
+}
+
+.gesp2-enumeration-topic .code-block pre {
+    margin: 0;
+    padding: 1.35rem;
+    overflow-x: auto;
+}
+
+.gesp2-enumeration-topic .code-block code {
+    color: #ecf5ff;
+    font-size: 0.91rem;
+    line-height: 1.72;
+}
+
+.gesp2-enumeration-topic .pitfall-card p {
+    margin: 0;
+}
+
+.gesp2-enumeration-topic .pitfall-card p span {
+    color: var(--accent);
+    font-weight: 700;
+    margin-right: 0.3rem;
+}
+
+.gesp2-enumeration-topic .source-panel {
+    margin-top: 18px;
+    display: grid;
+    gap: 14px;
+    padding: 20px;
+}
+
+.gesp2-enumeration-topic .source-panel__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.gesp2-enumeration-topic .source-panel__head strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .source-panel__head span {
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .source-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .source-list li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(244, 248, 253, 0.9);
+    border: 1px solid rgba(15, 103, 184, 0.1);
+}
+
+.gesp2-enumeration-topic .source-list li strong {
+    color: var(--accent);
+}
+
+.gesp2-enumeration-topic .enum-demo-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.gesp2-enumeration-topic .enum-related-section {
+    display: grid;
+    gap: 14px;
+}
+
+.gesp2-enumeration-topic .enum-related-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+}
+
+.gesp2-enumeration-topic .enum-related-head strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .enum-related-head span {
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .question-grid--demo {
+    grid-template-columns: 1fr;
+}
+
+.gesp2-enumeration-topic .enum-demo-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .enum-demo-tab {
+    display: grid;
+    gap: 6px;
+    padding: 16px 18px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .enum-demo-tab:hover,
+.gesp2-enumeration-topic .enum-demo-tab.is-active {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.34);
+    background: linear-gradient(135deg, rgba(13, 92, 179, 0.1), rgba(255, 255, 255, 0.92));
+}
+
+.gesp2-enumeration-topic .enum-demo-tab span {
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .enum-demo-tab small {
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .enum-demo-stage {
+    min-height: 18rem;
+}
+
+.gesp2-enumeration-topic .enum-demo-empty,
+.gesp2-enumeration-topic .enum-player-shell {
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: var(--shadow);
+}
+
+.gesp2-enumeration-topic .enum-demo-empty {
+    display: grid;
+    gap: 10px;
+    padding: 24px;
+}
+
+.gesp2-enumeration-topic .enum-player-shell {
+    display: grid;
+    gap: 18px;
+    padding: 22px;
+}
+
+.gesp2-enumeration-topic .enum-player-head {
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.gesp2-enumeration-topic .enum-player-title {
+    display: grid;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .enum-player-title h4,
+.gesp2-enumeration-topic .enum-panel-copy h5,
+.gesp2-enumeration-topic .enum-preview-panel strong,
+.gesp2-enumeration-topic .enum-code-head strong,
+.gesp2-enumeration-topic .enum-player-summary strong {
+    margin: 0;
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .enum-player-title p,
+.gesp2-enumeration-topic .enum-panel-copy p,
+.gesp2-enumeration-topic .enum-callout p,
+.gesp2-enumeration-topic .enum-preview-panel p {
+    margin: 0;
+}
+
+.gesp2-enumeration-topic .enum-player-summary {
+    display: grid;
+    gap: 10px;
+    min-width: 16rem;
+    padding: 14px 16px;
+    border-radius: 20px;
+    background: rgba(244, 248, 253, 0.95);
+    border: 1px solid rgba(15, 103, 184, 0.12);
+}
+
+.gesp2-enumeration-topic .enum-player-controls {
+    display: grid;
+    gap: 14px;
+}
+
+.gesp2-enumeration-topic .enum-step-row,
+.gesp2-enumeration-topic .enum-control-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .enum-step-chip,
+.gesp2-enumeration-topic .enum-control-button {
+    border: 1px solid rgba(15, 103, 184, 0.16);
+    background: rgba(247, 251, 255, 0.94);
+    color: var(--accent-strong);
+    cursor: pointer;
+}
+
+.gesp2-enumeration-topic .enum-step-chip {
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .enum-step-chip:hover,
+.gesp2-enumeration-topic .enum-step-chip.is-active {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.34);
+    background: rgba(225, 240, 255, 0.95);
+}
+
+.gesp2-enumeration-topic .enum-control-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.6rem 0.9rem;
+    border-radius: 999px;
+    font-weight: 700;
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .enum-control-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.34);
+}
+
+.gesp2-enumeration-topic .enum-control-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.gesp2-enumeration-topic .enum-player-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-areas:
+        "animation explain"
+        "debug code";
+    gap: 16px;
+}
+
+.gesp2-enumeration-topic .enum-player-panel {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+}
+
+.gesp2-enumeration-topic .enum-player-panel--animation {
+    grid-area: animation;
+}
+
+.gesp2-enumeration-topic .enum-player-panel--explain {
+    grid-area: explain;
+}
+
+.gesp2-enumeration-topic .enum-player-panel--debug {
+    grid-area: debug;
+}
+
+.gesp2-enumeration-topic .enum-player-panel--code {
+    grid-area: code;
+}
+
+.gesp2-enumeration-topic .enum-panel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+}
+
+.gesp2-enumeration-topic .enum-panel-head strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .enum-panel-head span {
+    color: var(--ink-soft);
+    font-size: 0.86rem;
+}
+
+.gesp2-enumeration-topic .enum-animation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .enum-animation-card {
+    display: grid;
+    gap: 6px;
+    padding: 14px;
+    border-radius: 18px;
+    background: rgba(244, 248, 253, 0.92);
+    border: 1px solid rgba(15, 103, 184, 0.1);
+}
+
+.gesp2-enumeration-topic .enum-animation-card span,
+.gesp2-enumeration-topic .enum-debug-list dt {
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+}
+
+.gesp2-enumeration-topic .enum-animation-card strong,
+.gesp2-enumeration-topic .enum-debug-list dd {
+    margin: 0;
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .enum-preview-panel {
+    display: grid;
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: rgba(247, 251, 255, 0.95);
+    border: 1px solid rgba(15, 103, 184, 0.12);
+}
+
+.gesp2-enumeration-topic .enum-preview-rows {
+    display: grid;
+    gap: 8px;
+}
+
+.gesp2-enumeration-topic .enum-preview-row {
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: #10253f;
+    color: #ecf5ff;
+    font-family: "SFMono-Regular", "Consolas", monospace;
+}
+
+.gesp2-enumeration-topic .enum-panel-copy {
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .enum-step-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.22rem 0.66rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .enum-callout {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 251, 239, 0.98), rgba(255, 255, 255, 0.9));
+    border: 1px solid rgba(181, 120, 24, 0.22);
+}
+
+.gesp2-enumeration-topic .enum-callout strong {
+    color: #8a5a19;
+}
+
+.gesp2-enumeration-topic .enum-debug-list {
+    margin: 0;
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .enum-debug-list div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(244, 248, 253, 0.92);
+    border: 1px solid rgba(15, 103, 184, 0.1);
+}
+
+.gesp2-enumeration-topic .enum-code-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+}
+
+.gesp2-enumeration-topic .enum-code-head span {
+    color: var(--ink-soft);
+    font-size: 0.86rem;
+}
+
+.gesp2-enumeration-topic .enum-code-shell {
+    padding: 10px 0;
+}
+
+.gesp2-enumeration-topic .enum-code-lines {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.gesp2-enumeration-topic .enum-code-line {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 0.38rem 1.1rem;
+    color: rgba(236, 245, 255, 0.84);
+}
+
+.gesp2-enumeration-topic .enum-code-line.is-active {
+    background: rgba(31, 123, 214, 0.18);
+    color: #ffffff;
+}
+
+.gesp2-enumeration-topic .enum-code-line-number {
+    color: rgba(173, 211, 255, 0.74);
+    text-align: right;
+    user-select: none;
+}
+
+.gesp2-enumeration-topic .enum-code-line-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+@media (max-width: 1360px) {
+    .gesp2-enumeration-topic .hero-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .gesp2-enumeration-topic .enum-demo-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .gesp2-enumeration-topic .question-grid,
+    .gesp2-enumeration-topic .template-grid,
+    .gesp2-enumeration-topic .coverage-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .gesp2-enumeration-topic .question-io-grid,
+    .gesp2-enumeration-topic .question-grid--demo {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 1200px) {
+    .gesp2-enumeration-topic .topic-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .gesp2-enumeration-topic .topic-sidebar {
+        position: static;
+    }
+
+    .gesp2-enumeration-topic .topic-sidebar-shell {
+        max-height: none;
+        overflow: visible;
+        scrollbar-gutter: auto;
+    }
+
+    .gesp2-enumeration-topic .hero-metrics,
+    .gesp2-enumeration-topic .overview-grid,
+    .gesp2-enumeration-topic .signal-grid,
+    .gesp2-enumeration-topic .process-grid,
+    .gesp2-enumeration-topic .scope-grid,
+    .gesp2-enumeration-topic .sequence-grid,
+    .gesp2-enumeration-topic .note-list,
+    .gesp2-enumeration-topic .pitfall-grid,
+    .gesp2-enumeration-topic .enum-player-layout {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "animation"
+            "explain"
+            "debug"
+            "code";
+    }
+}
+
+@media (max-width: 960px) {
+    .gesp2-enumeration-topic .group-card__head,
+    .gesp2-enumeration-topic .enum-player-head,
+    .gesp2-enumeration-topic .source-panel__head {
+        flex-direction: column;
+    }
+
+    .gesp2-enumeration-topic .group-meta,
+    .gesp2-enumeration-topic .enum-player-summary {
+        min-width: 0;
+        width: 100%;
+    }
+
+}
+
+@media (max-width: 768px) {
+    .gesp2-enumeration-topic .page-shell {
+        padding-inline: 16px;
+        padding-bottom: 32px;
+    }
+
+    .gesp2-enumeration-topic .hero-metrics,
+    .gesp2-enumeration-topic .overview-grid,
+    .gesp2-enumeration-topic .signal-grid,
+    .gesp2-enumeration-topic .process-grid,
+    .gesp2-enumeration-topic .scope-grid,
+    .gesp2-enumeration-topic .sequence-grid,
+    .gesp2-enumeration-topic .note-list,
+    .gesp2-enumeration-topic .pitfall-grid,
+    .gesp2-enumeration-topic .enum-animation-grid,
+    .gesp2-enumeration-topic .enum-demo-tabs {
+        grid-template-columns: 1fr;
+    }
+
+    .gesp2-enumeration-topic .enum-code-line {
+        grid-template-columns: 42px minmax(0, 1fr);
+        padding-inline: 0.85rem;
+    }
+}

@@ -1,0 +1,467 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/topics/gesp2_enumeration/styles.css' %}?v=20260408f">
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumb_items %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <div class="entry-hint-bar">{{ topic_note }}</div>
+
+    <section class="gesp2-enumeration-topic">
+        <div class="page-shell">
+            <div class="topic-workspace" data-topic-workspace>
+                <aside class="topic-sidebar">
+                    <div class="topic-sidebar-shell">
+                        <div class="topic-sidebar-topbar">
+                            <span class="topic-sidebar-floating-label">枚举法专题导航</span>
+                        </div>
+
+                        <div class="topic-sidebar-head">
+                            <p class="eyebrow">Topic Navigator</p>
+                            <h3>枚举法专题导航</h3>
+                            <p class="panel-description">
+                                {% if show_teacher_demo %}
+                                    左侧按“概览 -> 演示 -> 题组 -> 模板 -> 教学安排”组织。教师版可先切 Teaching Demo，再按能力块往下讲。
+                                {% else %}
+                                    左侧按“概览 -> 题组 -> 模板”组织。学生版聚焦完整题面、题组训练和模板复盘，不再承载教师演示台。
+                                {% endif %}
+                            </p>
+                        </div>
+
+                        <nav
+                            id="gesp2-enumeration-sidebar-nav"
+                            class="topic-outline-nav"
+                            aria-label="枚举法专题目录"
+                        >
+                            {% for group in topic_sidebar_groups %}
+                                <section class="outline-group">
+                                    <div class="outline-group-head">
+                                        <strong class="outline-group-title">{{ group.title }}</strong>
+                                        <span class="outline-group-note">{{ group.note }}</span>
+                                    </div>
+
+                                    <div class="outline-anchor-list">
+                                        {% for item in group.items %}
+                                            <a
+                                                href="{{ item.href }}"
+                                                class="outline-anchor"
+                                                data-target="{{ item.target_id }}"
+                                                {% if item.demo_target %}data-demo-target="{{ item.demo_target }}"{% endif %}
+                                            >
+                                                <span>{{ item.label }}</span>
+                                                {% if item.demo_target %}
+                                                    <small>演示</small>
+                                                {% endif %}
+                                            </a>
+                                        {% endfor %}
+                                    </div>
+                                </section>
+                            {% endfor %}
+                        </nav>
+                    </div>
+                </aside>
+
+                <main class="topic-content">
+                    <section id="topic-overview" class="hero-panel observe-target">
+                        <div class="hero-copy">
+                            <p class="eyebrow">{{ topic_site_data.meta.eyebrow }}</p>
+                            <span class="role-badge">当前角色：{{ role_label }}</span>
+                            <h2>{{ topic_site_data.meta.title }}</h2>
+                            <p class="hero-subtitle">{{ topic_site_data.meta.subtitle }}</p>
+                            <p class="topic-summary">{{ topic_site_data.meta.hero_note }}</p>
+                        </div>
+
+                        <div class="hero-metrics">
+                            {% for item in topic_site_data.summary_cards %}
+                                <article class="metric-card">
+                                    <p class="metric-card__label">{{ item.label }}</p>
+                                    <strong>{{ item.value }}</strong>
+                                    <span>{{ item.hint }}</span>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    </section>
+
+                    {% if show_teacher_support_sections %}
+                        <section id="knowledge-overview" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Knowledge Overview</p>
+                                <h3>知识点概览</h3>
+                                <p>{{ topic_site_data.overview.description }}</p>
+                            </div>
+
+                            <div class="overview-grid">
+                                {% for item in topic_site_data.overview.points %}
+                                    <article class="overview-card">
+                                        <strong>要点 {{ forloop.counter }}</strong>
+                                        <p>{{ item }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+
+                            <div class="signal-grid">
+                                {% for item in topic_site_data.overview.signals %}
+                                    <article class="signal-card">
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.description }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+                    {% endif %}
+
+                    <section id="strategy-map" class="topic-section observe-target">
+                        <div class="section-heading">
+                            <p class="section-heading__eyebrow">Strategy Map</p>
+                            <h3>核心思路与解题骨架</h3>
+                            <p>这里先把枚举法讲成一套“可复盘的动作链”：先定候选，再定边界，再定判定，最后决定是否输出、计数或提前停止。</p>
+                        </div>
+
+                        <div class="process-grid">
+                            {% for item in topic_site_data.method_principles %}
+                                <article class="process-card">
+                                    <span>Step {{ forloop.counter }}</span>
+                                    <strong>{{ item.title }}</strong>
+                                    <p>{{ item.description }}</p>
+                                    <em>{{ item.tip }}</em>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    </section>
+
+                    {% if show_teacher_demo %}
+                        <section id="demo-lab" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Teaching Demo</p>
+                                <h3>教学演示区</h3>
+                                <p>这一版明确补上了“动画区 + Debug 区 + 代码区”。教师版可以先切演示模块，再按步骤播放，把 candidate、digit、双层变量和输出结果变化真正讲出来。</p>
+                            </div>
+
+                            <div class="enum-demo-shell" data-demo-shell>
+                                <div class="enum-demo-tabs" role="tablist" aria-label="枚举法演示模块">
+                                    {% for item in topic_site_data.demo_modules %}
+                                        <button
+                                            type="button"
+                                            class="enum-demo-tab{% if forloop.first %} is-active{% endif %}"
+                                            data-demo-tab="{{ item.id }}"
+                                            role="tab"
+                                            aria-selected="{{ forloop.first|yesno:'true,false' }}"
+                                        >
+                                            <span>{{ item.title }}</span>
+                                            <small>{{ item.subtitle }}</small>
+                                        </button>
+                                    {% endfor %}
+                                </div>
+
+                                <div class="enum-demo-stage" data-demo-stage aria-live="polite">
+                                    <div class="enum-demo-empty">
+                                        <strong>正在加载教学演示…</strong>
+                                        <p>页面会根据当前模块自动渲染动画区、Debug 区和代码区。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    {% endif %}
+
+                    <section class="ability-section">
+                        <div class="section-heading">
+                            <p class="section-heading__eyebrow">Ability Groups</p>
+                            <h3>按能力分块的题组结构</h3>
+                            <p>题目不按年份平铺，而是按“单层 -> 按位 -> 双层 -> 图形输出 -> 边界与 break”递进。老师可以直接以题组为单位排一节课。</p>
+                        </div>
+
+                        <div class="group-stack">
+                            {% for group in topic_site_data.ability_groups %}
+                                <section id="{{ group.id }}" class="group-card observe-target">
+                                    <div class="group-card__head">
+                                        <div>
+                                            <p class="section-heading__eyebrow">Group {{ forloop.counter }}</p>
+                                            <h4>{{ group.title }}</h4>
+                                            <p>{{ group.summary }}</p>
+                                        </div>
+                                        <div class="group-meta">
+                                            <strong>{{ group.questions|length }} 题</strong>
+                                            <span>{{ group.goal }}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="question-grid">
+                                        {% for question in group.questions %}
+                                            <article class="question-card">
+                                                <div class="question-card__meta">
+                                                    <span>{{ question.source }}</span>
+                                                    <span>{{ question.question_type }}</span>
+                                                    <span>{{ question.question_no }}</span>
+                                                </div>
+
+                                                <div class="tag-row">
+                                                    <span class="tag">{{ question.difficulty }}</span>
+                                                    <span class="tag tag--secondary">{{ question.ability_point }}</span>
+                                                </div>
+
+                                                <h5>{{ question.title }}</h5>
+                                                <div class="question-statement">
+                                                    <strong>原题题面</strong>
+                                                    {% for line in question.statement %}
+                                                        <p class="question-card__prompt">{{ line }}</p>
+                                                    {% endfor %}
+
+                                                    {% if question.code %}
+                                                        <div class="question-inline-code">
+                                                            <pre><code>{{ question.code }}</code></pre>
+                                                        </div>
+                                                    {% endif %}
+
+                                                    {% if question.options %}
+                                                        <ol class="question-option-list" type="A">
+                                                            {% for item in question.options %}
+                                                                <li>{{ item|slice:"3:" }}</li>
+                                                            {% endfor %}
+                                                        </ol>
+                                                    {% endif %}
+
+                                                    {% if question.input_format or question.output_format or question.sample_input or question.sample_output %}
+                                                        <div class="question-io-grid">
+                                                            {% if question.input_format %}
+                                                                <div class="question-io-card">
+                                                                    <strong>输入格式</strong>
+                                                                    <p>{{ question.input_format }}</p>
+                                                                </div>
+                                                            {% endif %}
+                                                            {% if question.output_format %}
+                                                                <div class="question-io-card">
+                                                                    <strong>输出格式</strong>
+                                                                    <p>{{ question.output_format }}</p>
+                                                                </div>
+                                                            {% endif %}
+                                                            {% if question.sample_input %}
+                                                                <div class="question-io-card">
+                                                                    <strong>样例输入</strong>
+                                                                    <pre><code>{{ question.sample_input }}</code></pre>
+                                                                </div>
+                                                            {% endif %}
+                                                            {% if question.sample_output %}
+                                                                <div class="question-io-card">
+                                                                    <strong>样例输出</strong>
+                                                                    <pre><code>{{ question.sample_output }}</code></pre>
+                                                                </div>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+
+                                                <dl class="question-notes">
+                                                    <div>
+                                                        <dt>分类理由</dt>
+                                                        <dd>{{ question.classification_reason }}</dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt>易错提醒</dt>
+                                                        <dd>{{ question.pitfall }}</dd>
+                                                    </div>
+                                                    <div>
+                                                        <dt>推荐模板</dt>
+                                                        <dd>{{ question.template_ref }}</dd>
+                                                    </div>
+                                                    {% if show_teacher_support_sections %}
+                                                        <div>
+                                                            <dt>课堂追问</dt>
+                                                            <dd>{{ question.teacher_prompt }}</dd>
+                                                        </div>
+                                                    {% endif %}
+                                                </dl>
+
+                                                <div class="question-answer-box">
+                                                    <button
+                                                        type="button"
+                                                        class="question-answer-toggle"
+                                                        data-answer-toggle
+                                                        aria-expanded="false"
+                                                    >
+                                                        显示答案
+                                                    </button>
+                                                    <div class="question-answer-panel" data-answer-panel hidden>
+                                                        <strong>参考答案</strong>
+                                                        <p class="question-answer-label">{{ question.answer_label }}</p>
+                                                        {% if question.answer %}
+                                                            <p>{{ question.answer }}</p>
+                                                        {% endif %}
+                                                        {% for item in question.answer_analysis %}
+                                                            <p>{{ item }}</p>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        {% endfor %}
+                                    </div>
+                                </section>
+                            {% endfor %}
+                        </div>
+                    </section>
+
+                    <section id="template-lab" class="topic-section observe-target">
+                        <div class="section-heading">
+                            <p class="section-heading__eyebrow">Template Library</p>
+                            <h3>模板库</h3>
+                            <p>模板不只给代码，还把“适用场景、最容易错的地方、课堂上怎么提醒”一起写清楚。代码风格统一为 C++ 基础教学页能直接复用的格式。</p>
+                        </div>
+
+                        <div class="template-grid">
+                            {% for item in topic_site_data.template_blocks %}
+                                <article class="template-card">
+                                    <div class="template-card__head">
+                                        <strong>{{ item.title }}</strong>
+                                        <span>{{ item.scenario }}</span>
+                                    </div>
+
+                                    <p class="template-card__warning">{{ item.caution }}</p>
+
+                                    <ul class="template-card__points">
+                                        {% for point in item.points %}
+                                            <li>{{ point }}</li>
+                                        {% endfor %}
+                                    </ul>
+
+                                    <div class="code-block">
+                                        <pre><code>{{ item.code }}</code></pre>
+                                    </div>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    </section>
+
+                    {% if show_teacher_support_sections %}
+                        <section id="pitfalls" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Common Pitfalls</p>
+                                <h3>常见错误与课堂追问</h3>
+                                <p>这部分专门收学生在枚举法里最常见的错误：边界写错、变量没重置、误用 break、原值被破坏、图形输出行列关系混乱。</p>
+                            </div>
+
+                            <div class="pitfall-grid">
+                                {% for item in topic_site_data.pitfall_panels %}
+                                    <article class="pitfall-card">
+                                        <strong>{{ item.title }}</strong>
+                                        <p><span>错误表现：</span>{{ item.symptom }}</p>
+                                        <p><span>原因：</span>{{ item.why }}</p>
+                                        <p><span>教师追问：</span>{{ item.teacher_prompt }}</p>
+
+                                        <ul class="pitfall-card__checklist">
+                                            {% for point in item.checklist %}
+                                                <li>{{ point }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+
+                        <section id="scope-boundary" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Scope Boundary</p>
+                                <h3>哪些内容纳入枚举法，哪些暂不硬塞</h3>
+                                <p>这批没有把所有双重循环题一股脑塞进来，而是按“核心教学重心是否还是枚举骨架”来判断。</p>
+                            </div>
+
+                            <div class="scope-grid">
+                                {% for item in topic_site_data.scope_decisions %}
+                                    <article class="scope-card">
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.summary }}</p>
+                                        <ul>
+                                            {% for entry in item.items %}
+                                                <li>{{ entry }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+
+                        <section id="coverage" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Coverage</p>
+                                <h3>真题覆盖与题源文件</h3>
+                                <p>这一版不是只放 2 到 3 道例题，而是把与你提供的 GESP2 真题源文件里和枚举法高度相关的题做成题组化整理。</p>
+                            </div>
+
+                            <div class="coverage-grid">
+                                {% for item in topic_site_data.coverage_items %}
+                                    <article class="coverage-card">
+                                        <span>{{ item.source }}</span>
+                                        <strong>{{ item.count }}</strong>
+                                        <p>{{ item.focus }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+
+                            <div class="source-panel">
+                                <div class="source-panel__head">
+                                    <strong>本页实际使用的真题文件</strong>
+                                    <span>共 {{ topic_site_data.source_files|length }} 份</span>
+                                </div>
+                                <ul class="source-list">
+                                    {% for item in topic_site_data.source_files %}
+                                        <li>
+                                            <strong>{{ forloop.counter|stringformat:"02d" }}</strong>
+                                            <span>{{ item }}</span>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </section>
+
+                        <section id="teaching-notes" class="topic-section observe-target">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Teaching Notes</p>
+                                <h3>教学使用说明</h3>
+                                <p>这部分不是附属说明，而是把“怎么用这一页讲课”明确写出来：先讲什么，后讲什么，哪些地方适合停下来做 Debug 演示。</p>
+                            </div>
+
+                            <div class="sequence-grid">
+                                {% for item in topic_site_data.teaching_sequence %}
+                                    <article class="sequence-item">
+                                        <span>讲解顺序 {{ forloop.counter }}</span>
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.description }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+
+                            <div class="note-list">
+                                {% for item in topic_site_data.teaching_notes %}
+                                    <article class="note-item">
+                                        <strong>{{ item.title }}</strong>
+                                        <p>{{ item.description }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+                    {% endif %}
+                </main>
+            </div>
+        </div>
+    </section>
+
+    {{ topic_site_data|json_script:"gesp2-enumeration-site-data" }}
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'entry/topics/gesp2_enumeration/app.js' %}?v=20260408f" type="module"></script>
+{% endblock %}

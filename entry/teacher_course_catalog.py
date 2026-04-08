@@ -45,14 +45,14 @@ TEACHER_COURSE_DEFINITIONS = [
         "slug": "cpp",
         "level": "S1-S3",
         "title": "C++",
-        "summary": "算法与竞赛方向，当前已接入 GESP4 多专题开放链路和二维数组真实内容。",
+        "summary": "算法与竞赛方向，当前已接入 GESP2 枚举法知识点页和 GESP4 多专题内容链路。",
         "state": "active",
         "detail_title": "C++ 课程分类页",
         "detail_description": "这里承接 C++ 课程下的分类入口。当前先建立 GESP、CSP、机器人编程 3 个最小分类入口。",
         "category_items": [
             {
                 "title": "GESP",
-                "description": "当前已接入 GESP4 多专题开放框架，教师可从学生详情页管理专题权限。",
+                "description": "当前已接入 GESP2 知识点目录与 GESP4 多专题框架，后续可继续把更多知识点页接进来。",
                 "status_text": "已接入",
             },
             {
