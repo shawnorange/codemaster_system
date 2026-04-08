@@ -28,9 +28,12 @@
                     <strong>{{ role_label }}</strong>
                 </div>
                 <div class="identity-chip">
-                    <span class="identity-chip__label">登录账号</span>
-                    <strong>{{ username }}</strong>
+                    <span class="identity-chip__label">当前用户</span>
+                    <strong>{{ viewer_display_name }}</strong>
                 </div>
+                {% if account_settings_href %}
+                    <a href="{{ account_settings_href }}" class="system-header__link">账号设置</a>
+                {% endif %}
                 <form class="logout-form" action="{% url 'logout' %}" method="post">
                     {% csrf_token %}
                     <button type="submit" class="logout-button">退出登录</button>

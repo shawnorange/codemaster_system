@@ -1,0 +1,189 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Teacher Course View</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Course Categories</p>
+                <h3>{{ course_title }} 分类入口</h3>
+                <p>当前先把教师端的课程入口建立起来。点击课程后先进入分类页，后续再按分类逐步承接更深内容。</p>
+            </div>
+
+            <div class="topic-work-grid">
+                {% for item in category_items %}
+                    <article class="topic-work-card topic-work-card--open">
+                        <div class="topic-work-card__header">
+                            <div>
+                                <p class="section-heading__eyebrow">Category</p>
+                                <h4>{{ item.title }}</h4>
+                            </div>
+                            <span class="state-pill state-pill--future">{{ item.status_text }}</span>
+                        </div>
+                        <p class="topic-work-card__description">{{ item.description }}</p>
+                    </article>
+                {% endfor %}
+            </div>
+
+            {% if topic_filter_items %}
+                <section class="workbench-panel workbench-panel--topics">
+                    <div class="section-heading">
+                        <p class="section-heading__eyebrow">Topic Assignment</p>
+                        <h3>按专题给多个学生开设权限</h3>
+                        <p>先选定一个 GESP4 专题，再对当前课程方向下的多个学生统一开放或关闭权限。保存后会真实写入 `StudentContentAccess`。</p>
+                    </div>
+
+                    <div class="course-topic-filter">
+                        {% for item in topic_filter_items %}
+                            <a class="course-topic-pill {{ item.is_active|yesno:'course-topic-pill--active,' }}" href="{{ item.href }}">
+                                <strong>{{ item.title }}</strong>
+                                <span>{{ item.content_mode_text }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+
+                    {% if selected_topic %}
+                        <div class="topic-permission-summary topic-permission-summary--course">
+                            <div class="topic-permission-summary__header">
+                                <div>
+                                    <p class="section-heading__eyebrow">Selected Topic</p>
+                                    <h4>{{ topic_assignment_summary.selected_title }}</h4>
+                                    <p>{{ topic_assignment_summary.selected_subtitle }} · {{ topic_assignment_summary.selected_mode_text }}</p>
+                                </div>
+                            </div>
+
+                            <div class="topic-work-card__meta">
+                                <article class="topic-work-card__meta-item">
+                                    <span>适用学生</span>
+                                    <strong>{{ topic_assignment_summary.student_count }} 人</strong>
+                                </article>
+                                <article class="topic-work-card__meta-item">
+                                    <span>已开放</span>
+                                    <strong>{{ topic_assignment_summary.open_count }} 人</strong>
+                                </article>
+                                <article class="topic-work-card__meta-item">
+                                    <span>未开放</span>
+                                    <strong>{{ topic_assignment_summary.locked_count }} 人</strong>
+                                </article>
+                            </div>
+                        </div>
+
+                        <form method="post" action="{{ topic_assignment_action }}" class="course-topic-assignment">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="save_course_topic_access">
+                            <input type="hidden" name="topic_slug" value="{{ selected_topic.slug }}">
+
+                            <div class="course-assignment-table">
+                                <div class="course-assignment-table__header">
+                                    <span>开放</span>
+                                    <span>学生姓名</span>
+                                    <span>年级</span>
+                                    <span>当前阶段</span>
+                                    <span>当前状态</span>
+                                </div>
+                                {% for item in topic_assignment_rows %}
+                                    <label class="course-assignment-table__row course-assignment-table__row--{{ item.state }}">
+                                        <input type="checkbox" name="student_ids" value="{{ item.student_id }}" {% if item.is_open %}checked{% endif %}>
+                                        <strong>{{ item.name }}</strong>
+                                        <span>{{ item.grade }}</span>
+                                        <span>{{ item.stage }}</span>
+                                        <div class="teacher-table__cell-stack">
+                                            <strong>{{ item.status_text }}</strong>
+                                            <span>{{ item.hint }}</span>
+                                        </div>
+                                    </label>
+                                {% empty %}
+                                    <div class="entry-hint-bar">当前该课程方向下还没有可分配权限的学生。</div>
+                                {% endfor %}
+                            </div>
+
+                            {% if topic_assignment_rows %}
+                                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                                    <button type="submit" class="login-button">保存专题权限</button>
+                                </div>
+                            {% endif %}
+                        </form>
+                    {% endif %}
+                </section>
+            {% endif %}
+
+            <section class="workbench-panel workbench-panel--recent">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Related Students</p>
+                    <h3>当前关联学生</h3>
+                    <p>这里先显示当前教师名下与该课程方向关联的学生，便于继续回到学生工作台执行具体动作。</p>
+                </div>
+
+                <div class="teacher-table teacher-table--course-students">
+                    <div class="teacher-table__header">
+                        <span>学生姓名</span>
+                        <span>年级</span>
+                        <span>当前方向</span>
+                        <span>操作</span>
+                    </div>
+                    {% for student in related_students %}
+                        <div class="teacher-table__row">
+                            <strong>{{ student.name }}</strong>
+                            <span>{{ student.grade }}</span>
+                            <span>{{ student.program }}</span>
+                            <a class="teacher-table__action" href="{{ student.action_href }}">查看学生工作台</a>
+                        </div>
+                    {% empty %}
+                        <div class="entry-hint-bar">当前该课程方向下还没有关联学生。</div>
+                    {% endfor %}
+                </div>
+            </section>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Course Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}

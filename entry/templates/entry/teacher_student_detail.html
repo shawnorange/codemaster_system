@@ -18,7 +18,7 @@
 
     <section class="hero-panel">
         <div class="hero-panel__copy">
-            <p class="eyebrow">Teacher Access Control</p>
+            <p class="eyebrow">Teacher Workbench</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
             <h2>{{ page_title }}</h2>
             <p class="role-description">{{ page_description }}</p>
@@ -37,71 +37,241 @@
 
     <div class="system-content-grid">
         <section class="surface-panel surface-panel--primary">
-            <div class="section-heading">
-                <p class="section-heading__eyebrow">Student Snapshot</p>
-                <h3>学生信息与专题开放动作</h3>
-                <p>当前已升级为 GESP4 多专题最小通用开放框架。教师可以逐个专题执行开放或关闭操作。</p>
-            </div>
+            <div class="teacher-workbench">
+                <section class="teacher-overview-card">
+                    <div class="teacher-overview-card__header">
+                        <div class="teacher-overview-card__identity">
+                            <div class="teacher-overview-card__avatar">{{ student.display_name|slice:":1" }}</div>
+                            <div class="teacher-overview-card__copy">
+                                <p class="section-heading__eyebrow">Student Overview</p>
+                                <h3>{{ student.display_name }}</h3>
+                                <p>{{ overview_intro }}</p>
+                            </div>
+                        </div>
 
-            <div class="teacher-detail-stack">
-                <div class="teacher-detail-grid">
-                    {% for item in student_info_items %}
-                        <article class="profile-item">
-                            <span>{{ item.label }}</span>
-                            <strong>{{ item.value }}</strong>
-                        </article>
-                    {% endfor %}
-                </div>
+                        <div class="teacher-overview-card__actions">
+                            <a href="#topic-management" class="teacher-anchor-link">专题开放管理</a>
+                            <a href="#teaching-records" class="teacher-anchor-link">教学记录录入</a>
+                            <a href="#recent-records" class="teacher-anchor-link">最近记录</a>
+                        </div>
+                    </div>
 
-                <div class="topic-access-grid">
-                    {% for item in topic_access_items %}
-                        <section class="access-control-card access-control-card--{{ item.state }}">
-                            <div class="access-control-card__header">
+                    <div class="teacher-overview-card__badges">
+                        {% for badge in overview_badges %}
+                            <span class="soft-chip">{{ badge }}</span>
+                        {% endfor %}
+                    </div>
+
+                    <div class="teacher-overview-card__grid">
+                        {% for item in overview_items %}
+                            <article class="teacher-overview-item">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                                <p>{{ item.hint }}</p>
+                            </article>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <div class="teacher-workbench-grid">
+                    <section class="workbench-panel workbench-panel--topics" id="topic-management">
+                        <div class="section-heading">
+                            <p class="section-heading__eyebrow">Topic Access</p>
+                            <h3>专题开放管理</h3>
+                            <p>页面本体只保留已开放摘要，具体开关统一收进弹窗里管理，避免学生工作台被专题卡片铺满。</p>
+                        </div>
+
+                        <div class="teacher-mini-stat-grid">
+                            {% for item in topic_summary_items %}
+                                <article class="teacher-mini-stat">
+                                    <span>{{ item.label }}</span>
+                                    <strong>{{ item.value }}</strong>
+                                    <p>{{ item.hint }}</p>
+                                </article>
+                            {% endfor %}
+                        </div>
+
+                        <section class="topic-permission-summary">
+                            <div class="topic-permission-summary__header">
                                 <div>
-                                    <p class="section-heading__eyebrow">{{ item.order_label }}</p>
-                                    <h4>{{ item.title }}</h4>
+                                    <p class="section-heading__eyebrow">Permission Summary</p>
+                                    <h4>已开放内容摘要</h4>
+                                    <p>{{ topic_access_summary_text }}</p>
                                 </div>
-                                <div class="topic-access-card__pills">
-                                    <span class="state-pill state-pill--{{ item.state }}">{{ item.status_text }}</span>
-                                    <span class="state-pill state-pill--future">{{ item.content_mode_text }}</span>
-                                </div>
+                                <button type="button" class="login-button topic-permission-summary__button" id="open-topic-access-modal">
+                                    管理专题权限
+                                </button>
                             </div>
 
-                            <p class="content-access-card__description">{{ item.summary }}</p>
-
-                            <div class="focus-entry">
-                                <div class="focus-entry__top">
-                                    <span class="focus-entry__label">目标内容路径</span>
-                                    <span class="state-pill state-pill--future">{{ item.subtitle }}</span>
-                                </div>
-                                <div class="focus-entry__path">
-                                    {% for path_item in item.path_items %}
-                                        <span>{{ path_item }}</span>
-                                        {% if not forloop.last %}
-                                            <i></i>
-                                        {% endif %}
+                            {% if open_topic_items %}
+                                <div class="topic-chip-grid">
+                                    {% for item in open_topic_items %}
+                                        <div class="topic-chip-card">
+                                            <strong>{{ item.title }}</strong>
+                                            <span>{{ item.content_mode_text }}</span>
+                                        </div>
                                     {% endfor %}
                                 </div>
-                                <strong>{{ item.route_path }}</strong>
-                                <p>{{ item.teacher_note }}</p>
+                            {% else %}
+                                <div class="entry-hint-bar">当前还没有已开放专题，可点击“管理专题权限”进行统一设置。</div>
+                            {% endif %}
+
+                            <div class="topic-work-card__meta">
+                                <article class="topic-work-card__meta-item">
+                                    <span>已开放</span>
+                                    <strong>{{ topic_access_open_count }} 个</strong>
+                                </article>
+                                <article class="topic-work-card__meta-item">
+                                    <span>待开放</span>
+                                    <strong>{{ topic_access_locked_count }} 个</strong>
+                                </article>
+                            </div>
+                        </section>
+                    </section>
+
+                    <aside class="teacher-workbench-sidebar" id="teaching-records">
+                        <section class="workbench-panel workbench-panel--records">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Teaching Records</p>
+                                <h3>教学记录录入</h3>
+                                <p>把评价、奖励和课时变动压缩在同一侧边工作区，老师进入页面后可以连续完成常用动作。</p>
                             </div>
 
-                            <form method="post" class="access-control-card__form">
-                                {% csrf_token %}
-                                <input type="hidden" name="topic_slug" value="{{ item.slug }}">
-                                <button type="submit" class="login-button access-control-card__button">{{ item.toggle_label }}</button>
-                            </form>
+                            <div class="teacher-mini-stat-grid teacher-mini-stat-grid--records">
+                                {% for item in record_summary_items %}
+                                    <article class="teacher-mini-stat">
+                                        <span>{{ item.label }}</span>
+                                        <strong>{{ item.value }}</strong>
+                                        <p>{{ item.hint }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+
+                            <div class="record-composer-stack">
+                                <section class="record-panel record-panel--composer">
+                                    <div class="section-heading section-heading--compact">
+                                        <p class="section-heading__eyebrow">Teacher Evaluation</p>
+                                        <h3>教师评价</h3>
+                                        <p>一句或一小段即可，适合课后快速记录课堂表现。</p>
+                                    </div>
+
+                                    <form method="post" class="record-form">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="add_evaluation">
+                                        <textarea name="evaluation_text" rows="4" placeholder="例如：今天在二维数组遍历上思路清晰，课堂表达比上节更完整。"></textarea>
+                                        <button type="submit" class="login-button record-form__button">保存评价</button>
+                                    </form>
+
+                                    {% if latest_evaluation %}
+                                        <div class="record-inline-feedback">
+                                            <strong>最近一条</strong>
+                                            <span>{{ latest_evaluation.text }}</span>
+                                            <span>{{ latest_evaluation.teacher_name }} · {{ latest_evaluation.created_at_text }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="entry-hint-bar">当前还没有教师评价记录。</div>
+                                    {% endif %}
+                                </section>
+
+                                <section class="record-panel record-panel--composer">
+                                    <div class="section-heading section-heading--compact">
+                                        <p class="section-heading__eyebrow">Reward Record</p>
+                                        <h3>奖励记录</h3>
+                                        <p>适合快速记录课堂表现、练习完成情况和正向反馈。</p>
+                                    </div>
+
+                                    <form method="post" class="record-form">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="add_reward">
+                                        <input type="text" name="reward_text" placeholder="例如：课堂表现积极，完成讲次练习优秀。">
+                                        <button type="submit" class="login-button record-form__button">保存奖励</button>
+                                    </form>
+
+                                    {% if latest_reward %}
+                                        <div class="record-inline-feedback">
+                                            <strong>最近一条</strong>
+                                            <span>{{ latest_reward.text }}</span>
+                                            <span>{{ latest_reward.teacher_name }} · {{ latest_reward.created_at_text }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="entry-hint-bar">当前还没有奖励记录。</div>
+                                    {% endif %}
+                                </section>
+
+                                <section class="record-panel record-panel--composer">
+                                    <div class="section-heading section-heading--compact">
+                                        <p class="section-heading__eyebrow">Lesson Hour Ledger</p>
+                                        <h3>课时变动</h3>
+                                        <p>支持正负课时调整。当前课时余额：{{ lesson_hour_summary.balance_text }}</p>
+                                    </div>
+
+                                    <form method="post" class="record-form">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="form_action" value="add_lesson_hours">
+                                        <div class="record-form__row">
+                                            <input type="number" name="delta_hours" step="1" placeholder="例如：2 或 -1">
+                                            <input type="text" name="lesson_hour_note" placeholder="例如：补课增加 2 课时 / 请假扣减 1 课时">
+                                        </div>
+                                        <button type="submit" class="login-button record-form__button">保存课时变动</button>
+                                    </form>
+
+                                    {% if latest_lesson_hour %}
+                                        <div class="record-inline-feedback">
+                                            <strong>最近一条</strong>
+                                            <span>{{ latest_lesson_hour.delta_hours_text }} 课时 · {{ latest_lesson_hour.note }}</span>
+                                            <span>{{ latest_lesson_hour.teacher_name }} · {{ latest_lesson_hour.created_at_text }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="entry-hint-bar">当前还没有课时变动记录。</div>
+                                    {% endif %}
+                                </section>
+                            </div>
                         </section>
-                    {% endfor %}
+                    </aside>
                 </div>
+
+                <section class="workbench-panel workbench-panel--recent" id="recent-records">
+                    <div class="section-heading">
+                        <p class="section-heading__eyebrow">Recent Records</p>
+                        <h3>最近记录</h3>
+                        <p>这里按时间倒序展示最近评价、奖励和课时变动，便于老师确认刚刚提交的记录已经成功写入。</p>
+                    </div>
+
+                    <div class="teacher-recent-grid">
+                        {% for section in recent_record_sections %}
+                            <section class="record-panel record-panel--recent">
+                                <div class="section-heading section-heading--compact">
+                                    <p class="section-heading__eyebrow">{{ section.eyebrow }}</p>
+                                    <h3>{{ section.title }}</h3>
+                                </div>
+
+                                <div class="record-list">
+                                    {% for item in section.items %}
+                                        <article class="record-list-item">
+                                            <strong>{{ item.primary }}</strong>
+                                            {% if item.secondary %}
+                                                <span>{{ item.secondary }}</span>
+                                            {% endif %}
+                                            {% if item.meta %}
+                                                <span>{{ item.meta }}</span>
+                                            {% endif %}
+                                        </article>
+                                    {% empty %}
+                                        <div class="entry-hint-bar">{{ section.empty_text }}</div>
+                                    {% endfor %}
+                                </div>
+                            </section>
+                        {% endfor %}
+                    </div>
+                </section>
             </div>
         </section>
 
         <aside class="system-aside">
             <section class="surface-panel">
                 <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">System Context</p>
-                    <h3>当前页面上下文</h3>
+                    <p class="section-heading__eyebrow">Workbench Context</p>
+                    <h3>当前工作台状态</h3>
                 </div>
 
                 <div class="context-list">
@@ -110,21 +280,25 @@
                         <strong>{{ role_label }}</strong>
                     </div>
                     <div class="context-list__item">
-                        <span>登录账号</span>
-                        <strong>{{ username }}</strong>
+                        <span>当前用户</span>
+                        <strong>{{ viewer_display_name }}</strong>
                     </div>
                     <div class="context-list__item">
-                        <span>访问路径</span>
-                        <strong>{{ request.path }}</strong>
+                        <span>学生</span>
+                        <strong>{{ student.display_name }}</strong>
+                    </div>
+                    <div class="context-list__item">
+                        <span>最近状态</span>
+                        <strong>{{ latest_workspace_status.value }}</strong>
                     </div>
                 </div>
             </section>
 
             <section class="surface-panel">
                 <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">Action Notes</p>
-                    <h3>本页说明</h3>
-                    <p>教师动作的结果会同步反映到学生端、家长端和校长端。</p>
+                    <p class="section-heading__eyebrow">Workbench Notes</p>
+                    <h3>操作提示</h3>
+                    <p>当前教师工作台优先承载最常用动作：专题开放和教学记录录入。</p>
                 </div>
 
                 <ul class="support-list">
@@ -138,4 +312,108 @@
             </section>
         </aside>
     </div>
+
+    <dialog class="topic-access-modal" id="topic-access-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="save_topic_access">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Manage Topic Access</p>
+                    <h3>管理专题权限</h3>
+                    <p>已开放内容默认勾选。勾选后开放，取消勾选后关闭，保存后会同步更新真实权限状态。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-topic-access-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="topic-access-modal__search">
+                <input type="search" id="topic-access-search" placeholder="搜索专题名称或说明">
+            </div>
+
+            <div class="topic-access-modal__list" id="topic-access-list">
+                {% for item in topic_access_items %}
+                    <label class="topic-access-option" data-topic-item data-topic-text="{{ item.title|lower }} {{ item.subtitle|lower }} {{ item.summary|lower }}">
+                        <input type="checkbox" name="topic_slugs" value="{{ item.slug }}" {% if item.is_open %}checked{% endif %}>
+                        <div class="topic-access-option__content">
+                            <div class="topic-access-option__header">
+                                <div>
+                                    <p class="section-heading__eyebrow">{{ item.order_label }}</p>
+                                    <h4>{{ item.title }}</h4>
+                                </div>
+                                <div class="topic-access-card__pills">
+                                    <span class="state-pill state-pill--{{ item.state }}">{{ item.status_text }}</span>
+                                    <span class="state-pill state-pill--future">{{ item.content_mode_text }}</span>
+                                </div>
+                            </div>
+                            <p>{{ item.summary }}</p>
+                            <span>{{ item.route_path }}</span>
+                        </div>
+                    </label>
+                {% endfor %}
+            </div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-topic-access-modal">取消</button>
+                <button type="submit" class="login-button">保存专题权限</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script>
+        (function () {
+            const dialog = document.getElementById("topic-access-modal");
+            const openButton = document.getElementById("open-topic-access-modal");
+            const closeButton = document.getElementById("close-topic-access-modal");
+            const cancelButton = document.getElementById("cancel-topic-access-modal");
+            const searchInput = document.getElementById("topic-access-search");
+            const items = Array.from(document.querySelectorAll("[data-topic-item]"));
+
+            if (!dialog || !openButton) {
+                return;
+            }
+
+            const openDialog = () => {
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            };
+
+            const closeDialog = () => {
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            };
+
+            openButton.addEventListener("click", openDialog);
+            if (closeButton) {
+                closeButton.addEventListener("click", closeDialog);
+            }
+            if (cancelButton) {
+                cancelButton.addEventListener("click", closeDialog);
+            }
+            dialog.addEventListener("click", (event) => {
+                if (event.target === dialog) {
+                    closeDialog();
+                }
+            });
+
+            if (searchInput) {
+                searchInput.addEventListener("input", (event) => {
+                    const keyword = event.target.value.trim().toLowerCase();
+                    items.forEach((item) => {
+                        const text = item.dataset.topicText || "";
+                        item.hidden = keyword && !text.includes(keyword);
+                    });
+                });
+            }
+        })();
+    </script>
 {% endblock %}

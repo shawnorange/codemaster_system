@@ -44,7 +44,7 @@
                 <div class="login-card">
                     <p class="login-card__eyebrow">Welcome Back</p>
                     <h2>账号登录</h2>
-                    <p class="login-card__intro">当前已接入最小测试登录链路，可直接验证账号提交、角色识别与页面跳转。</p>
+                    <p class="login-card__intro">当前所有角色统一使用账号和密码登录，登录后再按角色进入对应工作台。</p>
 
                     <form class="login-form" action="{% url 'login' %}" method="post">
                         {% csrf_token %}
@@ -54,7 +54,7 @@
 
                         <label class="field">
                             <span>账号</span>
-                            <input type="text" name="username" value="{{ username|default:'' }}" placeholder="请输入测试账号" autocomplete="username">
+                            <input type="text" name="username" value="{{ username|default:'' }}" placeholder="请输入账号" autocomplete="username">
                         </label>
 
                         <label class="field">
@@ -65,19 +65,9 @@
                         <button type="submit" class="login-button">进入系统</button>
                     </form>
 
-                    <div class="login-card__testbox">
-                        <p class="login-card__testtitle">测试账号</p>
-                        <ul class="test-account-list">
-                            {% for account in test_accounts %}
-                                <li>{{ account.role_label }}：{{ account.username }}</li>
-                            {% endfor %}
-                        </ul>
-                        <p class="login-card__password">默认测试密码：{{ default_test_password }}</p>
-                    </div>
-
                     <div class="login-card__note">
                         <span class="dot"></span>
-                        后续将在此替换为真实 Django 认证方案
+                        当前已接入统一账号认证闭环，后续再继续补齐密码重置等能力
                     </div>
                 </div>
             </section>

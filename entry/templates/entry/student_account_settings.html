@@ -1,0 +1,96 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        <a href="{% url 'student-courses' %}">学生课程页</a>
+        <i></i>
+        <span>账号设置</span>
+    </nav>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Account Settings</p>
+                <h3>{{ page_title }}</h3>
+                <p>{{ page_description }}</p>
+            </div>
+
+            <div class="account-settings-shell">
+                <section class="account-settings-summary">
+                    <article class="teacher-overview-item">
+                        <span>真实姓名</span>
+                        <strong>{{ student_display_name }}</strong>
+                        <p>这个字段来自学生基础信息，不可在这里修改。</p>
+                    </article>
+                    <article class="teacher-overview-item">
+                        <span>当前登录账号</span>
+                        <strong>{{ current_username }}</strong>
+                        <p>统一账号体系下的唯一登录标识。</p>
+                    </article>
+                    <article class="teacher-overview-item">
+                        <span>账号修改范围</span>
+                        <strong>仅限登录账号</strong>
+                        <p>本页不修改真实姓名、角色和密码规则。</p>
+                    </article>
+                </section>
+
+                <section class="record-panel record-panel--composer account-settings-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Update Username</p>
+                        <h3>修改登录账号</h3>
+                        <p>修改成功后立即生效，之后请使用新账号登录。</p>
+                    </div>
+
+                    <form method="post" class="record-form">
+                        {% csrf_token %}
+
+                        {% if error_message %}
+                            <div class="form-error">{{ error_message }}</div>
+                        {% endif %}
+                        {% if success_message %}
+                            <div class="form-success">{{ success_message }}</div>
+                        {% endif %}
+
+                        <label class="field">
+                            <span>新登录账号</span>
+                            <input type="text" name="new_username" value="{{ proposed_username }}" placeholder="请输入新的登录账号" autocomplete="username">
+                        </label>
+
+                        <label class="field">
+                            <span>当前密码</span>
+                            <input type="password" name="current_password" placeholder="请输入当前密码以确认修改" autocomplete="current-password">
+                        </label>
+
+                        <button type="submit" class="login-button record-form__button">保存登录账号</button>
+                    </form>
+                </section>
+            </div>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Change Rules</p>
+                    <h3>修改规则</h3>
+                </div>
+
+                <ul class="support-list">
+                    <li>
+                        <strong>账号唯一</strong>
+                        <span>新登录账号必须在统一账号表中保持唯一。</span>
+                    </li>
+                    <li>
+                        <strong>只改账号</strong>
+                        <span>当前只允许修改登录账号，不修改真实姓名和角色。</span>
+                    </li>
+                    <li>
+                        <strong>密码不变</strong>
+                        <span>密码仍然保存在统一账号表中，并继续使用 Django 哈希机制。</span>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}

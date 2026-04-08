@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
 
@@ -18,9 +19,10 @@ class PortalUser(models.Model):
     ]
 
     username = models.CharField("账号", max_length=64, unique=True)
-    password = models.CharField("密码", max_length=128, default="123456")
+    password = models.CharField("密码哈希", max_length=128)
     role = models.CharField("角色", max_length=20, choices=ROLE_CHOICES)
     full_name = models.CharField("姓名", max_length=64)
+    phone = models.CharField("手机号", max_length=32, blank=True)
     is_active = models.BooleanField("是否启用", default=True)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     updated_at = models.DateTimeField("更新时间", auto_now=True)
@@ -32,6 +34,12 @@ class PortalUser(models.Model):
 
     def __str__(self) -> str:
         return f"{self.full_name}({self.username})"
+
+    def set_password(self, raw_password: str) -> None:
+        self.password = make_password(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        return check_password(raw_password, self.password)
 
 
 class Student(models.Model):
@@ -53,8 +61,9 @@ class Student(models.Model):
     display_name = models.CharField("学生姓名", max_length=64)
     grade = models.CharField("年级", max_length=32)
     campus = models.CharField("校区", max_length=64, blank=True)
-    current_program = models.CharField("当前方向", max_length=64, blank=True)
-    phase_label = models.CharField("阶段标签", max_length=64, blank=True)
+    primary_course_name = models.CharField("主课程方向", max_length=64, blank=True)
+    primary_track_name = models.CharField("主学习体系", max_length=64, blank=True)
+    primary_level_name = models.CharField("主当前级别", max_length=64, blank=True)
 
     class Meta:
         ordering = ["id"]
@@ -125,3 +134,67 @@ class StudentContentAccess(models.Model):
         self.is_open = is_open
         self.granted_by = granted_by
         self.granted_at = timezone.now() if is_open else None
+
+
+class TeacherEvaluation(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="teacher_evaluations")
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_evaluations",
+    )
+    evaluation_text = models.TextField("教师评价")
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "教师评价"
+        verbose_name_plural = "教师评价"
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - 评价"
+
+
+class RewardRecord(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="reward_records")
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_rewards",
+    )
+    reward_text = models.CharField("奖励说明", max_length=255)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "奖励记录"
+        verbose_name_plural = "奖励记录"
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.reward_text}"
+
+
+class LessonHourLedger(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="lesson_hour_ledgers")
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_lesson_hour_ledgers",
+    )
+    delta_hours = models.IntegerField("课时变动")
+    note = models.CharField("备注", max_length=255, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "课时变动记录"
+        verbose_name_plural = "课时变动记录"
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.delta_hours:+d}课时"

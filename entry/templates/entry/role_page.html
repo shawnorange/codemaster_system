@@ -158,27 +158,142 @@
                             {% endfor %}
                         </div>
                     {% endif %}
+
+                    <div class="parent-record-grid">
+                        <section class="record-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Latest Evaluation</p>
+                                <h3>最新教师评价</h3>
+                            </div>
+                            {% if page_shell.latest_evaluation %}
+                                <article class="record-list-item">
+                                    <strong>{{ page_shell.latest_evaluation.text }}</strong>
+                                    <span>{{ page_shell.latest_evaluation.teacher_name }} · {{ page_shell.latest_evaluation.created_at_text }}</span>
+                                </article>
+                            {% else %}
+                                <div class="entry-hint-bar">当前还没有教师评价记录。</div>
+                            {% endif %}
+                        </section>
+
+                        <section class="record-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Recent Rewards</p>
+                                <h3>最近奖励记录</h3>
+                            </div>
+                            <div class="record-list">
+                                {% for item in page_shell.reward_records %}
+                                    <article class="record-list-item">
+                                        <strong>{{ item.text }}</strong>
+                                        <span>{{ item.teacher_name }} · {{ item.created_at_text }}</span>
+                                    </article>
+                                {% empty %}
+                                    <div class="entry-hint-bar">当前还没有奖励记录。</div>
+                                {% endfor %}
+                            </div>
+                        </section>
+
+                        <section class="record-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Lesson Hours</p>
+                                <h3>课时信息</h3>
+                            </div>
+                            <div class="profile-grid">
+                                <article class="profile-item">
+                                    <span>当前课时余额</span>
+                                    <strong>{{ page_shell.lesson_hour_summary.balance_text }}</strong>
+                                </article>
+                                <article class="profile-item">
+                                    <span>最近变动</span>
+                                    <strong>{{ page_shell.lesson_hour_summary.latest_text }}</strong>
+                                </article>
+                            </div>
+                            <div class="record-list">
+                                {% for item in page_shell.lesson_hour_records %}
+                                    <article class="record-list-item">
+                                        <strong>{{ item.delta_hours_text }} 课时</strong>
+                                        <span>{{ item.note }}</span>
+                                        <span>{{ item.teacher_name }} · {{ item.created_at_text }}</span>
+                                    </article>
+                                {% empty %}
+                                    <div class="entry-hint-bar">当前还没有课时变动记录。</div>
+                                {% endfor %}
+                            </div>
+                        </section>
+                    </div>
                 </div>
             {% elif role_key == "teacher" %}
-                <div class="teacher-table">
-                    <div class="teacher-table__header">
-                        <span>学生</span>
-                        <span>年级</span>
-                        <span>当前方向</span>
-                        <span>专题状态</span>
-                        <span>说明</span>
-                        <span>操作</span>
-                    </div>
-                    {% for student in page_shell.students %}
-                        <div class="teacher-table__row">
-                            <strong>{{ student.name }}</strong>
-                            <span>{{ student.grade }}</span>
-                            <span>{{ student.course }}</span>
-                            <span class="teacher-table__status teacher-table__status--{{ student.state }}">{{ student.status }}</span>
-                            <span>{{ student.note }}</span>
-                            <a class="teacher-table__action" href="{{ student.action_href }}">{{ student.action_label }}</a>
+                <div class="teacher-workspace-shell">
+                    <nav class="teacher-tab-bar" aria-label="教师工作台标签页">
+                        {% for tab in page_shell.tabs %}
+                            <a class="teacher-tab {{ tab.is_active|yesno:'teacher-tab--active,' }}" href="{{ tab.href }}">{{ tab.label }}</a>
+                        {% endfor %}
+                    </nav>
+
+                    {% if page_shell.active_tab == "students" %}
+                        <div class="teacher-tab-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Students</p>
+                                <h3>当前负责学生</h3>
+                                <p>以表格快速查看学生状态，并进入单个学生工作台继续做专题开放、评价、奖励和课时操作。</p>
+                            </div>
+
+                            <div class="teacher-table teacher-table--students">
+                                <div class="teacher-table__header">
+                                    <span>学生姓名</span>
+                                    <span>年级</span>
+                                    <span>家长手机</span>
+                                    <span>当前方向 / 当前课程</span>
+                                    <span>已开放专题数</span>
+                                    <span>所剩课时</span>
+                                    <span>操作</span>
+                                </div>
+                                {% for student in page_shell.students %}
+                                    <div class="teacher-table__row">
+                                        <strong>{{ student.name }}</strong>
+                                        <span>{{ student.grade }}</span>
+                                        <span>{{ student.parent_phone }}</span>
+                                        <div class="teacher-table__cell-stack">
+                                            <strong>{{ student.program }}</strong>
+                                            <span>{{ student.note }}</span>
+                                        </div>
+                                        <span class="teacher-table__status teacher-table__status--{{ student.state }}">{{ student.open_topics }}</span>
+                                        <span>{{ student.remaining_hours }}</span>
+                                        <a class="teacher-table__action" href="{{ student.action_href }}">{{ student.action_label }}</a>
+                                    </div>
+                                {% endfor %}
+                            </div>
                         </div>
-                    {% endfor %}
+                    {% else %}
+                        <div class="teacher-tab-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Courses</p>
+                                <h3>当前负责课程</h3>
+                                <p>先从课程入口查看老师当前承接的方向，再进入课程分类页承接 GESP、CSP、机器人编程等入口结构。</p>
+                            </div>
+
+                            <div class="teacher-table teacher-table--courses">
+                                <div class="teacher-table__header">
+                                    <span>级别</span>
+                                    <span>课程名称</span>
+                                    <span>当前负责学生数</span>
+                                    <span>已开放内容数</span>
+                                    <span>操作</span>
+                                </div>
+                                {% for course in page_shell.courses %}
+                                    <div class="teacher-table__row">
+                                        <span>{{ course.level }}</span>
+                                        <div class="teacher-table__cell-stack">
+                                            <strong>{{ course.title }}</strong>
+                                            <span>{{ course.note }}</span>
+                                        </div>
+                                        <span>{{ course.student_count }}</span>
+                                        <span class="teacher-table__status teacher-table__status--{{ course.state }}">{{ course.open_content_count }}</span>
+                                        <a class="teacher-table__action" href="{{ course.action_href }}">{{ course.action_label }}</a>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
             {% elif role_key == "principal" %}
                 <div class="principal-stack">
@@ -216,6 +331,43 @@
 
                     <div class="recent-access-panel">
                         <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Teacher Records</p>
+                            <h3>教师记录概览</h3>
+                            <p>当前只保留评价、奖励、课时变动这 3 类最小记录，用于验证记录闭环已经形成。</p>
+                        </div>
+
+                        <div class="topic-overview-list">
+                            {% for item in page_shell.record_overview_items %}
+                                <article class="recent-access-item">
+                                    <strong>{{ item.title }} · {{ item.value }}</strong>
+                                    <span>{{ item.description }}</span>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="recent-access-panel">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Recent Records</p>
+                            <h3>最近教师记录</h3>
+                            <p>这里汇总最近录入的评价、奖励和课时变动记录。</p>
+                        </div>
+
+                        <div class="recent-access-list">
+                            {% for item in page_shell.recent_record_items %}
+                                <article class="recent-access-item">
+                                    <strong>{{ item.kind }} · {{ item.title }}</strong>
+                                    <span>{{ item.detail }}</span>
+                                    <span>{{ item.meta }}</span>
+                                </article>
+                            {% empty %}
+                                <div class="entry-hint-bar">当前还没有教师记录。</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="recent-access-panel">
+                        <div class="section-heading section-heading--compact">
                             <p class="section-heading__eyebrow">Topic Overview</p>
                             <h3>专题开放情况</h3>
                             <p>当前按专题查看开放覆盖情况，确保系统已经从单专题升级为多专题框架。</p>
@@ -248,8 +400,8 @@
                         <strong>{{ role_label }}</strong>
                     </div>
                     <div class="context-list__item">
-                        <span>登录账号</span>
-                        <strong>{{ username }}</strong>
+                        <span>当前用户</span>
+                        <strong>{{ viewer_display_name }}</strong>
                     </div>
                     <div class="context-list__item">
                         <span>访问路径</span>

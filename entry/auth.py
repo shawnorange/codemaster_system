@@ -28,19 +28,19 @@ ROLE_CONFIG = {
         "label": "家长",
         "landing_url_name": "parent-student-profile",
         "page_title": "家长学生档案",
-        "page_description": "家长端当前聚焦孩子基础信息和 GESP4 已开放专题，先打通多专题开放后的最小可见闭环。",
+        "page_description": "家长端当前聚焦孩子基础信息、GESP4 已开放专题，以及教师评价、奖励、课时变动等最小真实记录。",
     },
     "teacher": {
         "label": "教师",
         "landing_url_name": "teacher-students",
-        "page_title": "教师学生管理",
-        "page_description": "教师端当前聚焦 GESP4 多专题开放：查看负责学生，并为学生逐个专题执行开放或关闭。",
+        "page_title": "教师工作台",
+        "page_description": "教师端当前按“学生 / 课程”双入口组织。先从教师首页进入学生或课程，再继续完成专题开放和教学记录操作。",
     },
     "principal": {
         "label": "校长",
         "landing_url_name": "principal-dashboard",
         "page_title": "校长校区概览",
-        "page_description": "校长端当前提供 GESP4 多专题的最基础开放概览，用来验证学生、教师与内容开放记录已经打通。",
+        "page_description": "校长端当前提供 GESP4 多专题开放与教师记录的最基础概览，用来验证最小真实闭环已经打通。",
     },
 }
 
@@ -52,7 +52,7 @@ TEST_ACCOUNTS = {
 }
 
 
-def _build_user_payload(portal_user: PortalUser) -> dict[str, str]:
+def build_user_payload(portal_user: PortalUser) -> dict[str, str]:
     role_config = ROLE_CONFIG[portal_user.role]
     return {
         "id": str(portal_user.id),
@@ -88,15 +88,21 @@ def list_test_accounts() -> list[dict[str, str]]:
 def authenticate_credentials(username: str, password: str) -> dict[str, str] | None:
     try:
         portal_user = (
-            PortalUser.objects.filter(username=username, password=password, is_active=True)
+            PortalUser.objects.filter(username=username, is_active=True)
             .order_by("id")
             .first()
         )
     except (OperationalError, ProgrammingError):
         portal_user = None
 
+    if portal_user and portal_user.check_password(password):
+        return build_user_payload(portal_user)
+
     if portal_user:
-        return _build_user_payload(portal_user)
+        return None
+
+    if _query_portal_users():
+        return None
 
     account = TEST_ACCOUNTS.get(username)
     if not account or password != DEFAULT_TEST_PASSWORD:
@@ -138,7 +144,10 @@ def get_authenticated_user(request: HttpRequest) -> dict[str, str] | None:
         portal_user = None
 
     if portal_user:
-        return _build_user_payload(portal_user)
+        return build_user_payload(portal_user)
+
+    if _query_portal_users():
+        return None
 
     account = TEST_ACCOUNTS.get(username)
     if not account or account["role"] != role:
