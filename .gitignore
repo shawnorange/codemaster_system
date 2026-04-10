@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 db.sqlite3
 .env
+.DS_Store
+.tmp_quicklook/
+project_inputs/
