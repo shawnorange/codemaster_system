@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from copy import deepcopy
+from urllib.parse import urlencode
 
-from django.db.models import QuerySet, Sum
+from django.core.paginator import Paginator
+from django.db.models import Count, Q, QuerySet, Sum
 from django.urls import reverse
 from django.utils import timezone
 
+from .course_identity import summarize_course_level_labels
 from .gesp2_catalog import (
+    ASCII_CHAR_ENCODING_CONTENT_SLUG,
     ENUMERATION_METHOD_CONTENT_SLUG,
     GESP2_KNOWLEDGE_DEFINITIONS,
     GESP2_KNOWLEDGE_MAP,
@@ -14,24 +19,43 @@ from .gesp2_catalog import (
     GESP2_PHASE,
 )
 from .gesp4_catalog import (
+    BINARY_SEARCH_CONTENT_SLUG,
     ARRAY_2D_CONTENT_SLUG,
     GESP4_PHASE,
     GESP4_TOPIC_DEFINITIONS,
     GESP4_TOPIC_MAP,
     GESP4_TOPIC_SLUGS,
+    SORTING_CONTENT_SLUG,
+    STRINGS_CONTENT_SLUG,
 )
 from .models import (
+    Course,
+    CourseCategory,
     CourseContent,
+    CourseLevel,
     LessonHourLedger,
     PortalUser,
     RewardRecord,
     Student,
     StudentContentAccess,
     TeacherEvaluation,
+    TeacherStudentAssignment,
 )
 from .shell_content import ROLE_SHELL_CONTENT
 from .student_portal_content import STUDENT_PORTAL_CONTENT
 from .teacher_course_catalog import TEACHER_COURSE_DEFINITIONS, TEACHER_COURSE_MAP
+
+
+GRID_PAGE_SIZE_OPTIONS = [10, 15, 50, 100]
+DEFAULT_GRID_PAGE_SIZE = 10
+
+
+def normalize_positive_value(value, *, default: int = 0, minimum: int = 0) -> int:
+    try:
+        normalized = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return normalized if normalized >= minimum else default
 
 
 def format_datetime(value) -> str:
@@ -45,6 +69,80 @@ def shorten_text(text: str, *, limit: int = 48) -> str:
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 1].rstrip()}…"
+
+
+def normalize_grid_page_size(value, *, default: int = DEFAULT_GRID_PAGE_SIZE) -> int:
+    try:
+        page_size = int(value)
+    except (TypeError, ValueError):
+        return default
+    return page_size if page_size in GRID_PAGE_SIZE_OPTIONS else default
+
+
+def normalize_grid_page(value) -> int:
+    try:
+        page = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return max(page, 1)
+
+
+def build_datagrid_context(
+    rows: list[dict],
+    *,
+    path: str,
+    page: int,
+    page_size: int,
+    query_params: dict[str, str | int],
+) -> dict:
+    paginator = Paginator(rows, page_size)
+    page_obj = paginator.get_page(page)
+    current_page = page_obj.number
+    total_pages = paginator.num_pages or 1
+
+    def build_href(*, page_number: int | None = None, next_page_size: int | None = None) -> str:
+        params = {
+            key: value
+            for key, value in query_params.items()
+            if value not in ("", None)
+        }
+        params["page"] = page_number if page_number is not None else current_page
+        params["page_size"] = next_page_size if next_page_size is not None else page_size
+        encoded = urlencode(params)
+        return f"{path}?{encoded}" if encoded else path
+
+    page_numbers = range(max(1, current_page - 2), min(total_pages, current_page + 2) + 1)
+    return {
+        "rows": list(page_obj.object_list),
+        "pagination": {
+            "page": current_page,
+            "page_size": page_size,
+            "total_count": paginator.count,
+            "total_pages": total_pages,
+            "start_index": (current_page - 1) * page_size + 1 if paginator.count else 0,
+            "end_index": min(current_page * page_size, paginator.count) if paginator.count else 0,
+            "has_previous": page_obj.has_previous(),
+            "has_next": page_obj.has_next(),
+            "previous_href": build_href(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else "",
+            "next_href": build_href(page_number=page_obj.next_page_number()) if page_obj.has_next() else "",
+            "page_links": [
+                {
+                    "number": number,
+                    "href": build_href(page_number=number),
+                    "is_current": number == current_page,
+                }
+                for number in page_numbers
+            ],
+            "page_size_options": [
+                {
+                    "value": option,
+                    "label": str(option),
+                    "selected": option == page_size,
+                }
+                for option in GRID_PAGE_SIZE_OPTIONS
+            ],
+        },
+    }
 
 
 def get_student_learning_parts(student: Student) -> list[str]:
@@ -84,14 +182,507 @@ def get_parent_student(portal_user: PortalUser) -> Student | None:
 def get_teacher_students(portal_user: PortalUser) -> QuerySet[Student]:
     return (
         Student.objects.select_related("user", "parent_user", "teacher_user")
-        .filter(teacher_user=portal_user)
+        .filter(teacher_assignments__teacher=portal_user, teacher_assignments__is_active=True)
+        .distinct()
         .order_by("id")
     )
+
+
+def get_teacher_active_assignments(portal_user: PortalUser) -> QuerySet[TeacherStudentAssignment]:
+    return (
+        TeacherStudentAssignment.objects.select_related(
+            "course",
+            "student",
+            "student__user",
+            "student__parent_user",
+            "student__teacher_user",
+        )
+        .filter(teacher=portal_user, is_active=True)
+        .order_by("course_id", "level_code", "student_id", "id")
+    )
+
+
+def summarize_teacher_assignment_scope(assignments: list[TeacherStudentAssignment]) -> str:
+    return summarize_course_level_labels(
+        [(assignment.course.title, assignment.level_code) for assignment in assignments]
+    )
+
+
+def format_assignment_levels(assignments: list[TeacherStudentAssignment], *, empty: str = "未分级") -> str:
+    level_codes = sorted({assignment.level_code for assignment in assignments if assignment.level_code})
+    return ", ".join(level_codes) if level_codes else empty
+
+
+def build_default_teacher_course_definition(course: Course) -> dict:
+    return {
+        "slug": course.slug,
+        "level": "未分级",
+        "title": course.title,
+        "summary": "当前已纳入教师负责课程范围。",
+        "state": "active",
+        "detail_title": f"{course.title} 课程分类页",
+        "detail_description": "当前先承接数据库中真实存在的课程入口，分类、级别和知识点都以数据库为准。",
+        "category_items": [],
+    }
 
 
 def get_student_content_access(student: Student, content: CourseContent) -> StudentContentAccess:
     access, _ = StudentContentAccess.objects.get_or_create(student=student, content=content)
     return access
+
+
+def get_teacher_course_scope(portal_user: PortalUser, course_slug: str) -> dict:
+    course_assignments = list(get_teacher_active_assignments(portal_user).filter(course__slug=course_slug))
+    if not course_assignments:
+        raise Course.DoesNotExist(course_slug)
+
+    assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in course_assignments:
+        assignments_by_student[assignment.student_id].append(assignment)
+
+    related_students = [assignments_by_student[student_id][0].student for student_id in sorted(assignments_by_student)]
+    return {
+        "course": course_assignments[0].course,
+        "course_assignments": course_assignments,
+        "assignments_by_student": assignments_by_student,
+        "related_students": related_students,
+        "student_ids": list(assignments_by_student),
+        "student_map": {student.id: student for student in related_students},
+    }
+
+
+def get_teacher_assignable_scope_options(
+    portal_user: PortalUser,
+    *,
+    include_assignment: TeacherStudentAssignment | None = None,
+) -> list[dict]:
+    option_map: dict[tuple[int, str], dict] = {}
+    for assignment in get_teacher_active_assignments(portal_user):
+        scope_key = (assignment.course_id, assignment.level_code)
+        if scope_key in option_map:
+            continue
+        option_map[scope_key] = {
+            "scope_key": f"{assignment.course_id}:{assignment.level_code}",
+            "course_id": assignment.course_id,
+            "course_slug": assignment.course.slug,
+            "course_title": assignment.course.title,
+            "level_code": assignment.level_code,
+            "label": f"{assignment.course.title} / {assignment.level_code}",
+        }
+
+    if include_assignment:
+        scope_key = (include_assignment.course_id, include_assignment.level_code)
+        if scope_key not in option_map:
+            option_map[scope_key] = {
+                "scope_key": f"{include_assignment.course_id}:{include_assignment.level_code}",
+                "course_id": include_assignment.course_id,
+                "course_slug": include_assignment.course.slug,
+                "course_title": include_assignment.course.title,
+                "level_code": include_assignment.level_code,
+                "label": f"{include_assignment.course.title} / {include_assignment.level_code}",
+            }
+
+    return sorted(
+        option_map.values(),
+        key=lambda item: (item["course_title"], item["level_code"], item["course_id"]),
+    )
+
+
+def build_teacher_assignment_student_options(portal_user: PortalUser) -> list[dict]:
+    active_assignments = list(get_teacher_active_assignments(portal_user))
+    assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in active_assignments:
+        assignments_by_student[assignment.student_id].append(assignment)
+
+    student_options = []
+    for student in (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .order_by("display_name", "id")
+    ):
+        current_assignments = assignments_by_student.get(student.id, [])
+        current_scope_text = (
+            summarize_teacher_assignment_scope(current_assignments)
+            if current_assignments
+            else "当前不在我名下"
+        )
+        student_options.append(
+            {
+                "id": student.id,
+                "label": student.display_name,
+                "grade": student.grade or "待补充",
+                "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
+                "description": f"{student.grade or '年级待补充'} · {current_scope_text}",
+                "current_scope_text": current_scope_text,
+                "is_current_student": bool(current_assignments),
+            }
+        )
+
+    return student_options
+
+
+def get_teacher_course_categories(course: Course) -> QuerySet[CourseCategory]:
+    return course.categories.filter(is_active=True).order_by("sort_order", "id")
+
+
+def get_teacher_course_levels(category: CourseCategory) -> QuerySet[CourseLevel]:
+    return category.levels.filter(is_active=True).order_by("sort_order", "id")
+
+
+def get_teacher_level_contents(level: CourseLevel, *, search_query: str = "") -> QuerySet[CourseContent]:
+    queryset = (
+        CourseContent.objects.select_related("course", "level", "level__category")
+        .filter(level=level, is_active=True)
+        .order_by("sort_order", "id")
+    )
+    if search_query:
+        queryset = queryset.filter(title__icontains=search_query)
+    return queryset
+
+
+def build_teacher_student_assignment_list_context(portal_user: PortalUser, student_id: int) -> dict:
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id)
+        .get()
+    )
+    assignment_queryset = (
+        TeacherStudentAssignment.objects.select_related("course", "student", "teacher")
+        .filter(teacher=portal_user, student=student)
+        .order_by("-is_active", "course_id", "level_code", "id")
+    )
+    assignment_rows = []
+    active_rows = 0
+    inactive_rows = 0
+    for assignment in assignment_queryset:
+        if assignment.is_active:
+            active_rows += 1
+        else:
+            inactive_rows += 1
+        assignment_rows.append(
+            {
+                "id": assignment.id,
+                "course_title": assignment.course.title,
+                "course_slug": assignment.course.slug,
+                "level_code": assignment.level_code,
+                "status_text": "生效中" if assignment.is_active else "已移除",
+                "assigned_at_text": format_datetime(assignment.assigned_at),
+                "updated_at_text": format_datetime(assignment.updated_at),
+                "can_edit": assignment.is_active,
+                "edit_href": reverse(
+                    "teacher-student-assignment-edit",
+                    args=[student.id, assignment.id],
+                )
+                if assignment.is_active
+                else "",
+                "remove_href": reverse(
+                    "teacher-student-assignment-remove",
+                    args=[student.id, assignment.id],
+                )
+                if assignment.is_active
+                else "",
+            }
+        )
+
+    active_assignments = [row for row in assignment_rows if row["can_edit"]]
+    current_scope_text = (
+        summarize_course_level_labels(
+            [(row["course_title"], row["level_code"]) for row in active_assignments]
+        )
+        if active_assignments
+        else "当前不在我名下"
+    )
+    has_active_assignment = bool(active_assignments)
+
+    return {
+        "student": student,
+        "page_title": f"{student.display_name} · 学生关系管理",
+        "page_description": "这里只管理当前老师与该学生之间的 assignment，不改学生主档，也不跨老师操作。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "学生关系管理"},
+            {"label": student.display_name},
+        ],
+        "summary_cards": [
+            {"label": "当前生效", "value": f"{active_rows} 条", "hint": "当前老师对该学生仍在生效的 assignment"},
+            {"label": "已移除", "value": f"{inactive_rows} 条", "hint": "历史上存在但已停用的 assignment"},
+            {"label": "当前范围", "value": current_scope_text, "hint": "按当前老师视角汇总"},
+            {"label": "学生主学习线", "value": build_student_learning_path(student), "hint": student.grade or "年级待补充"},
+        ],
+        "student_identity_items": [
+            {"label": "学生姓名", "value": student.display_name},
+            {"label": "年级", "value": student.grade or "待补充"},
+            {"label": "校区", "value": student.campus or "待补充"},
+            {"label": "家长手机", "value": student.parent_user.phone if student.parent_user and student.parent_user.phone else "待补充"},
+        ],
+        "assignment_rows": assignment_rows,
+        "assignment_table_rows": assignment_rows,
+        "new_assignment_href": f"{reverse('teacher-assignment-new')}?student_id={student.id}",
+        "student_detail_href": reverse("teacher-student-detail", args=[student.id]) if has_active_assignment else "",
+        "back_href": reverse("teacher-students") + "?tab=students",
+        "support_items": [
+            {"title": "当前边界", "description": "这里只允许当前老师维护自己的 assignment，不允许改到别的老师名下。"},
+            {"title": "移除方式", "description": "移除不会删除学生主档，只会把 assignment 改成 is_active=false。"},
+            {"title": "恢复方式", "description": "如果同一学生、课程、级别曾被移除，后续新增时会恢复旧 assignment，而不是插重复记录。"},
+        ],
+    }
+
+
+def build_teacher_assignment_form_context(
+    portal_user: PortalUser,
+    *,
+    action_label: str,
+    submit_label: str,
+    student_id: int | None = None,
+    assignment: TeacherStudentAssignment | None = None,
+    form_data: dict | None = None,
+) -> dict:
+    student_options = build_teacher_assignment_student_options(portal_user)
+    student_map = {
+        student.id: student
+        for student in Student.objects.select_related("user", "parent_user", "teacher_user").all()
+    }
+    available_scopes = get_teacher_assignable_scope_options(portal_user, include_assignment=assignment)
+    available_scope_keys = {option["scope_key"] for option in available_scopes}
+
+    preset_student_id = assignment.student_id if assignment else student_id
+    selected_student_id = (
+        preset_student_id
+        if preset_student_id is not None
+        else normalize_positive_value(form_data.get("student_id") if form_data else None, default=0, minimum=1)
+    )
+    if not selected_student_id and student_options:
+        selected_student_id = student_options[0]["id"]
+    selected_student = student_map.get(selected_student_id)
+    if preset_student_id and not selected_student:
+        raise Student.DoesNotExist(preset_student_id)
+
+    current_scope_key = f"{assignment.course_id}:{assignment.level_code}" if assignment else ""
+    selected_scope_key = (
+        str(form_data.get("scope_key")).strip()
+        if form_data and form_data.get("scope_key") is not None
+        else current_scope_key
+    )
+    if not selected_scope_key and available_scopes:
+        selected_scope_key = available_scopes[0]["scope_key"]
+    selected_scope = next((option for option in available_scopes if option["scope_key"] == selected_scope_key), None)
+
+    teacher_assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for teacher_assignment in get_teacher_active_assignments(portal_user):
+        teacher_assignments_by_student[teacher_assignment.student_id].append(teacher_assignment)
+    selected_student_scope_text = (
+        summarize_teacher_assignment_scope(teacher_assignments_by_student[selected_student.id])
+        if selected_student and teacher_assignments_by_student.get(selected_student.id)
+        else "当前不在我名下"
+    )
+    lock_student = bool(assignment or student_id)
+    student_selector_options = (
+        [option for option in student_options if option["id"] == selected_student_id]
+        if lock_student
+        else student_options
+    )
+    student_selector_rows = [
+        {
+            "student_id": option["id"],
+            "name": option["label"],
+            "grade": option["grade"],
+            "parent_phone": option["parent_phone"],
+            "current_scope_text": option["current_scope_text"],
+            "selected": option["id"] == selected_student_id,
+        }
+        for option in student_selector_options
+    ]
+    scope_selector_rows = [
+        {
+            "scope_key": option["scope_key"],
+            "course_title": option["course_title"],
+            "course_slug": option["course_slug"],
+            "level_code": option["level_code"],
+            "label": option["label"],
+            "selected": option["scope_key"] == selected_scope_key,
+        }
+        for option in available_scopes
+    ]
+
+    back_href = (
+        reverse("teacher-student-assignments", args=[selected_student.id])
+        if selected_student
+        else reverse("teacher-students") + "?tab=students"
+    )
+
+    return {
+        "page_title": f"{action_label} · 学生关系",
+        "page_description": "这一步只维护当前老师自己的 assignment。课程和级别范围来自当前老师已有的负责范围，不扩展全局课程结构。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "学生关系管理", "href": back_href if selected_student else reverse("teacher-students") + "?tab=students"},
+            {"label": action_label},
+        ],
+        "summary_cards": [
+            {"label": "可选学生", "value": f"{len(student_options)} 人", "hint": "从现有学生主档中选择，不复制学生记录"},
+            {"label": "可选范围", "value": f"{len(available_scopes)} 项", "hint": "仅限当前老师已有课程 / 级别范围"},
+            {"label": "当前学生状态", "value": selected_student_scope_text, "hint": "当前老师对该学生的现有范围"},
+            {"label": "操作模式", "value": action_label, "hint": submit_label},
+        ],
+        "identity_items": [
+            {"label": "当前老师", "value": portal_user.full_name},
+            {"label": "当前学生", "value": selected_student.display_name if selected_student else "未选择"},
+            {"label": "当前年级", "value": selected_student.grade if selected_student and selected_student.grade else "待补充"},
+            {"label": "当前范围", "value": selected_scope["label"] if selected_scope else "未选择"},
+        ],
+        "student_options": student_options,
+        "student_option_ids": {option["id"] for option in student_options},
+        "selected_student": selected_student,
+        "student_selector_rows": student_selector_rows,
+        "available_scopes": available_scopes,
+        "available_scope_keys": available_scope_keys,
+        "selected_scope": selected_scope,
+        "scope_selector_rows": scope_selector_rows,
+        "assignment": assignment,
+        "form_values": {
+            "student_id": selected_student_id,
+            "scope_key": selected_scope_key,
+        },
+        "lock_student": lock_student,
+        "action_label": action_label,
+        "submit_label": submit_label,
+        "back_href": back_href,
+        "support_items": [
+            {"title": "新增规则", "description": "同一老师、同一学生、同一课程、同一级别若已有 inactive assignment，会直接恢复为 active。"},
+            {"title": "修改规则", "description": "编辑时只允许切换当前老师已有的课程 / 级别范围，不允许改到别的老师名下。"},
+            {"title": "学生主档", "description": "学生主档只保留一份，assignment 才是教师与学生的关系载体。"},
+        ],
+    }
+
+
+def build_teacher_assignment_remove_context(
+    portal_user: PortalUser,
+    student_id: int,
+    assignment_id: int,
+) -> dict:
+    assignment = (
+        TeacherStudentAssignment.objects.select_related("student", "course", "teacher")
+        .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
+        .get()
+    )
+    return {
+        "assignment": assignment,
+        "student": assignment.student,
+        "page_title": f"{assignment.student.display_name} · 移除 assignment",
+        "page_description": "确认后只会停用这条 assignment，不会删除学生主档，也不会影响其他老师的关系。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "学生关系管理", "href": reverse("teacher-student-assignments", args=[assignment.student_id])},
+            {"label": "移除 assignment"},
+        ],
+        "summary_cards": [
+            {"label": "学生", "value": assignment.student.display_name, "hint": assignment.student.grade or "年级待补充"},
+            {"label": "课程方向", "value": assignment.course.title, "hint": assignment.course.slug},
+            {"label": "级别", "value": assignment.level_code, "hint": "当前将被停用的 assignment"},
+            {"label": "当前状态", "value": "生效中", "hint": "确认后会改成 is_active=false"},
+        ],
+        "identity_items": [
+            {"label": "学生姓名", "value": assignment.student.display_name},
+            {"label": "课程方向", "value": assignment.course.title},
+            {"label": "级别", "value": assignment.level_code},
+            {"label": "分配时间", "value": format_datetime(assignment.assigned_at)},
+        ],
+        "confirm_action": reverse("teacher-student-assignment-remove", args=[assignment.student_id, assignment.id]),
+        "back_href": reverse("teacher-student-assignments", args=[assignment.student_id]),
+    }
+
+
+def build_teacher_course_structure_export_payload(
+    portal_user: PortalUser,
+    course_slug: str,
+    *,
+    category_slug: str | None = None,
+    level_code: str | None = None,
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+
+    def serialize_content(content: CourseContent) -> dict:
+        return {
+            "title": content.title,
+            "slug": content.slug,
+            "summary": content.summary,
+            "route_path": content.route_path,
+            "has_real_content": content.has_real_content,
+            "sort_order": content.sort_order,
+            "phase": content.phase,
+        }
+
+    def serialize_level(level: CourseLevel) -> dict:
+        knowledge_points = [serialize_content(content) for content in get_teacher_level_contents(level)]
+        return {
+            "code": level.code,
+            "title": level.title,
+            "summary": level.summary,
+            "sort_order": level.sort_order,
+            "knowledge_point_count": len(knowledge_points),
+            "knowledge_points": knowledge_points,
+        }
+
+    def serialize_category(category: CourseCategory) -> dict:
+        levels = [serialize_level(level) for level in get_teacher_course_levels(category)]
+        return {
+            "slug": category.slug,
+            "title": category.title,
+            "summary": category.summary,
+            "sort_order": category.sort_order,
+            "level_count": len(levels),
+            "levels": levels,
+        }
+
+    payload = {
+        "export_scope": "course",
+        "generated_at": timezone.localtime().isoformat(),
+        "teacher": {
+            "id": portal_user.id,
+            "username": portal_user.username,
+            "full_name": portal_user.full_name,
+        },
+        "course": {
+            "slug": course.slug,
+            "title": course.title,
+            "summary": course.summary,
+            "visible_assignment_levels": sorted({assignment.level_code for assignment in scope["course_assignments"]}),
+            "related_student_count": len(scope["related_students"]),
+        },
+    }
+
+    if category_slug and level_code:
+        category = get_teacher_course_category(course, category_slug)
+        level = get_teacher_course_level(category, level_code)
+        payload["export_scope"] = "level"
+        payload["category"] = {
+            "slug": category.slug,
+            "title": category.title,
+            "summary": category.summary,
+        }
+        payload["level"] = {
+            "code": level.code,
+            "title": level.title,
+            "summary": level.summary,
+            "sort_order": level.sort_order,
+        }
+        payload["knowledge_points"] = [serialize_content(content) for content in get_teacher_level_contents(level)]
+        return payload
+
+    if category_slug:
+        category = get_teacher_course_category(course, category_slug)
+        payload["export_scope"] = "category"
+        payload["category"] = {
+            "slug": category.slug,
+            "title": category.title,
+            "summary": category.summary,
+            "sort_order": category.sort_order,
+        }
+        payload["levels"] = [serialize_level(level) for level in get_teacher_course_levels(category)]
+        return payload
+
+    payload["categories"] = [serialize_category(category) for category in get_teacher_course_categories(course)]
+    return payload
 
 
 def student_has_content_access(student: Student, content_slug: str) -> bool:
@@ -328,7 +919,7 @@ def get_gesp2_knowledge_items() -> list[dict]:
                 "status_text": "真实内容" if is_real_content else "内容预留",
                 "action_label": "进入知识点" if is_real_content else "查看预留",
                 "note": (
-                    "首个真实教学页，已接入知识点说明、基础模板与真题区。"
+                    "真实知识点页已接入，题目区采用数据库优先、静态兜底。"
                     if is_real_content
                     else "当前先进入统一预留页，后续可直接替换成真实知识点内容。"
                 ),
@@ -352,12 +943,20 @@ def build_student_portal_page(
     if page_key == "cpp_gesp":
         gesp2_contents = get_gesp2_knowledge_contents()
         gesp4_contents = get_gesp4_topic_contents()
+        gesp2_real_titles = [
+            item["title"]
+            for item in GESP2_KNOWLEDGE_DEFINITIONS
+            if item["content_mode"] == "real"
+        ]
         page_shell["summary_cards"] = [
             {"label": "已接入层级", "value": "2 个"},
-            {"label": "首个真实内容", "value": "GESP2 · 枚举法"},
+            {"label": "GESP2 真实内容", "value": f"{len(gesp2_real_titles)} 个"},
             {"label": "专题目录", "value": f"GESP4 · {len(gesp4_contents)} 个"},
         ]
-        page_shell["entry_hint"] = "GESP2 已接入知识点目录和“枚举法”真实内容页；GESP4 继续保留多专题目录。"
+        page_shell["entry_hint"] = (
+            f"GESP2 已接入知识点目录，当前真实内容包括 {'、'.join(gesp2_real_titles)}；"
+            "GESP4 继续保留多专题目录。"
+        )
         page_shell["portal_cards"] = [
             {
                 "slug": "gesp1",
@@ -373,7 +972,7 @@ def build_student_portal_page(
                 "title": "GESP2",
                 "meta": "Level 2",
                 "subtitle": "知识点目录已接入",
-                "note": f"当前共 {len(gesp2_contents)} 个知识点目录项，枚举法已接入真实教学页。",
+                "note": f"当前共 {len(gesp2_contents)} 个知识点目录项，已接入 {len(gesp2_real_titles)} 个真实知识点页。",
                 "state": "open",
                 "status_text": "已接入",
                 "featured": True,
@@ -408,6 +1007,7 @@ def build_student_portal_page(
         knowledge_items = get_gesp2_knowledge_items()
         real_count = sum(1 for item in knowledge_items if item["is_real_content"])
         reserved_count = len(knowledge_items) - real_count
+        real_titles = [item["title"] for item in knowledge_items if item["is_real_content"]]
         page_shell["portal_cards"] = [
             {
                 "slug": item["slug"],
@@ -428,7 +1028,10 @@ def build_student_portal_page(
             {"label": "真实内容", "value": f"{real_count} 个"},
             {"label": "预留内容", "value": f"{reserved_count} 个"},
         ]
-        page_shell["entry_hint"] = "枚举法已作为 GESP2 首个真实知识点网页接入，其它知识点当前先进入统一预留页。"
+        page_shell["entry_hint"] = (
+            f"{'、'.join(real_titles)} 已作为 GESP2 真实知识点网页接入，"
+            "其它知识点当前先进入统一预留页。"
+        )
         return page_shell
 
     if page_key != "cpp_gesp4":
@@ -702,66 +1305,99 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
 
 def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "students") -> dict:
     page_shell = deepcopy(ROLE_SHELL_CONTENT["teacher"])
-    students = list(get_teacher_students(portal_user))
+    assignments = list(get_teacher_active_assignments(portal_user))
     active_tab = active_tab if active_tab in {"students", "courses"} else "students"
+    assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    assignments_by_course: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in assignments:
+        assignments_by_student[assignment.student_id].append(assignment)
+        assignments_by_course[assignment.course_id].append(assignment)
 
     student_rows = []
     total_open_records = 0
     total_lesson_balance = 0
-    for student in students:
-        topic_items = get_gesp4_topic_access_items(student)
+    for student_id in sorted(assignments_by_student):
+        student_assignments = assignments_by_student[student_id]
+        student = student_assignments[0].student
+        has_cpp_assignment = any(assignment.course.slug == "cpp" for assignment in student_assignments)
+        topic_items = get_gesp4_topic_access_items(student) if has_cpp_assignment else []
         open_items = [item for item in topic_items if item["is_open"]]
         lesson_hour_summary = build_lesson_hour_summary(student)
-        total_open_records += len(open_items)
         total_lesson_balance += lesson_hour_summary["balance"]
+        assignment_scope_text = summarize_teacher_assignment_scope(student_assignments)
 
         student_rows.append(
             {
                 "name": student.display_name,
                 "grade": student.grade,
                 "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
-                "program": build_student_learning_path(student),
-                "open_topics": f"{len(open_items)}/{len(topic_items)}",
+                "program": assignment_scope_text,
+                "open_topics": f"{len(open_items)}/{len(topic_items)}" if topic_items else "0/0",
                 "remaining_hours": lesson_hour_summary["balance_text"],
                 "status": f"{len(open_items)}/{len(topic_items)} 已开放" if open_items else "全部未开放",
                 "state": "open" if open_items else "locked",
                 "note": (
-                    f"已开放：{summarize_open_topics(topic_items, limit=2)}"
+                    f"负责范围：{assignment_scope_text}；已开放：{summarize_open_topics(topic_items, limit=2)}"
                     if open_items
-                    else "GESP4 目录下 6 个专题当前均未开放。"
+                    else f"负责范围：{assignment_scope_text}。"
+                    if not topic_items
+                    else f"负责范围：{assignment_scope_text}；GESP4 目录下 6 个专题当前均未开放。"
                 ),
                 "action_href": reverse("teacher-student-detail", args=[student.id]),
                 "action_label": "查看详情",
+                "relation_href": reverse("teacher-student-assignments", args=[student.id]),
+                "relation_label": "关系管理",
             }
         )
 
+    cpp_student_ids = {
+        student_id
+        for student_id, student_assignments in assignments_by_student.items()
+        if any(assignment.course.slug == "cpp" for assignment in student_assignments)
+    }
+    if cpp_student_ids:
+        total_open_records = StudentContentAccess.objects.filter(
+            student_id__in=cpp_student_ids,
+            content__course__slug="cpp",
+            is_open=True,
+        ).count()
+
     course_rows = []
-    for definition in TEACHER_COURSE_DEFINITIONS:
-        student_count = _count_course_students(students, definition["title"])
-        if definition["slug"] == "cpp":
+    course_order_map = {
+        definition["slug"]: index for index, definition in enumerate(TEACHER_COURSE_DEFINITIONS, start=1)
+    }
+    for course_id, course_assignments in assignments_by_course.items():
+        course = course_assignments[0].course
+        definition = TEACHER_COURSE_MAP.get(course.slug, build_default_teacher_course_definition(course))
+        student_ids = {assignment.student_id for assignment in course_assignments}
+        if course.slug == "cpp":
             open_content_count = StudentContentAccess.objects.filter(
-                student__teacher_user=portal_user,
-                content__course__slug="cpp",
+                student_id__in=student_ids,
+                content__course_id=course_id,
                 is_open=True,
             ).count()
         else:
             open_content_count = 0
         course_rows.append(
             {
-                "level": definition["level"],
-                "title": definition["title"],
-                "student_count": student_count,
+                "slug": course.slug,
+                "level": format_assignment_levels(course_assignments, empty=definition["level"]),
+                "title": course.title,
+                "student_count": len(student_ids),
                 "open_content_count": open_content_count,
-                "state": "open" if definition["slug"] == "cpp" or student_count else "locked",
-                "note": definition["summary"],
-                "action_href": reverse("teacher-course-detail", args=[definition["slug"]]),
-                "action_label": "查看分类" if definition["slug"] == "cpp" else "查看课程",
+                "state": "open",
+                "note": f"{definition['summary']} 当前负责级别：{format_assignment_levels(course_assignments)}",
+                "action_href": reverse("teacher-course-detail", args=[course.slug]),
+                "student_pool_href": reverse("teacher-course-student-pool", args=[course.slug]),
+                "action_label": "查看分类" if course.slug == "cpp" else "查看课程",
+                "order": course_order_map.get(course.slug, len(course_order_map) + course.id),
             }
         )
+    course_rows.sort(key=lambda row: (row["order"], row["title"]))
 
-    current_course_count = sum(1 for row in course_rows if row["student_count"] > 0)
+    current_course_count = len(course_rows)
     page_shell["summary_cards"] = [
-        {"label": "负责学生", "value": f"{len(students)} 人", "hint": "当前教师名下学生数"},
+        {"label": "负责学生", "value": f"{len(assignments_by_student)} 人", "hint": "当前 assignment 覆盖的学生数"},
         {"label": "当前课程", "value": f"{current_course_count} 门", "hint": "当前有学生在学的课程方向"},
         {"label": "已开放内容", "value": f"{total_open_records} 项", "hint": "GESP4 多专题的已开放记录总数"},
         {"label": "课时汇总", "value": format_delta_hours(total_lesson_balance), "hint": "当前负责学生的课时余额汇总"},
@@ -786,152 +1422,647 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     page_shell["active_tab"] = active_tab
     page_shell["students"] = student_rows
     page_shell["courses"] = course_rows
+    page_shell["student_table_rows"] = student_rows
+    page_shell["course_table_rows"] = course_rows
+    page_shell["student_pool_links"] = [
+        {
+            "label": f"从{course['title']}学生池加入我名下",
+            "href": course["student_pool_href"],
+        }
+        for course in course_rows
+    ]
     return page_shell
 
 
-def build_teacher_course_detail_context(portal_user: PortalUser, course_slug: str, *, selected_topic_slug: str | None = None) -> dict:
-    if course_slug not in TEACHER_COURSE_MAP:
-        raise KeyError(course_slug)
+def get_teacher_course_category(course: Course, category_slug: str) -> CourseCategory:
+    return get_teacher_course_categories(course).get(slug=category_slug)
 
-    definition = TEACHER_COURSE_MAP[course_slug]
-    students = list(get_teacher_students(portal_user))
-    related_students = [student for student in students if get_student_primary_course(student) == definition["title"]]
-    open_content_count = (
-        StudentContentAccess.objects.filter(
-            student__teacher_user=portal_user,
-            content__course__slug=course_slug,
-            is_open=True,
-        ).count()
-        if course_slug == "cpp"
-        else 0
+
+def get_teacher_course_level(category: CourseCategory, level_code: str) -> CourseLevel:
+    return get_teacher_course_levels(category).get(code=level_code)
+
+
+def get_teacher_course_content(course: Course, level: CourseLevel, content_slug: str) -> CourseContent:
+    return CourseContent.objects.select_related("course", "level", "level__category").get(
+        course=course,
+        level=level,
+        slug=content_slug,
+        is_active=True,
     )
-    selected_topic = None
-    topic_filter_items: list[dict] = []
-    topic_assignment_rows: list[dict] = []
-    topic_assignment_summary = None
-    topic_assignment_action = ""
-    teaching_page_links: list[dict] = []
 
-    if course_slug == "cpp":
-        teaching_page_links = [
-            {
-                "title": "GESP2 · 枚举法专题页",
-                "description": "教师版保留 Knowledge Overview、Common Pitfalls、Scope Boundary、Coverage 与 Teaching Notes，适合直接备课和投屏讲解。",
+
+def get_teacher_knowledge_teaching_page_link(
+    course_slug: str,
+    category_slug: str,
+    level_code: str,
+    content: CourseContent,
+) -> dict:
+    if course_slug == "cpp" and category_slug == "gesp" and level_code == "GESP2":
+        if content.slug == ENUMERATION_METHOD_CONTENT_SLUG:
+            return {
                 "href": reverse("teacher-cpp-gesp2-enumeration"),
-                "status_text": "教师版教学页",
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
             }
-        ]
-        topic_contents = get_gesp4_topic_contents()
-        topic_items = []
-        for content in topic_contents:
-            topic_definition = GESP4_TOPIC_MAP[content.slug]
-            topic_items.append(
-                {
-                    "slug": content.slug,
-                    "title": content.title,
-                    "subtitle": topic_definition["subtitle"],
-                    "content_mode_text": get_content_mode_text(content.slug),
-                    "summary": content.summary or topic_definition["summary"],
-                }
-            )
+        if content.slug == ASCII_CHAR_ENCODING_CONTENT_SLUG:
+            return {
+                "href": reverse("teacher-cpp-gesp2-ascii-char-encoding"),
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
+            }
+    if course_slug == "cpp" and category_slug == "gesp" and level_code == "GESP4":
+        if content.slug == ARRAY_2D_CONTENT_SLUG:
+            return {
+                "href": reverse("teacher-cpp-gesp4-array-2d"),
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
+            }
+        if content.slug == BINARY_SEARCH_CONTENT_SLUG:
+            return {
+                "href": reverse("teacher-cpp-gesp4-binary-search"),
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
+            }
+        if content.slug == SORTING_CONTENT_SLUG:
+            return {
+                "href": reverse("teacher-cpp-gesp4-sorting"),
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
+            }
+        if content.slug == STRINGS_CONTENT_SLUG:
+            return {
+                "href": reverse("teacher-cpp-gesp4-strings"),
+                "label": "进入 Teaching Page",
+                "status_text": "已接入",
+                "is_placeholder": False,
+            }
 
-        valid_slugs = {item["slug"] for item in topic_items}
-        effective_topic_slug = selected_topic_slug if selected_topic_slug in valid_slugs else topic_items[0]["slug"]
-        selected_topic = next(item for item in topic_items if item["slug"] == effective_topic_slug)
-        selected_content = get_gesp4_topic_content(effective_topic_slug)
+    return {
+        "href": reverse(
+            "teacher-course-knowledge-point-teaching-page",
+            args=[course_slug, category_slug, level_code, content.slug],
+        ),
+        "label": "查看接入状态",
+        "status_text": "暂未接入真实教学页",
+        "is_placeholder": True,
+    }
 
-        access_map = {
-            access.student_id: access
-            for access in StudentContentAccess.objects.select_related("granted_by").filter(
-                student__in=related_students,
-                content=selected_content,
-            )
-        }
-        for student in related_students:
-            access = access_map.get(student.id)
-            is_open = access.is_open if access else False
-            topic_assignment_rows.append(
-                {
-                    "student_id": student.id,
-                    "name": student.display_name,
-                    "grade": student.grade or "待补充",
-                    "stage": build_student_learning_path(student),
-                    "is_open": is_open,
-                    "status_text": "已开放" if is_open else "未开放",
-                    "state": "open" if is_open else "locked",
-                    "hint": (
-                        f"开放时间：{format_datetime(access.granted_at)}"
-                        if access and access.is_open
-                        else "当前尚未开放该专题"
-                    ),
-                }
-            )
 
-        open_student_count = sum(1 for row in topic_assignment_rows if row["is_open"])
-        topic_filter_items = [
+def build_teacher_course_detail_context(portal_user: PortalUser, course_slug: str) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    definition = TEACHER_COURSE_MAP.get(course_slug, build_default_teacher_course_definition(course))
+    category_queryset = list(get_teacher_course_categories(course))
+    content_counts = {
+        row["level__category_id"]: row
+        for row in (
+            CourseContent.objects.filter(course=course, level__isnull=False, is_active=True)
+            .values("level__category_id")
+            .annotate(
+                knowledge_point_count=Count("id"),
+                real_content_count=Count("id", filter=Q(has_real_content=True)),
+            )
+        )
+    }
+    level_counts = {
+        row["category_id"]: row["level_count"]
+        for row in (
+            CourseLevel.objects.filter(category__course=course, is_active=True)
+            .values("category_id")
+            .annotate(level_count=Count("id"))
+        )
+    }
+
+    category_items = []
+    for category in category_queryset:
+        category_content_summary = content_counts.get(category.id, {})
+        knowledge_point_count = category_content_summary.get("knowledge_point_count", 0)
+        real_content_count = category_content_summary.get("real_content_count", 0)
+        category_items.append(
             {
-                **item,
-                "href": f"{reverse('teacher-course-detail', args=[course_slug])}?topic={item['slug']}",
-                "is_active": item["slug"] == effective_topic_slug,
+                "slug": category.slug,
+                "title": category.title,
+                "summary": category.summary or "当前分类已落库，可继续补 Level 与知识点。",
+                "level_count": level_counts.get(category.id, 0),
+                "knowledge_point_count": knowledge_point_count,
+                "real_content_count": real_content_count,
+                "status_text": "已接入" if knowledge_point_count else "内容预留",
+                "action_href": reverse("teacher-course-category-detail", args=[course_slug, category.slug]),
             }
-            for item in topic_items
-        ]
-        topic_assignment_summary = {
-            "selected_title": selected_topic["title"],
-            "selected_subtitle": selected_topic["subtitle"],
-            "selected_mode_text": selected_topic["content_mode_text"],
-            "student_count": len(topic_assignment_rows),
-            "open_count": open_student_count,
-            "locked_count": len(topic_assignment_rows) - open_student_count,
-        }
-        topic_assignment_action = reverse("teacher-course-detail", args=[course_slug])
+        )
+
+    total_open_records = StudentContentAccess.objects.filter(
+        student_id__in=scope["student_ids"],
+        content__course=course,
+        is_open=True,
+    ).count()
+    total_level_count = sum(item["level_count"] for item in category_items)
+    total_knowledge_point_count = sum(item["knowledge_point_count"] for item in category_items)
 
     return {
         "course_slug": course_slug,
         "course_title": definition["title"],
-        "page_title": f"{definition['title']} · 课程分类页",
-        "page_description": definition["detail_description"],
+        "page_title": f"{definition['title']} · Course Categories",
+        "page_description": "课程分类页已切到数据库驱动。当前先承接分类入口，再往下进入 Level 和 Knowledge Point。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
             {"label": definition["title"]},
         ],
         "summary_cards": [
-            {"label": "级别", "value": definition["level"], "hint": "当前课程级别标签"},
-            {"label": "负责学生", "value": f"{len(related_students)} 人", "hint": "当前教师名下该课程方向学生数"},
-            {"label": "已开放内容", "value": str(open_content_count), "hint": "当前课程方向下的已开放内容记录数"},
+            {"label": "课程级别", "value": format_assignment_levels(scope["course_assignments"], empty=definition["level"]), "hint": "当前教师负责的课程范围"},
+            {"label": "分类数", "value": f"{len(category_items)} 个", "hint": "当前课程下已启用的分类"},
+            {"label": "Level 数", "value": f"{total_level_count} 个", "hint": "当前分类下已启用的 Level"},
+            {"label": "知识点数", "value": f"{total_knowledge_point_count} 个", "hint": f"已开放记录 {total_open_records} 条"},
         ],
-        "category_items": definition["category_items"],
-        "teaching_page_links": teaching_page_links,
-        "selected_topic": selected_topic,
-        "topic_filter_items": topic_filter_items,
-        "topic_assignment_rows": topic_assignment_rows,
-        "topic_assignment_summary": topic_assignment_summary,
-        "topic_assignment_action": topic_assignment_action,
-        "student_map": {student.id: student for student in related_students},
-        "related_students": [
+        "category_items": category_items,
+        "related_student_count": len(scope["related_students"]),
+        "related_students_href": reverse("teacher-course-students-detail", args=[course_slug]),
+        "student_pool_href": reverse("teacher-course-student-pool", args=[course_slug]),
+        "support_items": [
+            {"title": "当前作用", "description": "这里是教师课程工作流的第一层，只展示数据库中的课程分类。"},
+            {"title": "数据来源", "description": "分类和 Level 都从 PostgreSQL 读取，不再靠静态配置全量写死。"},
+            {"title": "权限边界", "description": "课程可见性仍由 TeacherStudentAssignment 决定，分类可见性由当前课程主数据决定。"},
+        ],
+        "export_href": reverse("teacher-course-export", args=[course_slug]),
+    }
+
+
+def build_teacher_course_category_detail_context(portal_user: PortalUser, course_slug: str, category_slug: str) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    category = get_teacher_course_category(course, category_slug)
+    level_queryset = list(get_teacher_course_levels(category))
+    content_summary_map = {
+        row["level_id"]: row
+        for row in (
+            CourseContent.objects.filter(course=course, level__category=category, is_active=True)
+            .values("level_id")
+            .annotate(
+                knowledge_point_count=Count("id"),
+                real_content_count=Count("id", filter=Q(has_real_content=True)),
+            )
+        )
+    }
+
+    level_items = []
+    for level in level_queryset:
+        content_summary = content_summary_map.get(level.id, {})
+        knowledge_point_count = content_summary.get("knowledge_point_count", 0)
+        level_items.append(
             {
-                "name": student.display_name,
-                "grade": student.grade or "待补充",
-                "program": build_student_learning_path(student),
-                "action_href": reverse("teacher-student-detail", args=[student.id]),
+                "code": level.code,
+                "title": level.title,
+                "summary": level.summary or f"{level.title} 当前尚未补说明。",
+                "summary_short": shorten_text(level.summary or f"{level.title} 当前尚未补说明。", limit=28),
+                "knowledge_point_count": knowledge_point_count,
+                "real_content_count": content_summary.get("real_content_count", 0),
+                "status_text": "已接入" if knowledge_point_count else "内容预留",
+                "action_href": reverse("teacher-course-level-detail", args=[course_slug, category.slug, level.code]),
             }
-            for student in related_students
+        )
+
+    return {
+        "course": course,
+        "course_slug": course_slug,
+        "course_title": course.title,
+        "category_slug": category.slug,
+        "category_title": category.title,
+        "page_title": f"{category.title} · Level Grid",
+        "page_description": "分类下的 Level 以数据库为准，当前先跑通 data-grid 骨架。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": category.title},
+        ],
+        "summary_cards": [
+            {"label": "Level 数", "value": f"{len(level_items)} 个", "hint": "当前分类下启用的 Level"},
+            {
+                "label": "知识点数",
+                "value": f"{sum(item['knowledge_point_count'] for item in level_items)} 个",
+                "hint": "当前分类下已落库的 Knowledge Point",
+            },
+            {"label": "真实内容", "value": f"{sum(item['real_content_count'] for item in level_items)} 个", "hint": "已有真实教学页接入的内容"},
+            {"label": "负责学生", "value": f"{len(scope['related_students'])} 人", "hint": "当前老师在该课程方向下的学生数"},
+        ],
+        "level_items": level_items,
+        "level_table_rows": [
+            {
+                "code": item["code"],
+                "title": item["title"],
+                "summary": item["summary"],
+                "knowledge_point_count": item["knowledge_point_count"],
+                "real_content_count": item["real_content_count"],
+                "status_text": item["status_text"],
+                "action_href": item["action_href"],
+            }
+            for item in level_items
         ],
         "support_items": [
-            {"title": "当前作用", "description": "先承接教师端课程入口，让教师从课程视角进入分类页。"},
-            {"title": "最小范围", "description": "这次只补课程维度的最小权限分配，不继续扩成复杂矩阵后台。"},
-            {"title": "当前重点", "description": "C++ 课程已经可以进一步看到 GESP、CSP、机器人编程 3 个分类入口，并支持按专题给多个学生统一开关权限。"},
+            {"title": "Level Grid", "description": "这里承接第二层结构，每个 Level 再进入对应的 Knowledge Point grid。"},
+            {"title": "当前收口", "description": "这次先落 GESP1 到 GESP8，不继续扩成完整课程后台。"},
+        ],
+        "export_href": reverse("teacher-course-category-export", args=[course_slug, category.slug]),
+    }
+
+
+def build_teacher_course_students_detail_context(
+    portal_user: PortalUser,
+    course_slug: str,
+    *,
+    search_query: str = "",
+    page: int = 1,
+    page_size: int = DEFAULT_GRID_PAGE_SIZE,
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    normalized_search_query = search_query.strip()
+
+    student_rows = []
+    for student in scope["related_students"]:
+        row = {
+            "name": student.display_name,
+            "grade": student.grade or "待补充",
+            "program": summarize_teacher_assignment_scope(scope["assignments_by_student"][student.id]),
+            "action_href": reverse("teacher-student-detail", args=[student.id]),
+            "action_label": "详情",
+            "relation_href": reverse("teacher-student-assignments", args=[student.id]),
+            "relation_label": "关系",
+        }
+        student_rows.append(row)
+
+    return {
+        "course": course,
+        "course_slug": course_slug,
+        "course_title": course.title,
+        "page_title": f"{course.title} · 学生列表",
+        "page_description": "这里承接课程入口下的学生 datagrid，统一改为 Tabulator 本地分页和过滤。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": "学生列表"},
+        ],
+        "summary_cards": [
+            {"label": "课程方向", "value": course.title, "hint": "当前课程方向"},
+            {"label": "学生总数", "value": f"{len(student_rows)} 人", "hint": "当前课程方向下的学生数"},
+            {"label": "分页模式", "value": "本地分页", "hint": "每页支持 10 / 15 / 50 / 100"},
+            {"label": "过滤方式", "value": "姓名模糊查找", "hint": "通过 Tabulator 前端过滤"},
+        ],
+        "search_query": normalized_search_query,
+        "student_rows": student_rows,
+        "student_table_rows": student_rows,
+        "student_pool_href": reverse("teacher-course-student-pool", args=[course_slug]),
+    }
+
+
+def build_teacher_course_student_pool_context(
+    portal_user: PortalUser,
+    course_slug: str,
+    *,
+    selected_level_code: str = "",
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    available_level_codes = sorted({assignment.level_code for assignment in scope["course_assignments"] if assignment.level_code})
+    normalized_level_code = selected_level_code.strip().upper()
+    if normalized_level_code not in available_level_codes and available_level_codes:
+        normalized_level_code = available_level_codes[0]
+
+    active_course_student_ids = set(scope["student_ids"])
+    candidate_students = list(
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .exclude(id__in=active_course_student_ids)
+        .order_by("display_name", "id")
+    )
+    candidate_student_ids = [student.id for student in candidate_students]
+    active_assignments = list(
+        TeacherStudentAssignment.objects.select_related("teacher", "course", "student")
+        .filter(student_id__in=candidate_student_ids, is_active=True)
+        .order_by("student_id", "teacher_id", "course_id", "level_code", "id")
+    )
+    assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in active_assignments:
+        assignments_by_student[assignment.student_id].append(assignment)
+
+    pool_rows = []
+    for student in candidate_students:
+        student_assignments = assignments_by_student.get(student.id, [])
+        if not student_assignments:
+            current_scope_text = "当前未挂到任何老师 / 课程"
+            pool_reason_text = "未在任何老师名下，可直接加入当前课程方向。"
+        else:
+            assignment_labels = [
+                f"{assignment.teacher.full_name} / {assignment.course.title} {assignment.level_code}"
+                for assignment in student_assignments
+            ]
+            current_scope_text = "；".join(assignment_labels)
+            if any(assignment.course_id == course.id and assignment.teacher_id != portal_user.id for assignment in student_assignments):
+                pool_reason_text = "当前课程方向已在其他老师名下，但不在你当前课程方向下。"
+            elif any(assignment.teacher_id == portal_user.id and assignment.course_id != course.id for assignment in student_assignments):
+                pool_reason_text = "当前在你名下的其他课程方向，可补加入当前课程方向。"
+            else:
+                pool_reason_text = "当前不在你当前课程方向下，可加入当前课程方向。"
+
+        pool_rows.append(
+            {
+                "student_id": student.id,
+                "name": student.display_name,
+                "grade": student.grade or "待补充",
+                "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
+                "current_scope_text": current_scope_text,
+                "pool_reason_text": pool_reason_text,
+                "selected": False,
+            }
+        )
+
+    return {
+        "course": course,
+        "course_slug": course_slug,
+        "course_title": course.title,
+        "selected_level_code": normalized_level_code,
+        "available_level_codes": available_level_codes,
+        "page_title": f"{course.title} · 学生池",
+        "page_description": "这里集中展示当前不在你这个课程方向下的学生，用来批量加入我名下。学生主档不复制，只写 TeacherStudentAssignment。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": "学生池"},
+        ],
+        "summary_cards": [
+            {"label": "当前课程方向", "value": course.title, "hint": "只按当前课程方向筛学生池"},
+            {"label": "可加入学生", "value": f"{len(pool_rows)} 人", "hint": "当前不在你这个课程方向下的学生"},
+            {"label": "当前课程已有人数", "value": f"{len(scope['student_ids'])} 人", "hint": "当前老师在该课程方向下已有 active assignment 的学生"},
+            {"label": "目标级别", "value": normalized_level_code or "待选择", "hint": "保存时会统一按这个 level_code 建 assignment"},
+        ],
+        "identity_items": [
+            {"label": "当前课程方向", "value": course.title},
+            {"label": "当前老师", "value": portal_user.full_name},
+            {"label": "当前目标级别", "value": normalized_level_code or "待选择"},
+            {"label": "当前可加入人数", "value": f"{len(pool_rows)} 人"},
+        ],
+        "search_query": "",
+        "pool_rows": pool_rows,
+        "pool_table_rows": pool_rows,
+        "pool_student_ids": {row["student_id"] for row in pool_rows},
+        "save_action": reverse("teacher-course-student-pool", args=[course_slug]),
+        "back_href": reverse("teacher-course-students-detail", args=[course_slug]),
+        "support_items": [
+            {"title": "查询边界", "description": "只排除当前老师在当前课程方向下已有 active assignment 的学生。"},
+            {"title": "保存边界", "description": "保存时只操作 TeacherStudentAssignment，不改学生主档，不改其他老师关系。"},
+            {"title": "级别处理", "description": "当前先由页面顶部统一选择一个 level_code，再批量加入，先保证最小可用。"},
         ],
     }
 
 
+def build_teacher_course_level_detail_context(
+    portal_user: PortalUser,
+    course_slug: str,
+    category_slug: str,
+    level_code: str,
+    *,
+    search_query: str = "",
+    page: int = 1,
+    page_size: int = DEFAULT_GRID_PAGE_SIZE,
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    category = get_teacher_course_category(course, category_slug)
+    level = get_teacher_course_level(category, level_code)
+    knowledge_contents = list(get_teacher_level_contents(level))
+    content_ids = [content.id for content in knowledge_contents]
+    open_count_map = {
+        row["content_id"]: row["open_count"]
+        for row in (
+            StudentContentAccess.objects.filter(
+                student_id__in=scope["student_ids"],
+                content_id__in=content_ids,
+                is_open=True,
+            )
+            .values("content_id")
+            .annotate(open_count=Count("id"))
+        )
+    } if content_ids else {}
+
+    knowledge_point_rows = []
+    for content in knowledge_contents:
+        teaching_page = get_teacher_knowledge_teaching_page_link(course_slug, category.slug, level.code, content)
+        row_has_real_content = content.has_real_content or not teaching_page["is_placeholder"]
+        knowledge_point_rows.append(
+            {
+                "title": content.title,
+                "slug": content.slug,
+                "has_real_content_text": "是" if row_has_real_content else "否",
+                "has_real_content": row_has_real_content,
+                "permission_href": reverse(
+                    "teacher-course-knowledge-point-permissions",
+                    args=[course_slug, category.slug, level.code, content.slug],
+                ),
+                "permission_text": f"{open_count_map.get(content.id, 0)}/{len(scope['student_ids'])} 已开放",
+                "permission_label": "管理",
+                "teaching_page_href": teaching_page["href"],
+                "teaching_page_label": "进入" if not teaching_page["is_placeholder"] else "待接入",
+                "teaching_page_status_text": teaching_page["status_text"],
+                "edit_href": reverse(
+                    "teacher-course-knowledge-point-edit",
+                    args=[course_slug, category.slug, level.code, content.slug],
+                ),
+                "delete_href": reverse(
+                    "teacher-course-knowledge-point-delete",
+                    args=[course_slug, category.slug, level.code, content.slug],
+                ),
+            }
+        )
+
+    return {
+        "course_slug": course_slug,
+        "course_title": course.title,
+        "category_slug": category.slug,
+        "category_title": category.title,
+        "level_code": level.code,
+        "level_title": level.title,
+        "page_title": f"{level.title} · Knowledge Point Grid",
+        "page_description": "当前先做最小 Knowledge Point data-grid，支持搜索、权限管理和最小表单操作。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": category.title, "href": reverse("teacher-course-category-detail", args=[course_slug, category.slug])},
+            {"label": level.title},
+        ],
+        "summary_cards": [
+            {"label": "知识点数", "value": f"{len(knowledge_point_rows)} 个", "hint": "当前 Level 下的 Knowledge Point"},
+            {"label": "真实内容", "value": f"{sum(1 for row in knowledge_point_rows if row['has_real_content'])} 个", "hint": "已接入 Teaching Page 的知识点"},
+            {"label": "负责学生", "value": f"{len(scope['student_ids'])} 人", "hint": "学生权限管理的候选学生数"},
+            {"label": "分页模式", "value": "本地分页", "hint": "每页支持 10 / 15 / 50 / 100"},
+        ],
+        "search_query": search_query,
+        "add_knowledge_point_href": reverse(
+            "teacher-course-knowledge-point-new",
+            args=[course_slug, category.slug, level.code],
+        ),
+        "knowledge_point_rows": knowledge_point_rows,
+        "knowledge_point_table_rows": knowledge_point_rows,
+        "support_items": [
+            {"title": "搜索", "description": "当前仅支持 Title 模糊查找，改由 Tabulator 前端过滤。"},
+            {"title": "学生权限", "description": "学生权限管理复用 StudentContentAccess，学生集合来自当前老师在该课程方向下的 assignment。"},
+            {"title": "按钮状态", "description": "新增 / 修改已接最小表单，删除已接确认页；Teaching Page 对已接入内容可直接进入。"},
+        ],
+        "export_href": reverse("teacher-course-level-export", args=[course_slug, category.slug, level.code]),
+    }
+
+
+def build_teacher_course_content_access_context(
+    portal_user: PortalUser,
+    course_slug: str,
+    category_slug: str,
+    level_code: str,
+    content_slug: str,
+    *,
+    search_query: str = "",
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    category = get_teacher_course_category(course, category_slug)
+    level = get_teacher_course_level(category, level_code)
+    content = get_teacher_course_content(course, level, content_slug)
+
+    normalized_search_query = search_query.strip()
+    access_map = {
+        access.student_id: access
+        for access in StudentContentAccess.objects.select_related("granted_by").filter(
+            student_id__in=scope["student_ids"],
+            content=content,
+        )
+    }
+    all_student_rows = []
+    for student in scope["related_students"]:
+        access = access_map.get(student.id)
+        row = {
+            "student_id": student.id,
+            "name": student.display_name,
+            "grade": student.grade or "待补充",
+            "scope_text": summarize_teacher_assignment_scope(scope["assignments_by_student"][student.id]),
+            "is_open": access.is_open if access else False,
+            "selected": access.is_open if access else False,
+            "status_text": "已开通" if access and access.is_open else "未开通",
+            "hint": format_datetime(access.granted_at) if access and access.is_open else "暂无开放记录",
+        }
+        all_student_rows.append(row)
+
+    open_student_rows = [row for row in all_student_rows if row["is_open"]]
+    locked_student_rows = [row for row in all_student_rows if not row["is_open"]]
+    open_count = len(open_student_rows)
+    filtered_student_count = len(all_student_rows)
+    return {
+        "course_slug": course_slug,
+        "course_title": course.title,
+        "category_slug": category.slug,
+        "category_title": category.title,
+        "level_code": level.code,
+        "level_title": level.title,
+        "content_slug": content.slug,
+        "content_title": content.title,
+        "page_title": f"{content.title} · 学生权限管理",
+        "page_description": "当前先用独立页面承接学生权限管理，后续再收敛成弹窗交互。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": category.title, "href": reverse("teacher-course-category-detail", args=[course_slug, category.slug])},
+            {"label": level.title, "href": reverse("teacher-course-level-detail", args=[course_slug, category.slug, level.code])},
+            {"label": content.title},
+        ],
+        "summary_cards": [
+            {"label": "适用学生", "value": f"{len(scope['related_students'])} 人", "hint": "当前老师在该课程方向下的有效学生"},
+            {"label": "筛选结果", "value": f"{filtered_student_count} 人", "hint": "当前知识点可配置的学生数"},
+            {"label": "已开通", "value": f"{open_count} 人", "hint": "当前知识点已开通学生数"},
+            {"label": "未开通", "value": f"{filtered_student_count - open_count} 人", "hint": "当前知识点未开通学生数"},
+        ],
+        "identity_items": [
+            {
+                "label": "知识点名称",
+                "value": content.title,
+            },
+            {"label": "所属课程方向", "value": course.title},
+            {"label": "所属分类", "value": category.title},
+            {"label": "所属 Level", "value": level.title},
+        ],
+        "content": content,
+        "open_count": open_count,
+        "total_count": len(scope["related_students"]),
+        "search_query": normalized_search_query,
+        "student_rows": all_student_rows,
+        "open_student_rows": open_student_rows,
+        "locked_student_rows": locked_student_rows,
+        "student_access_table_rows": all_student_rows,
+        "student_map": scope["student_map"],
+        "save_action": reverse(
+            "teacher-course-knowledge-point-permissions",
+            args=[course_slug, category.slug, level.code, content.slug],
+        ),
+        "back_href": reverse("teacher-course-level-detail", args=[course_slug, category.slug, level.code]),
+    }
+
+
+def build_teacher_course_workflow_placeholder_context(
+    portal_user: PortalUser,
+    course_slug: str,
+    category_slug: str,
+    level_code: str,
+    *,
+    action_label: str,
+    content_slug: str | None = None,
+    placeholder_message: str | None = None,
+) -> dict:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    category = get_teacher_course_category(course, category_slug)
+    level = get_teacher_course_level(category, level_code)
+    content = get_teacher_course_content(course, level, content_slug) if content_slug else None
+    target_title = content.title if content else level.title
+
+    return {
+        "page_title": f"{action_label} · {target_title}",
+        "page_description": "这一步当前先保留路由和页面占位，后续再接真实交互。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
+            {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
+            {"label": category.title, "href": reverse("teacher-course-category-detail", args=[course_slug, category.slug])},
+            {"label": level.title, "href": reverse("teacher-course-level-detail", args=[course_slug, category.slug, level.code])},
+            {"label": action_label},
+        ],
+        "summary_cards": [
+            {"label": "课程", "value": course.title, "hint": "当前课程方向"},
+            {"label": "分类", "value": category.title, "hint": "当前分类"},
+            {"label": "Level", "value": level.title, "hint": "当前级别"},
+            {"label": "对象", "value": target_title, "hint": "当前操作目标"},
+        ],
+        "target_title": target_title,
+        "action_label": action_label,
+        "placeholder_message": placeholder_message or "这条路由已经接好，但具体交互还没有展开。",
+        "back_href": reverse("teacher-course-level-detail", args=[course_slug, category.slug, level.code]),
+    }
+
+
 def build_teacher_student_detail_context(portal_user: PortalUser, student_id: int) -> dict:
+    student_assignments = list(
+        TeacherStudentAssignment.objects.select_related("course", "student", "student__user", "student__parent_user", "student__teacher_user")
+        .filter(teacher=portal_user, student_id=student_id, is_active=True)
+        .order_by("course_id", "level_code", "id")
+    )
+    if not student_assignments:
+        raise Student.DoesNotExist(student_id)
+
     student = (
         Student.objects.select_related("user", "parent_user", "teacher_user")
-        .filter(id=student_id, teacher_user=portal_user)
+        .filter(id=student_id)
         .get()
     )
-    topic_items = get_gesp4_topic_access_items(student)
+    assignment_scope_text = summarize_teacher_assignment_scope(student_assignments)
+    has_cpp_assignment = any(assignment.course.slug == "cpp" for assignment in student_assignments)
+    topic_items = get_gesp4_topic_access_items(student) if has_cpp_assignment else []
     open_items = [item for item in topic_items if item["is_open"]]
     evaluation_records = list(student.teacher_evaluations.select_related("teacher")[:5])
     reward_records = list(student.reward_records.select_related("teacher")[:5])
@@ -941,7 +2072,7 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
     lesson_hour_items = [serialize_lesson_hour(record) for record in lesson_hour_records]
     lesson_hour_summary = build_lesson_hour_summary(student)
     learning_path = build_student_learning_path(student)
-    phase_text = build_phase_label(len(open_items))
+    phase_text = build_phase_label(len(open_items)) if has_cpp_assignment else "当前负责课程未接入专题开放"
     latest_evaluation = evaluation_items[0] if evaluation_items else None
     latest_reward = reward_items[0] if reward_items else None
     latest_lesson_hour = lesson_hour_items[0] if lesson_hour_items else None
@@ -1078,7 +2209,11 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
         "page_title": f"{student.display_name} · 教师工作台",
         "page_description": "当前页将学生概览、GESP4 专题开放管理、教学记录录入和最近记录整理在同一个最小教师工作台中。",
         "summary_cards": [
-            {"label": "已开放专题", "value": f"{len(open_items)}/{len(topic_items)}", "hint": "该学生当前可进入的 GESP4 专题数量"},
+            {
+                "label": "已开放专题",
+                "value": f"{len(open_items)}/{len(topic_items)}",
+                "hint": "该学生当前可进入的 GESP4 专题数量" if topic_items else "当前负责课程暂无专题开放链路",
+            },
             {"label": "教师评价", "value": f"{len(evaluation_records)} 条", "hint": "当前学生已有的评价记录数"},
             {"label": "课时余额", "value": lesson_hour_summary["balance_text"], "hint": lesson_hour_summary["latest_note"]},
             {"label": "最近开放", "value": latest_open["title"] if latest_open else "暂无", "hint": latest_open["granted_at_text"] if latest_open else "等待教师第一次开放"},
@@ -1088,12 +2223,12 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
             {"label": student.display_name},
         ],
         "overview_intro": (
-            f"当前学习线 {learning_path}，"
+            f"当前负责范围 {assignment_scope_text}；学生主学习线 {learning_path}；"
             f"已开放 {len(open_items)} 个专题，当前课时余额 {lesson_hour_summary['balance_text']}。"
         ),
         "overview_badges": [
             student.grade or "年级待补充",
-            learning_path,
+            assignment_scope_text,
             phase_text,
         ],
         "overview_items": [
@@ -1108,14 +2243,14 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
                 "hint": student.parent_user.phone if student.parent_user and student.parent_user.phone else "家长手机号待补充",
             },
             {
-                "label": "当前学习线",
-                "value": learning_path,
-                "hint": phase_text,
+                "label": "当前负责范围",
+                "value": assignment_scope_text,
+                "hint": learning_path,
             },
             {
                 "label": "已开放专题",
                 "value": f"{len(open_items)}/{len(topic_items)}",
-                "hint": summarize_open_topics(topic_items, limit=2),
+                "hint": summarize_open_topics(topic_items, limit=2) if topic_items else "当前负责课程暂无专题权限链路",
             },
             {
                 "label": "当前课时余额",
@@ -1133,7 +2268,7 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
         "open_topic_items": open_items,
         "topic_access_open_count": len(open_items),
         "topic_access_locked_count": len(topic_items) - len(open_items),
-        "topic_access_summary_text": summarize_open_topics(topic_items, limit=3),
+        "topic_access_summary_text": summarize_open_topics(topic_items, limit=3) if topic_items else "当前负责课程暂无专题权限链路",
         "topic_access_items": topic_items,
         "record_summary_items": record_summary_items,
         "latest_evaluation": latest_evaluation,
@@ -1145,11 +2280,28 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
         "recent_record_sections": recent_record_sections,
         "lesson_hour_summary": lesson_hour_summary,
         "support_items": [
-            {"title": "当前动作范围", "description": "这次覆盖 GESP4 目录下的 6 个专题，而不再只控制二维数组专题。"},
-            {"title": "学生端生效方式", "description": "学生端目录页会按真实开放状态显示，并对每个专题路由做后端拦截。"},
-            {"title": "内容预留策略", "description": "二维数组专题是实时内容页，其余专题当前先进入统一预留页。"},
+            {"title": "当前负责范围", "description": f"本页按 assignment 判定访问权限，当前教师负责：{assignment_scope_text}。"},
+            {
+                "title": "当前动作范围",
+                "description": "这次覆盖 GESP4 目录下的 6 个专题，而不再只控制二维数组专题。"
+                if has_cpp_assignment
+                else "当前仍可录入评价、奖励和课时，但暂未进入 C++ 专题开放链路。",
+            },
+            {
+                "title": "学生端生效方式",
+                "description": "学生端目录页会按真实开放状态显示，并对每个专题路由做后端拦截。"
+                if has_cpp_assignment
+                else "等后续对应课程接入真实内容后，再补对应课程的学生端访问控制。",
+            },
+            {
+                "title": "内容预留策略",
+                "description": "二维数组专题是实时内容页，其余专题当前先进入统一预留页。"
+                if has_cpp_assignment
+                else "当前负责课程仍处于最小接入阶段，先完成 assignment 与教师记录闭环。",
+            },
             {"title": "教师记录闭环", "description": "评价、奖励和课时变动会同步展示到家长端和校长端。"},
         ],
+        "assignment_management_href": reverse("teacher-student-assignments", args=[student.id]),
     }
 
 

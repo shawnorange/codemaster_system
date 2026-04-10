@@ -10,10 +10,12 @@ const statusLabels = {
   manual: "手工补全摘要",
 };
 
-const topicAppRoot = document.querySelector(".gesp4-array-topic");
+const topicAppRoot = document.querySelector("[data-gesp4-topic]") || document.querySelector(".gesp4-array-topic");
 const questionTemplate = document.getElementById("question-card-template");
-const TEACHER_MODE_STORAGE_KEY = "gesp4-teacher-mode";
-const SIDEBAR_COLLAPSE_STORAGE_KEY = "gesp4-array-sidebar-collapsed";
+const topicSlug = topicAppRoot?.dataset.topicSlug || "array-2d";
+const siteDataScriptId = topicAppRoot?.dataset.siteDataScriptId || "gesp4-array-2d-site-data";
+const TEACHER_MODE_STORAGE_KEY = `gesp4-${topicSlug}-teacher-mode`;
+const SIDEBAR_COLLAPSE_STORAGE_KEY = `gesp4-${topicSlug}-sidebar-collapsed`;
 const animationState = {
   runtimes: new Map(),
   activeModuleId: null,
@@ -316,12 +318,12 @@ async function bootstrap() {
 }
 
 async function loadSiteData() {
-  const embeddedData = document.getElementById("gesp4-array-2d-site-data");
+  const embeddedData = document.getElementById(siteDataScriptId);
   if (embeddedData?.textContent) {
     return JSON.parse(embeddedData.textContent);
   }
 
-  throw new Error("未找到二维数组专题数据。");
+  throw new Error("未找到专题数据。");
 }
 
 function renderHomePage(data) {

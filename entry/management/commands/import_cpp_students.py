@@ -10,6 +10,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from entry.account_identity import build_student_default_username, ensure_unique_username, normalize_phone
+from entry.course_identity import get_course_title_from_slug, normalize_assignment_level, resolve_course_slug
 from entry.models import PortalUser, Student
 
 XML_NS = {
@@ -29,22 +30,24 @@ def normalize_text(value) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
 def parse_level_tokens(raw_level: str) -> list[str]:
     return [token for token in re.split(r"[;；,/、\s]+", normalize_text(raw_level)) if token]
 
 
-def infer_primary_course(raw_level: str) -> str:
-    for token in parse_level_tokens(raw_level):
-        upper = token.upper()
-        if upper.startswith("C"):
-            return "C++"
-        if upper.startswith("S"):
-            return "Scratch"
-        if upper.startswith("P"):
-            return "PBL"
-        if upper.startswith("U"):
-            return "无人机"
-    return "C++"
+def infer_level_candidate(raw_level: str, raw_ccf_level: str) -> str:
+    ccf_level = normalize_text(raw_ccf_level).upper()
+    if ccf_level:
+        return ccf_level
+    tokens = parse_level_tokens(raw_level)
+    return tokens[0].upper() if tokens else ""
+
+
+def infer_primary_course(raw_level: str, raw_ccf_level: str) -> str:
+    level_candidate = infer_level_candidate(raw_level, raw_ccf_level)
+    course_slug = resolve_course_slug(raw_level, level_candidate) or "cpp"
+    return get_course_title_from_slug(course_slug, default="C++")
 
 
 def infer_primary_track(raw_ccf_level: str) -> str:
@@ -57,11 +60,10 @@ def infer_primary_track(raw_ccf_level: str) -> str:
 
 
 def infer_primary_level(raw_level: str, raw_ccf_level: str) -> str:
-    ccf_level = normalize_text(raw_ccf_level).upper()
-    if ccf_level:
-        return ccf_level
-    tokens = parse_level_tokens(raw_level)
-    return tokens[0].upper() if tokens else ""
+    level_candidate = infer_level_candidate(raw_level, raw_ccf_level)
+    course_slug = resolve_course_slug(raw_level, level_candidate)
+    normalized_level = normalize_assignment_level(course_slug or "", level_candidate)
+    return normalized_level or level_candidate
 
 
 def parent_username_from_phone(phone: str, row_number: int) -> str:
@@ -346,7 +348,7 @@ class Command(BaseCommand):
             "display_name": student_name,
             "grade": "",
             "campus": school_name,
-            "primary_course_name": infer_primary_course(raw_level),
+            "primary_course_name": infer_primary_course(raw_level, raw_ccf_level),
             "primary_track_name": infer_primary_track(raw_ccf_level),
             "primary_level_name": infer_primary_level(raw_level, raw_ccf_level),
         }

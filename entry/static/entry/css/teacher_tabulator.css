@@ -1,0 +1,261 @@
+.teacher-tabulator-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.teacher-tabulator-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.teacher-tabulator-toolbar__search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 360px;
+    flex-wrap: wrap;
+}
+
+.teacher-tabulator-toolbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.teacher-tabulator-toolbar__search label {
+    color: #6f7c8f;
+    font-size: 0.86rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.teacher-tabulator-search {
+    min-height: 40px;
+    min-width: 260px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid #d9e0ea;
+    background: #ffffff;
+    color: #223047;
+    font-size: 0.92rem;
+    flex: 1 1 auto;
+}
+
+.teacher-tabulator-note {
+    color: #6f7c8f;
+    font-size: 0.88rem;
+}
+
+.teacher-tabulator-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.teacher-tabulator-meta__pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: #f4f7fb;
+    border: 1px solid #dde6f2;
+    color: #32445d;
+    font-size: 0.84rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.teacher-tabulator-meta__pill strong {
+    margin-left: 6px;
+    color: #0f67b8;
+}
+
+.teacher-tabulator-container .tabulator {
+    border: 1px solid #dfe5ee;
+    border-radius: 22px;
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 12px 30px rgba(15, 103, 184, 0.05);
+    font-size: 0.93rem;
+}
+
+.teacher-tabulator-container .tabulator-header {
+    border-bottom: 1px solid #e6ebf1;
+    background: #f4f6fa;
+}
+
+.teacher-tabulator-container .tabulator-col,
+.teacher-tabulator-container .tabulator-row .tabulator-cell {
+    border-right: 1px solid #edf1f6;
+}
+
+.teacher-tabulator-container .tabulator-col:last-child,
+.teacher-tabulator-container .tabulator-row .tabulator-cell:last-child {
+    border-right: 0;
+}
+
+.teacher-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group {
+    background: #fbfcfe;
+    border-bottom: 1px solid #e6ebf1;
+}
+
+.teacher-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group > .tabulator-col-content {
+    min-height: 54px;
+    color: #727f92;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.teacher-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group) {
+    min-height: 56px;
+    background: #f4f6fa;
+}
+
+.teacher-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group) .tabulator-col-content {
+    color: #39485f;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.teacher-tabulator-container .tabulator-col-content {
+    padding: 0 16px;
+}
+
+.teacher-tabulator-container .tabulator-cell {
+    min-height: 56px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #25334a;
+}
+
+.teacher-tabulator-container .tabulator-row {
+    background: #ffffff;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.teacher-tabulator-container .tabulator-row:nth-child(even) {
+    background: #fcfdff;
+}
+
+.teacher-tabulator-container .tabulator-row:hover {
+    background: #f7fbff;
+}
+
+.teacher-tabulator-container .tabulator-row.tabulator-selected {
+    background: #eef6ff;
+}
+
+.teacher-tabulator-container .tabulator-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #e6ebf1;
+    background: #fbfcfe;
+}
+
+.teacher-tabulator-container .tabulator-footer .tabulator-page-size {
+    min-height: 34px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ef;
+    padding: 0 10px;
+    background: #ffffff;
+}
+
+.teacher-tabulator-container .tabulator-footer .tabulator-paginator {
+    gap: 8px;
+}
+
+.teacher-tabulator-container .tabulator-footer .tabulator-page {
+    min-height: 34px;
+    min-width: 34px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    color: #26415d;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.teacher-tabulator-container .tabulator-footer .tabulator-page.active {
+    background: #eef4fb;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
+.cm-tabulator-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: #f3f6fb;
+    border: 1px solid #dbe3ef;
+    color: #23415f;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.cm-tabulator-btn:hover {
+    background: #eaf2fb;
+}
+
+.cm-tabulator-btn--primary {
+    background: #ebf3ff;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
+.cm-tabulator-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.cm-tabulator-pill--open {
+    background: rgba(15, 103, 184, 0.12);
+    color: #0f67b8;
+}
+
+.cm-tabulator-pill--locked {
+    background: #f1f4f8;
+    color: #6f7c8f;
+}
+
+.cm-tabulator-pill--success {
+    background: rgba(34, 139, 34, 0.12);
+    color: #2c7b2f;
+}
+
+.cm-tabulator-pill--muted {
+    background: #f1f4f8;
+    color: #6f7c8f;
+}
+
+@media (max-width: 960px) {
+    .teacher-tabulator-toolbar {
+        align-items: stretch;
+    }
+
+    .teacher-tabulator-toolbar__search,
+    .teacher-tabulator-toolbar__actions {
+        width: 100%;
+    }
+}

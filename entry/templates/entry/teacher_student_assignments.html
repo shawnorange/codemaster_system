@@ -1,0 +1,120 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Student Assignment</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Teacher Assignment</p>
+                <h3>{{ student.display_name }} · 当前老师关系</h3>
+                <p>这里只展示当前老师与该学生之间的 assignment。移除是软移除，新增会优先恢复历史 inactive assignment。</p>
+            </div>
+
+            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+                {% for item in student_identity_items %}
+                    <article class="topic-work-card__meta-item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </article>
+                {% endfor %}
+            </div>
+
+            {% if success_message %}
+                <div class="entry-hint-bar">{{ success_message }}</div>
+            {% endif %}
+
+            <div class="topic-access-modal__footer topic-access-modal__footer--course" style="justify-content: flex-start; margin-bottom: 16px;">
+                <a class="login-button" href="{{ new_assignment_href }}">新增 assignment</a>
+                {% if student_detail_href %}
+                    <a class="system-header__link" href="{{ student_detail_href }}">返回学生工作台</a>
+                {% endif %}
+                <a class="system-header__link" href="{{ back_href }}">返回教师学生列表</a>
+            </div>
+
+            <div class="teacher-tabulator-shell">
+                <div class="teacher-tabulator-toolbar">
+                    <div class="teacher-tabulator-toolbar__search">
+                        <label for="student-assignment-search">按课程 / 级别 / 状态查找</label>
+                        <input id="student-assignment-search" class="teacher-tabulator-search" type="text" placeholder="输入课程方向、级别或状态">
+                    </div>
+                    <div class="teacher-tabulator-toolbar__actions">
+                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                    </div>
+                </div>
+                <div id="student-assignment-table" class="teacher-tabulator-container"></div>
+            </div>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Assignment Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ assignment_table_rows|json_script:"student-assignment-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            if (!window.CodeMasterTeacherTabulator) {
+                return;
+            }
+            window.CodeMasterTeacherTabulator.initStudentAssignmentGrid({
+                tableId: "student-assignment-table",
+                dataScriptId: "student-assignment-table-data",
+                searchInputId: "student-assignment-search"
+            });
+        })();
+    </script>
+{% endblock %}

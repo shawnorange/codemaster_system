@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from entry.question_fallbacks import build_array_2d_db_site_data
+from entry.question_queries import list_array_2d_questions
+
 
 TOPIC_DIR = Path(__file__).resolve().parent
 SITE_DATA_PATH = TOPIC_DIR / "site-data.json"
@@ -23,7 +26,10 @@ def load_site_data() -> dict[str, Any]:
 
 
 def get_topic_page_context(lecture_id: str | None = None) -> dict[str, Any]:
-    site_data = load_site_data()
+    db_questions = list_array_2d_questions()
+    static_site_data = load_site_data()
+    site_data = build_array_2d_db_site_data(static_site_data, db_questions)
+    topic_main_question_source = "db" if db_questions else "static"
     lectures = site_data.get("lectures", [])
     lecture_map = {lecture["id"]: lecture for lecture in lectures}
     current_lecture = lecture_map.get(lecture_id) if lecture_id else None
@@ -32,15 +38,16 @@ def get_topic_page_context(lecture_id: str | None = None) -> dict[str, Any]:
     page_title = current_lecture["title"] if current_lecture else site_data["meta"]["title"]
     page_description = current_lecture["summary"] if current_lecture else site_data["meta"]["subtitle"]
     topic_note = (
-        "当前页面已接入真实专题首页内容，讲次详情继续沿用同一路由下的轻量参数模式。"
+        "当前页面已切到数据库优先、静态兜底；专题首页和讲次详情继续沿用同一路由下的轻量参数模式。"
         if page_mode == "home"
-        else f"当前处于讲次内容模式：{current_lecture['title'] if current_lecture else '第1讲'}。"
+        else f"当前处于讲次内容模式：{current_lecture['title'] if current_lecture else '第1讲'}，题目数据采用数据库优先、静态兜底。"
     )
 
     return {
         "topic_page_mode": page_mode,
         "topic_site_data": site_data,
         "topic_current_lecture": current_lecture,
+        "topic_main_question_source": topic_main_question_source,
         "topic_note": topic_note,
         "page_title": page_title,
         "page_description": page_description,
@@ -51,4 +58,7 @@ def get_topic_page_context(lecture_id: str | None = None) -> dict[str, Any]:
             {"label": "GESP4", "href": "/student/cpp/gesp/gesp4"},
             {"label": "二维数组专题"},
         ],
+        "topic_slug": "array-2d",
+        "topic_site_data_script_id": "gesp4-array-2d-site-data",
+        "topic_badge_text": "GESP4 / 二维数组专题",
     }

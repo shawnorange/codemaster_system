@@ -1,0 +1,62 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Remove Assignment</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Soft Remove</p>
+            <h3>确认移除这条 assignment</h3>
+            <p>确认后只会把这条关系改成 `is_active=false`。学生主档和其他老师的 assignment 都不会被动到。</p>
+        </div>
+
+        <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            {% for item in identity_items %}
+                <article class="topic-work-card__meta-item">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                </article>
+            {% endfor %}
+        </div>
+
+        <form method="post" action="{{ confirm_action }}">
+            {% csrf_token %}
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <button type="submit" class="login-button">确认移除</button>
+                <a class="system-header__link" href="{{ back_href }}">取消并返回</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}

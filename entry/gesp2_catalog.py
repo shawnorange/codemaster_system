@@ -3,6 +3,7 @@ from __future__ import annotations
 
 GESP2_PHASE = "GESP2"
 ENUMERATION_METHOD_CONTENT_SLUG = "enumeration-method"
+ASCII_CHAR_ENCODING_CONTENT_SLUG = "ascii-char-encoding"
 
 GESP2_KNOWLEDGE_DEFINITIONS = [
     {
@@ -49,6 +50,15 @@ GESP2_KNOWLEDGE_DEFINITIONS = [
         "summary": "GESP2 字符串基础已纳入知识点目录，当前先用预留页承接。",
         "route_path": "/student/cpp/gesp/gesp2/string-basics",
         "content_mode": "reserved",
+    },
+    {
+        "slug": "ascii-char-encoding",
+        "order_label": "知识点 06",
+        "title": "ASCII 编码",
+        "subtitle": "字符与编码值的对应关系",
+        "summary": "GESP2 ASCII 编码知识点页，围绕字符与整数、字符区间判断、大小写偏移和典型真题展开。",
+        "route_path": "/student/cpp/gesp/gesp2/ascii-char-encoding",
+        "content_mode": "real",
     },
 ]
 

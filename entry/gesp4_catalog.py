@@ -3,6 +3,9 @@ from __future__ import annotations
 
 GESP4_PHASE = "GESP4"
 ARRAY_2D_CONTENT_SLUG = "array-2d"
+BINARY_SEARCH_CONTENT_SLUG = "binary-search"
+SORTING_CONTENT_SLUG = "sorting"
+STRINGS_CONTENT_SLUG = "strings"
 
 GESP4_TOPIC_DEFINITIONS = [
     {
@@ -15,7 +18,7 @@ GESP4_TOPIC_DEFINITIONS = [
         "content_mode": "real",
     },
     {
-        "slug": "binary-search",
+        "slug": BINARY_SEARCH_CONTENT_SLUG,
         "order_label": "专题 02",
         "title": "二分查找专题",
         "subtitle": "检索与区间缩减",
@@ -24,7 +27,7 @@ GESP4_TOPIC_DEFINITIONS = [
         "content_mode": "reserved",
     },
     {
-        "slug": "sorting",
+        "slug": SORTING_CONTENT_SLUG,
         "order_label": "专题 03",
         "title": "排序专题",
         "subtitle": "排序与比较策略",
@@ -42,7 +45,7 @@ GESP4_TOPIC_DEFINITIONS = [
         "content_mode": "reserved",
     },
     {
-        "slug": "strings",
+        "slug": STRINGS_CONTENT_SLUG,
         "order_label": "专题 05",
         "title": "字符串专题",
         "subtitle": "文本处理与字符分析",

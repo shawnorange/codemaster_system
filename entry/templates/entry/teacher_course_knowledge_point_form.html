@@ -1,0 +1,129 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Knowledge Point Form</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Minimal Form</p>
+            <h3>{{ action_label }}</h3>
+            <p>当前表单支持最小维护字段：title、slug、summary、route_path、has_real_content、sort_order 和 level_id。</p>
+        </div>
+
+        <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            {% for item in identity_items %}
+                <article class="topic-work-card__meta-item">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                </article>
+            {% endfor %}
+        </div>
+
+        {% if error_message %}
+            <div class="entry-hint-bar">{{ error_message }}</div>
+        {% endif %}
+
+        <form method="post" class="login-form" style="max-width: none;">
+            {% csrf_token %}
+            <input id="knowledge-level-input" type="hidden" name="level_id" value="{{ form_values.level_id }}">
+            <div class="form-group">
+                <label for="knowledge-title">知识点名称</label>
+                <input id="knowledge-title" type="text" name="title" value="{{ form_values.title }}" required>
+            </div>
+            <div class="form-group">
+                <label for="knowledge-slug">Slug</label>
+                <input id="knowledge-slug" type="text" name="slug" value="{{ form_values.slug }}" required>
+            </div>
+            <div class="form-group">
+                <label>所属 Level</label>
+                <div class="teacher-tabulator-shell">
+                    <div class="teacher-tabulator-toolbar">
+                        <div class="teacher-tabulator-toolbar__search">
+                            <label for="knowledge-level-search">按 Level 查找</label>
+                            <input id="knowledge-level-search" class="teacher-tabulator-search" type="text" placeholder="输入 Level 编码或名称">
+                        </div>
+                    </div>
+                    <div id="knowledge-level-table" class="teacher-tabulator-container"></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="knowledge-sort-order">Sort Order</label>
+                <input id="knowledge-sort-order" type="number" min="0" name="sort_order" value="{{ form_values.sort_order }}">
+            </div>
+            <div class="form-group">
+                <label for="knowledge-route-path">Route Path</label>
+                <input id="knowledge-route-path" type="text" name="route_path" value="{{ form_values.route_path }}">
+            </div>
+            <div class="form-group">
+                <label for="knowledge-summary">摘要</label>
+                <textarea id="knowledge-summary" name="summary" rows="4">{{ form_values.summary }}</textarea>
+            </div>
+            <label class="course-assignment-table__row course-assignment-table__row--open" style="align-items: center;">
+                <input type="checkbox" name="has_real_content" {% if form_values.has_real_content %}checked{% endif %}>
+                <strong>已接入真实教学页</strong>
+                <span>仅在该知识点已经有真实 Teaching Page 时勾选。</span>
+                <span></span>
+                <span></span>
+            </label>
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <button type="submit" class="login-button">{{ submit_label }}</button>
+                <a class="system-header__link" href="{{ back_href }}">返回 Knowledge Grid</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ level_selector_rows|json_script:"knowledge-level-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            if (!window.CodeMasterTeacherTabulator) {
+                return;
+            }
+            window.CodeMasterTeacherTabulator.initKnowledgeLevelSelector({
+                tableId: "knowledge-level-table",
+                dataScriptId: "knowledge-level-table-data",
+                searchInputId: "knowledge-level-search",
+                hiddenInputId: "knowledge-level-input",
+                valueField: "level_id"
+            });
+        })();
+    </script>
+{% endblock %}

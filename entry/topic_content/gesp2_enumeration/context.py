@@ -5,6 +5,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from entry.question_queries import list_enumeration_method_questions
+from entry.question_fallbacks import (
+    build_enumeration_demo_modules,
+    build_enumeration_main_question_groups,
+    build_enumeration_question_lookup,
+)
+
 from .question_details import DEMO_RELATED_QUESTIONS, QUESTION_DETAILS
 
 
@@ -93,6 +100,15 @@ def get_topic_page_context(*, view_mode: str = "student") -> dict[str, Any]:
     site_data = enrich_site_data(load_site_data())
     meta = site_data["meta"]
     is_teacher_view = view_mode == "teacher"
+    db_questions = list_enumeration_method_questions()
+    topic_main_question_groups = build_enumeration_main_question_groups(site_data, db_questions)
+    topic_main_question_source = "db" if db_questions else "static"
+    topic_main_question_lookup = build_enumeration_question_lookup(topic_main_question_groups)
+    site_data["question_lookup"] = topic_main_question_lookup
+    site_data["demo_modules"] = build_enumeration_demo_modules(
+        site_data.get("demo_modules", []),
+        topic_main_question_lookup,
+    )
     if not is_teacher_view:
         site_data["demo_modules"] = []
     return {
@@ -126,9 +142,11 @@ def get_topic_page_context(*, view_mode: str = "student") -> dict[str, Any]:
         "topic_view_mode": view_mode,
         "show_teacher_support_sections": is_teacher_view,
         "show_teacher_demo": is_teacher_view,
+        "topic_main_question_groups": topic_main_question_groups,
+        "topic_main_question_source": topic_main_question_source,
         "topic_note": (
-            "当前页面是教师版枚举法专题页：保留 Teaching Demo、Knowledge Overview、Common Pitfalls、Scope Boundary、Coverage 和 Teaching Notes，便于老师按专题直接备课。"
+            "当前页面是教师版枚举法专题页：题目区已改为数据库优先、静态兜底，同时保留 Teaching Demo、Knowledge Overview、Common Pitfalls、Scope Boundary、Coverage 和 Teaching Notes，便于老师按专题直接备课。"
             if is_teacher_view
-            else "当前页面是学生版枚举法专题页：保留完整题面、题组、模板和解析，教师讲课演示与备课辅助块已收回到教师版页面。"
+            else "当前页面是学生版枚举法专题页：题目区已改为数据库优先、静态兜底，保留完整题面、题组、模板和解析，教师讲课演示与备课辅助块已收回到教师版页面。"
         ),
     }

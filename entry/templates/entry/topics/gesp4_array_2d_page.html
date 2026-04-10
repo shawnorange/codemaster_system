@@ -23,7 +23,13 @@
 
     <div class="entry-hint-bar">{{ topic_note }}</div>
 
-    <section class="gesp4-array-topic" data-page="{{ topic_page_mode }}">
+    <section
+        class="gesp4-array-topic"
+        data-gesp4-topic
+        data-page="{{ topic_page_mode }}"
+        data-topic-slug="{{ topic_slug|default:'array-2d' }}"
+        data-site-data-script-id="{{ topic_site_data_script_id|default:'gesp4-array-2d-site-data' }}"
+    >
         <div class="page-shell">
             <div class="topic-workspace" data-topic-workspace>
                 <aside class="topic-sidebar">
@@ -79,7 +85,7 @@
                     {% else %}
                         <section id="overview" class="hero-panel observe-target">
                             <div class="hero-copy">
-                                <p class="eyebrow">GESP4 / 二维数组专题</p>
+                                <p class="eyebrow">{{ topic_badge_text|default:"GESP4 / 二维数组专题" }}</p>
                                 <h2 id="page-title">加载中...</h2>
                                 <p id="page-subtitle" class="hero-subtitle"></p>
                                 <p id="sidebar-summary" class="topic-summary">加载中...</p>
@@ -111,6 +117,7 @@
                             <div id="lecture-entry-grid" class="lecture-entry-grid"></div>
                         </section>
                     {% endif %}
+
                 </main>
             </div>
         </div>
@@ -140,7 +147,7 @@
         </template>
     </section>
 
-    {{ topic_site_data|json_script:"gesp4-array-2d-site-data" }}
+    {{ topic_site_data|json_script:topic_site_data_script_id|default:"gesp4-array-2d-site-data" }}
 {% endblock %}
 
 {% block extra_body_end %}

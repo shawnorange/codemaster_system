@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "title": "GESP4 二分查找专题",
+    "subtitle": "围绕有序区间、边界收缩、答案二分和判定函数，建立稳定的二分查找做题框架。",
+    "generatedAt": "2026-04-10 16:00:00",
+    "implementationNotes": [
+      "教师页当前采用静态专题数据，先把导读、讲次内容和教学要点接起来。",
+      "后续如果题库和讲义进一步结构化，可以继续沿用同一套专题模板。"
+    ]
+  },
+  "extractionReport": [],
+  "questions": [],
+  "lectures": [
+    {
+      "id": "lecture-1",
+      "title": "第1讲：有序数组中的二分查找",
+      "summary": "先把最基础的有序数组查找流程讲稳，明确左右边界、mid 计算和收缩方向。",
+      "sections": [
+        {
+          "id": "lecture-1-goals",
+          "title": "本讲目标",
+          "points": [
+            "理解为什么二分查找必须建立在有序性上。",
+            "会写最基础的 while(l <= r) 二分模板。",
+            "能根据 a[mid] 与 target 的大小关系收缩边界。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-1-core",
+          "title": "核心知识点",
+          "points": [
+            "重点讲清楚区间收缩而不是背模板。"
+          ],
+          "children": [
+            {
+              "id": "lecture-1-template",
+              "title": "代码模板",
+              "points": [
+                "统一使用 left、right、mid 三个变量。",
+                "强调 mid 不能写死，必须跟随边界变化重新计算。"
+              ],
+              "resources": [
+                {
+                  "title": "基础二分模板",
+                  "description": "适用于在有序数组中寻找某个确定值。",
+                  "code": "int left = 0, right = n - 1;\nwhile (left <= right) {\n    int mid = left + (right - left) / 2;\n    if (a[mid] == target) return mid;\n    if (a[mid] < target) left = mid + 1;\n    else right = mid - 1;\n}\nreturn -1;"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lecture-2",
+      "title": "第2讲：左边界与右边界",
+      "summary": "把“找到一个值”推进到“找到最左 / 最右位置”，建立边界类二分的统一理解。",
+      "sections": [
+        {
+          "id": "lecture-2-goals",
+          "title": "本讲目标",
+          "points": [
+            "区分“命中就返回”和“继续收缩找边界”两种二分逻辑。",
+            "理解 lower_bound / upper_bound 的边界意义。",
+            "知道最终答案往往不是 mid，而是收缩结束后的 left / right。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-2-core",
+          "title": "教学提醒",
+          "points": [
+            "这讲最容易错的是 while 条件、答案变量更新和收缩方向。",
+            "建议用数轴画出区间变化，再回到代码。"
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "lecture-3",
+      "title": "第3讲：答案二分与判定函数",
+      "summary": "把二分从数组下标扩展到答案空间，建立“猜答案 + check 判定”的专题收口。",
+      "sections": [
+        {
+          "id": "lecture-3-goals",
+          "title": "本讲目标",
+          "points": [
+            "知道什么题型适合做答案二分。",
+            "会把题意转成单调性的 check 函数。",
+            "能解释为什么答案二分本质还是在缩区间。"
+          ],
+          "children": []
+        },
+        {
+          "id": "lecture-3-core",
+          "title": "教学模板",
+          "points": [
+            "先界定答案范围，再写单调判定函数。",
+            "调试时优先打印 left / right / mid / check(mid)。"
+          ],
+          "children": [
+            {
+              "id": "lecture-3-check-template",
+              "title": "check 函数模板",
+              "points": [
+                "把判定逻辑抽出去，主循环只负责缩区间。"
+              ],
+              "resources": [
+                {
+                  "title": "答案二分模板",
+                  "description": "适用于“是否能做到”这类具备单调性的题目。",
+                  "code": "while (left < right) {\n    int mid = left + (right - left) / 2;\n    if (check(mid)) right = mid;\n    else left = mid + 1;\n}\ncout << left << '\\n';"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

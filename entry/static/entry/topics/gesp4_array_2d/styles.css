@@ -926,6 +926,16 @@
   white-space: pre-wrap;
 }
 
+.gesp4-array-topic .db-option-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+}
+
+.gesp4-array-topic .db-option-list li + li {
+  margin-top: 8px;
+}
+
 .gesp4-array-topic .question-notes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

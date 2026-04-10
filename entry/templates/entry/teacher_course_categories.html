@@ -1,0 +1,121 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Course Categories</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Database Driven Categories</p>
+                <h3>{{ course_title }} 分类入口</h3>
+                <p>当前分类直接读取 PostgreSQL。后续新增课程分类时，只需要补主数据，不再从静态配置全量写死。</p>
+            </div>
+
+            <div class="topic-access-modal__footer topic-access-modal__footer--course" style="justify-content: flex-start; margin-bottom: 16px;">
+                <a class="system-header__link" href="{{ export_href }}">导出当前课程结构</a>
+            </div>
+
+            <div class="topic-work-grid">
+                {% for item in category_items %}
+                    <article class="topic-work-card topic-work-card--open">
+                        <div class="topic-work-card__header">
+                            <div>
+                                <p class="section-heading__eyebrow">Category</p>
+                                <h4>{{ item.title }}</h4>
+                            </div>
+                            <span class="state-pill state-pill--future">{{ item.status_text }}</span>
+                        </div>
+                        <p class="topic-work-card__description">{{ item.summary }}</p>
+                        <div class="topic-work-card__meta">
+                            <article class="topic-work-card__meta-item">
+                                <span>Level</span>
+                                <strong>{{ item.level_count }} 个</strong>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>Knowledge Point</span>
+                                <strong>{{ item.knowledge_point_count }} 个</strong>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>真实内容</span>
+                                <strong>{{ item.real_content_count }} 个</strong>
+                            </article>
+                        </div>
+                        <a class="teacher-table__action" href="{{ item.action_href }}">查看 Level Grid</a>
+                    </article>
+                {% empty %}
+                    <div class="entry-hint-bar">当前课程还没有可展示的分类。</div>
+                {% endfor %}
+            </div>
+
+            <section class="workbench-panel workbench-panel--recent">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Related Students</p>
+                    <h3>当前课程关联学生</h3>
+                    <p>课程工作流仍以当前老师负责的课程范围为准。这里先只保留入口，详细学生列表在独立 datagrid 页查看。</p>
+                </div>
+
+                <div class="topic-work-card topic-work-card--open">
+                    <div class="topic-work-card__header">
+                        <div>
+                            <p class="section-heading__eyebrow">Student Grid</p>
+                            <h4>查看课程学生</h4>
+                        </div>
+                        <span class="state-pill state-pill--future">{{ related_student_count }} 人</span>
+                    </div>
+                    <p class="topic-work-card__description">进入独立学生 datagrid 后，可按姓名查询、分页浏览，并继续跳到单个学生工作台。</p>
+                    <a class="teacher-table__action" href="{{ related_students_href }}">查看学生</a>
+                </div>
+            </section>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Course Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}

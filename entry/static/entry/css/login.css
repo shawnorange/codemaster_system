@@ -1662,6 +1662,365 @@ body::before {
     color: #6e8198;
 }
 
+.teacher-table--level-grid .teacher-table__header,
+.teacher-table--level-grid .teacher-table__row {
+    min-width: 900px;
+    grid-template-columns: 0.8fr 1.55fr 0.75fr 0.72fr 0.72fr;
+}
+
+.teacher-table--knowledge-grid .teacher-table__header,
+.teacher-table--knowledge-grid .teacher-table__row {
+    min-width: 1180px;
+    grid-template-columns: 1.2fr 1fr 0.7fr 0.95fr 0.9fr 0.72fr 0.72fr;
+}
+
+.teacher-table--course-students-grid .teacher-table__header,
+.teacher-table--course-students-grid .teacher-table__row {
+    min-width: 760px;
+    grid-template-columns: 1fr 0.72fr 1.5fr 0.82fr;
+}
+
+.teacher-table--compact .teacher-table__header,
+.teacher-table--compact .teacher-table__row {
+    gap: 10px;
+    padding: 12px 14px;
+}
+
+.teacher-table--compact .teacher-table__header span,
+.teacher-table--compact .teacher-table__row span,
+.teacher-table--compact .teacher-table__row strong,
+.teacher-table--compact .teacher-table__action {
+    white-space: nowrap;
+}
+
+.teacher-table__cell--truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.teacher-table__action--compact {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 0.82rem;
+}
+
+.datagrid-panel {
+    display: grid;
+    gap: 14px;
+}
+
+.datagrid-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.datagrid-toolbar__search,
+.datagrid-toolbar__controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.datagrid-toolbar__search {
+    flex: 1 1 440px;
+}
+
+.datagrid-toolbar__search label,
+.datagrid-toolbar__controls label {
+    color: #7b8697;
+    font-size: 0.84rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.datagrid-toolbar__submit {
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid #cfe0fb;
+    background: #ebf3ff;
+    color: #0f67b8;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.datagrid-toolbar__search input,
+.datagrid-toolbar__controls select {
+    min-height: 40px;
+    border-radius: 12px;
+    border: 1px solid #d9e0ea;
+    background: #ffffff;
+    color: #223047;
+    font-size: 0.92rem;
+    box-shadow: inset 0 1px 0 rgba(15, 103, 184, 0.03);
+}
+
+.datagrid-toolbar__search input {
+    min-width: 260px;
+    flex: 1 1 auto;
+    padding: 0 14px;
+}
+
+.datagrid-toolbar__controls select {
+    min-width: 96px;
+    padding: 0 12px;
+}
+
+.datagrid-shell {
+    border-radius: 22px;
+    border: 1px solid #dfe5ee;
+    background: #ffffff;
+    overflow-x: auto;
+    overflow-y: hidden;
+    box-shadow: 0 12px 30px rgba(15, 103, 184, 0.05);
+}
+
+.datagrid-table {
+    display: grid;
+    gap: 0;
+}
+
+.datagrid-table__group-header,
+.datagrid-table__header,
+.datagrid-table__row {
+    display: grid;
+    align-items: center;
+}
+
+.datagrid-table__group-header {
+    min-height: 54px;
+    background: #fbfcfe;
+    border-bottom: 1px solid #e6ebf1;
+    color: #727f92;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.datagrid-table__header {
+    min-height: 56px;
+    background: #f4f6fa;
+    border-bottom: 1px solid #e6ebf1;
+    color: #39485f;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.datagrid-table__row {
+    min-height: 58px;
+    background: #ffffff;
+    border-bottom: 1px solid #edf1f6;
+    color: #25334a;
+    font-size: 0.94rem;
+}
+
+.datagrid-table__row:last-child {
+    border-bottom: 0;
+}
+
+.datagrid-table__row:hover {
+    background: #f9fbfd;
+}
+
+.datagrid-table__group-header > span,
+.datagrid-table__header > span,
+.datagrid-table__row > span,
+.datagrid-table__row > strong {
+    min-width: 0;
+    padding: 0 18px;
+    border-right: 1px solid #edf1f6;
+}
+
+.datagrid-table__group-header > span:last-child,
+.datagrid-table__header > span:last-child,
+.datagrid-table__row > span:last-child,
+.datagrid-table__row > strong:last-child {
+    border-right: 0;
+}
+
+.datagrid-table__group-header > span {
+    display: inline-flex;
+    align-items: center;
+    height: 100%;
+}
+
+.datagrid-table__index {
+    justify-content: center;
+    color: #7b8697;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.datagrid-table__header > span,
+.datagrid-table__group-header > span,
+.datagrid-table__cell,
+.datagrid-table__cell--truncate {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.datagrid-table__cell--truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.datagrid-table__cell--status {
+    justify-content: center;
+}
+
+.datagrid-table__cell--center {
+    justify-content: center;
+    text-align: center;
+}
+
+.datagrid-table__cell--action {
+    justify-content: center;
+}
+
+.datagrid-table__cell--action .datagrid-table__action {
+    min-width: 68px;
+}
+
+.datagrid-table__pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.datagrid-table__pill--active {
+    background: rgba(15, 103, 184, 0.12);
+    color: #0f67b8;
+}
+
+.datagrid-table__pill--muted {
+    background: #f1f4f8;
+    color: #6f7c8f;
+}
+
+.datagrid-table__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: #f3f6fb;
+    border: 1px solid #dbe3ef;
+    color: #23415f;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.datagrid-table__action:hover {
+    background: #eaf2fb;
+}
+
+.datagrid-table__action--primary {
+    background: #ebf3ff;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
+.datagrid-table--students {
+    min-width: 860px;
+}
+
+.datagrid-table--levels {
+    min-width: 920px;
+}
+
+.datagrid-table--knowledge {
+    min-width: 1120px;
+}
+
+.datagrid-table--students > .datagrid-table__group-header,
+.datagrid-table--students > .datagrid-table__header,
+.datagrid-table--students > .datagrid-table__row {
+    grid-template-columns: 64px minmax(160px, 1.2fr) minmax(120px, 0.8fr) minmax(220px, 1.5fr) 132px;
+}
+
+.datagrid-table--levels > .datagrid-table__group-header,
+.datagrid-table--levels > .datagrid-table__header,
+.datagrid-table--levels > .datagrid-table__row {
+    grid-template-columns: 64px minmax(120px, 0.8fr) minmax(280px, 1.8fr) 110px 110px 128px;
+}
+
+.datagrid-table--knowledge > .datagrid-table__group-header,
+.datagrid-table--knowledge > .datagrid-table__header,
+.datagrid-table--knowledge > .datagrid-table__row {
+    grid-template-columns: 64px minmax(180px, 1.5fr) minmax(150px, 1.1fr) 110px 116px 116px 96px 96px;
+}
+
+.datagrid-span-2 {
+    grid-column: span 2;
+}
+
+.datagrid-span-3 {
+    grid-column: span 3;
+}
+
+.datagrid-span-4 {
+    grid-column: span 4;
+}
+
+.datagrid-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 2px 4px 0;
+}
+
+.datagrid-footer__summary {
+    color: #6f7c8f;
+    font-size: 0.88rem;
+}
+
+.datagrid-pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pagination-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    min-width: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    color: #26415d;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.pagination-chip--active {
+    background: #eef4fb;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
 .teacher-detail-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2500,6 +2859,19 @@ body::before {
     .site-header--between {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .datagrid-toolbar {
+        align-items: stretch;
+    }
+
+    .datagrid-toolbar__search,
+    .datagrid-toolbar__controls {
+        width: 100%;
+    }
+
+    .datagrid-toolbar__controls {
+        justify-content: space-between;
     }
 
     .logout-button {

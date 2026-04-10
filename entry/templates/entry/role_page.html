@@ -2,6 +2,12 @@
 
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
+{% block extra_head %}
+    {% if role_key == "teacher" %}
+        {% include "entry/includes/teacher_tabulator_head.html" %}
+    {% endif %}
+{% endblock %}
+
 {% block system_content %}
     <section class="hero-panel">
         <div class="hero-panel__copy">
@@ -237,30 +243,23 @@
                                 <p>以表格快速查看学生状态，并进入单个学生工作台继续做专题开放、评价、奖励和课时操作。</p>
                             </div>
 
-                            <div class="teacher-table teacher-table--students">
-                                <div class="teacher-table__header">
-                                    <span>学生姓名</span>
-                                    <span>年级</span>
-                                    <span>家长手机</span>
-                                    <span>当前方向 / 当前课程</span>
-                                    <span>已开放专题数</span>
-                                    <span>所剩课时</span>
-                                    <span>操作</span>
-                                </div>
-                                {% for student in page_shell.students %}
-                                    <div class="teacher-table__row">
-                                        <strong>{{ student.name }}</strong>
-                                        <span>{{ student.grade }}</span>
-                                        <span>{{ student.parent_phone }}</span>
-                                        <div class="teacher-table__cell-stack">
-                                            <strong>{{ student.program }}</strong>
-                                            <span>{{ student.note }}</span>
-                                        </div>
-                                        <span class="teacher-table__status teacher-table__status--{{ student.state }}">{{ student.open_topics }}</span>
-                                        <span>{{ student.remaining_hours }}</span>
-                                        <a class="teacher-table__action" href="{{ student.action_href }}">{{ student.action_label }}</a>
-                                    </div>
+                            <div class="topic-access-modal__footer topic-access-modal__footer--course" style="justify-content: flex-start; margin-bottom: 16px;">
+                                {% for item in page_shell.student_pool_links %}
+                                    <a class="system-header__link" href="{{ item.href }}">{{ item.label }}</a>
                                 {% endfor %}
+                            </div>
+
+                            <div class="teacher-tabulator-shell">
+                                <div class="teacher-tabulator-toolbar">
+                                    <div class="teacher-tabulator-toolbar__search">
+                                        <label for="teacher-workbench-student-search">按姓名 / 手机 / 范围查找</label>
+                                        <input id="teacher-workbench-student-search" class="teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或负责范围">
+                                    </div>
+                                    <div class="teacher-tabulator-toolbar__actions">
+                                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                                    </div>
+                                </div>
+                                <div id="teacher-workbench-students-table" class="teacher-tabulator-container"></div>
                             </div>
                         </div>
                     {% else %}
@@ -271,26 +270,17 @@
                                 <p>先从课程入口查看老师当前承接的方向，再进入课程分类页承接 GESP、CSP、机器人编程等入口结构。</p>
                             </div>
 
-                            <div class="teacher-table teacher-table--courses">
-                                <div class="teacher-table__header">
-                                    <span>级别</span>
-                                    <span>课程名称</span>
-                                    <span>当前负责学生数</span>
-                                    <span>已开放内容数</span>
-                                    <span>操作</span>
-                                </div>
-                                {% for course in page_shell.courses %}
-                                    <div class="teacher-table__row">
-                                        <span>{{ course.level }}</span>
-                                        <div class="teacher-table__cell-stack">
-                                            <strong>{{ course.title }}</strong>
-                                            <span>{{ course.note }}</span>
-                                        </div>
-                                        <span>{{ course.student_count }}</span>
-                                        <span class="teacher-table__status teacher-table__status--{{ course.state }}">{{ course.open_content_count }}</span>
-                                        <a class="teacher-table__action" href="{{ course.action_href }}">{{ course.action_label }}</a>
+                            <div class="teacher-tabulator-shell">
+                                <div class="teacher-tabulator-toolbar">
+                                    <div class="teacher-tabulator-toolbar__search">
+                                        <label for="teacher-workbench-course-search">按课程 / 级别查找</label>
+                                        <input id="teacher-workbench-course-search" class="teacher-tabulator-search" type="text" placeholder="输入课程名、级别或说明">
                                     </div>
-                                {% endfor %}
+                                    <div class="teacher-tabulator-toolbar__actions">
+                                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                                    </div>
+                                </div>
+                                <div id="teacher-workbench-courses-table" class="teacher-tabulator-container"></div>
                             </div>
                         </div>
                     {% endif %}
@@ -428,4 +418,33 @@
             </section>
         </aside>
     </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {% if role_key == "teacher" %}
+        {{ page_shell.student_table_rows|json_script:"teacher-workbench-students-data" }}
+        {{ page_shell.course_table_rows|json_script:"teacher-workbench-courses-data" }}
+        {% include "entry/includes/teacher_tabulator_scripts.html" %}
+        <script>
+            (function () {
+                if (!window.CodeMasterTeacherTabulator) {
+                    return;
+                }
+                if ("{{ page_shell.active_tab }}" === "students") {
+                    window.CodeMasterTeacherTabulator.initTeacherWorkbenchStudents({
+                        tableId: "teacher-workbench-students-table",
+                        dataScriptId: "teacher-workbench-students-data",
+                        searchInputId: "teacher-workbench-student-search"
+                    });
+                }
+                if ("{{ page_shell.active_tab }}" === "courses") {
+                    window.CodeMasterTeacherTabulator.initTeacherWorkbenchCourses({
+                        tableId: "teacher-workbench-courses-table",
+                        dataScriptId: "teacher-workbench-courses-data",
+                        searchInputId: "teacher-workbench-course-search"
+                    });
+                }
+            })();
+        </script>
+    {% endif %}
 {% endblock %}

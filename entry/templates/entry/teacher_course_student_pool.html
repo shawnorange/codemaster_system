@@ -1,0 +1,152 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Student Pool</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Course Student Pool</p>
+                <h3>{{ course_title }} · 从学生池加入我名下</h3>
+                <p>这里只显示当前不在你这个课程方向下的学生。保存时只写 TeacherStudentAssignment，不改学生主档，不影响其他老师关系。</p>
+            </div>
+
+            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+                {% for item in identity_items %}
+                    <article class="topic-work-card__meta-item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </article>
+                {% endfor %}
+            </div>
+
+            {% if success_message %}
+                <div class="entry-hint-bar">{{ success_message }}</div>
+            {% endif %}
+            {% if error_message %}
+                <div class="entry-hint-bar">{{ error_message }}</div>
+            {% endif %}
+
+            <form id="course-student-pool-form" method="post" action="{{ save_action }}" class="course-topic-assignment">
+                {% csrf_token %}
+                <div id="course-student-pool-hidden-inputs"></div>
+
+                <div class="teacher-tabulator-shell">
+                    <div class="teacher-tabulator-toolbar">
+                        <div class="teacher-tabulator-toolbar__search">
+                            <label for="course-student-pool-search">姓名</label>
+                            <input id="course-student-pool-search" class="teacher-tabulator-search" type="text" placeholder="按学生姓名模糊查找">
+                        </div>
+                        <div class="teacher-tabulator-toolbar__actions">
+                            <div class="teacher-tabulator-meta">
+                                <span class="teacher-tabulator-meta__pill">当前课程<strong>{{ course_title }}</strong></span>
+                                <span class="teacher-tabulator-meta__pill">当前级别<strong id="course-student-pool-level-pill">{{ selected_level_code|default:'待选' }}</strong></span>
+                                <span class="teacher-tabulator-meta__pill">已勾选<strong id="course-student-pool-selected-count">0</strong></span>
+                                <span class="teacher-tabulator-meta__pill">学生池<strong id="course-student-pool-total-count">{{ pool_rows|length }}</strong></span>
+                            </div>
+                            <a class="system-header__link" href="{{ back_href }}">返回课程学生页</a>
+                        </div>
+                    </div>
+
+                    <div class="teacher-tabulator-toolbar">
+                        <div class="teacher-tabulator-toolbar__actions">
+                            <label for="course-student-pool-level" style="font-size: 13px; color: #5f5d6b;">加入到级别</label>
+                            <select id="course-student-pool-level" name="level_code" style="min-width: 140px;">
+                                {% for level_code in available_level_codes %}
+                                    <option value="{{ level_code }}" {% if level_code == selected_level_code %}selected{% endif %}>{{ level_code }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="teacher-tabulator-toolbar__actions">
+                            <button id="course-student-pool-select-all" class="cm-tabulator-btn" type="button">全选当前结果</button>
+                            <button id="course-student-pool-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
+                        </div>
+                    </div>
+
+                    <div id="course-student-pool-table" class="teacher-tabulator-container"></div>
+                </div>
+
+                {% if pool_rows and available_level_codes %}
+                    <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                        <button type="submit" class="login-button">批量加入我名下</button>
+                        <a class="system-header__link" href="{{ back_href }}">返回课程学生页</a>
+                    </div>
+                {% endif %}
+            </form>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Pool Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ pool_table_rows|json_script:"course-student-pool-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        window.CodeMasterTeacherTabulator.initCourseStudentPoolGrid({
+            tableId: "course-student-pool-table",
+            dataScriptId: "course-student-pool-table-data",
+            searchInputId: "course-student-pool-search",
+            formId: "course-student-pool-form",
+            hiddenContainerId: "course-student-pool-hidden-inputs",
+            selectedCountId: "course-student-pool-selected-count",
+            totalCountId: "course-student-pool-total-count",
+            levelSelectId: "course-student-pool-level",
+            levelPillId: "course-student-pool-level-pill",
+            selectAllButtonId: "course-student-pool-select-all",
+            clearSelectionButtonId: "course-student-pool-clear-selection"
+        });
+    </script>
+{% endblock %}

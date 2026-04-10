@@ -1,0 +1,152 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Assignment Form</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Minimal Assignment Form</p>
+                <h3>{{ action_label }}</h3>
+                <p>这一步只改当前老师自己的 assignment。学生主档不复制，跨老师关系也不在这里处理。</p>
+            </div>
+
+            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+                {% for item in identity_items %}
+                    <article class="topic-work-card__meta-item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </article>
+                {% endfor %}
+            </div>
+
+            {% if error_message %}
+                <div class="entry-hint-bar">{{ error_message }}</div>
+            {% endif %}
+
+            <form method="post" class="login-form" style="max-width: none;">
+                {% csrf_token %}
+                <input id="assignment-student-input" type="hidden" name="student_id" value="{{ form_values.student_id }}">
+                <input id="assignment-scope-input" type="hidden" name="scope_key" value="{{ form_values.scope_key }}">
+
+                <div class="form-group">
+                    <label>学生</label>
+                    {% if lock_student %}
+                        <div class="entry-hint-bar" style="margin-bottom: 12px;">当前学生已锁定，只允许调整课程 / 级别范围。</div>
+                    {% endif %}
+                    <div class="teacher-tabulator-shell">
+                        {% if not lock_student %}
+                            <div class="teacher-tabulator-toolbar">
+                                <div class="teacher-tabulator-toolbar__search">
+                                    <label for="assignment-student-search">按姓名 / 手机 / 当前范围查找</label>
+                                    <input id="assignment-student-search" class="teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或当前范围">
+                                </div>
+                            </div>
+                        {% endif %}
+                        <div id="assignment-student-table" class="teacher-tabulator-container"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>课程 / 级别范围</label>
+                    <div class="teacher-tabulator-shell">
+                        <div class="teacher-tabulator-toolbar">
+                            <div class="teacher-tabulator-toolbar__search">
+                                <label for="assignment-scope-search">按课程或级别查找</label>
+                                <input id="assignment-scope-search" class="teacher-tabulator-search" type="text" placeholder="输入课程方向或级别">
+                            </div>
+                        </div>
+                        <div id="assignment-scope-table" class="teacher-tabulator-container"></div>
+                    </div>
+                </div>
+
+                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                    <button type="submit" class="login-button">{{ submit_label }}</button>
+                    <a class="system-header__link" href="{{ back_href }}">取消并返回</a>
+                </div>
+            </form>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Boundary Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ student_selector_rows|json_script:"assignment-student-table-data" }}
+    {{ scope_selector_rows|json_script:"assignment-scope-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            if (!window.CodeMasterTeacherTabulator) {
+                return;
+            }
+            window.CodeMasterTeacherTabulator.initAssignmentStudentSelector({
+                tableId: "assignment-student-table",
+                dataScriptId: "assignment-student-table-data",
+                searchInputId: "{% if not lock_student %}assignment-student-search{% endif %}",
+                hiddenInputId: "assignment-student-input",
+                valueField: "student_id",
+                locked: {{ lock_student|yesno:"true,false" }}
+            });
+            window.CodeMasterTeacherTabulator.initAssignmentScopeSelector({
+                tableId: "assignment-scope-table",
+                dataScriptId: "assignment-scope-table-data",
+                searchInputId: "assignment-scope-search",
+                hiddenInputId: "assignment-scope-input",
+                valueField: "scope_key"
+            });
+        })();
+    </script>
+{% endblock %}

@@ -43,7 +43,7 @@ TEACHER_COURSE_DEFINITIONS = [
     },
     {
         "slug": "cpp",
-        "level": "S1-S3",
+        "level": "C1-C4",
         "title": "C++",
         "summary": "算法与竞赛方向，当前已接入 GESP2 枚举法知识点页和 GESP4 多专题内容链路。",
         "state": "active",
@@ -69,7 +69,7 @@ TEACHER_COURSE_DEFINITIONS = [
     },
     {
         "slug": "uav",
-        "level": "C1-C3",
+        "level": "S1-S3",
         "title": "无人机",
         "summary": "设备实践与控制逻辑方向，当前先保留教师课程入口。",
         "state": "reserved",

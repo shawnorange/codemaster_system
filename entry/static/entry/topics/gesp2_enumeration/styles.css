@@ -675,6 +675,10 @@
     gap: 14px;
 }
 
+.gesp2-enumeration-topic .db-question-preview-block {
+    margin-top: 18px;
+}
+
 .gesp2-enumeration-topic .enum-related-head {
     display: flex;
     flex-wrap: wrap;

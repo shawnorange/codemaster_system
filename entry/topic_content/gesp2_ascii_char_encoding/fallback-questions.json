@@ -1,0 +1,572 @@
+{
+  "questions": [
+    {
+      "code": "gesp2-ascii-2023-03-sc07",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 7,
+      "title": "字符变量与字符字面量运算",
+      "sort_order": 10,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 和 b 都是 char 类型的变量，下列哪个语句不符合 C++ 语法？",
+        "options": [
+          {"key": "A", "text": "b = a + 1;"},
+          {"key": "B", "text": "b = a + '1';"},
+          {"key": "C", "text": "b = 'a'++;"},
+          {"key": "D", "text": "b = a++;"}
+        ],
+        "code": "",
+        "answer_label": "C",
+        "answer_analysis": "字符也可参与运算，但字符字面量 'a' 不是可自增的左值。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-03-sc09",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 9,
+      "title": "字符加一与未赋值表达式",
+      "sort_order": 20,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型且 a 的值为 '2'，则下列哪条语句执行后，a 的值不会变为 '3'？",
+        "options": [
+          {"key": "A", "text": "a = a + 1;"},
+          {"key": "B", "text": "a + 1;"},
+          {"key": "C", "text": "a = 1 + a;"},
+          {"key": "D", "text": "++a;"}
+        ],
+        "code": "",
+        "answer_label": "B",
+        "answer_analysis": "字符加一会沿编码值后移，但单独写 a+1 只是表达式计算，不会修改变量 a。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符比较与编码顺序"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-03-sc12",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 12,
+      "title": "小写字母区间判断",
+      "sort_order": 30,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型的变量，下列哪个表达式可以正确判断“a 是小写字母”？",
+        "options": [
+          {"key": "A", "text": "a <= a <= z"},
+          {"key": "B", "text": "a - 'a' <= 'z' - 'a'"},
+          {"key": "C", "text": "'a' <= a <= 'z'"},
+          {"key": "D", "text": "a >= 'a' && a <= 'z'"}
+        ],
+        "code": "",
+        "answer_label": "D",
+        "answer_analysis": "字符区间判断必须拆成两个比较再用 && 连接。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符区间判断"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-03-sc14",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 14,
+      "title": "字符比较与编码顺序",
+      "sort_order": 40,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "在下列代码的横线处填写一项，可以使得输出是 5。",
+        "options": [
+          {"key": "A", "text": "ch < '5'"},
+          {"key": "B", "text": "ch >= 5"},
+          {"key": "C", "text": "ch >= '4'"},
+          {"key": "D", "text": "ch % 2 == 1"}
+        ],
+        "code": "#include <iostream>\nusing namespace std;\nint main() {\n    int cnt = 0;\n    for (char ch = '1'; ch <= '9'; ch++)\n        if (__________)\n            cnt++;\n    cout << cnt << endl;\n    return 0;\n}",
+        "answer_label": "D",
+        "answer_analysis": "字符 '1' 到 '9' 的 ASCII 码依次是 49 到 57，奇数编码一共对应 5 个字符，因此应填 ch % 2 == 1。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符比较与编码顺序"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-03-tf09",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 9,
+      "title": "小写字母转大写公式",
+      "sort_order": 50,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型的变量，且取值为小写字母，则执行 a = a - 'a' + 'A'; 后，a 的值会变为与原值对应的大写字母。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "a = a - 'a' + 'A';",
+        "answer_label": "T",
+        "answer_analysis": "利用小写与大写字母在编码表中的固定偏移完成转换。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "大小写转换与字母偏移"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-03-p01",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "programming",
+      "source_year": 2023,
+      "source_month": 3,
+      "source_question_no": 1,
+      "title": "画三角形",
+      "sort_order": 60,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "输入一个正整数 n，输出字母三角形。字符从 A 开始，按 A-Z 循环填充，Z 后回到 A。",
+        "options": [],
+        "code": "cout << (char)('A' + (ch++) % 26);",
+        "answer_label": "",
+        "answer_analysis": "核心是把计数器映射到 'A' 到 'Z' 的编码区间，并用 %26 实现循环。",
+        "input_format": "输入一行，一个正整数 n。",
+        "output_format": "输出对应的字母三角形。",
+        "sample_input": "3",
+        "sample_output": "A\nBC\nDEF",
+        "difficulty": "basic_plus",
+        "ability_point": "基于字符编码规律的构造输出"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-06-sc07",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 6,
+      "source_question_no": 7,
+      "title": "字符与整数双向转换",
+      "sort_order": 70,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 int 类型、b 为 char 类型，下列哪个语句不符合 C++ 语法？",
+        "options": [
+          {"key": "A", "text": "a = a + 1.0;"},
+          {"key": "B", "text": "a = (int)(b - '0');"},
+          {"key": "C", "text": "b = (char)(a + '0');"},
+          {"key": "D", "text": "(int)b = a;"}
+        ],
+        "code": "",
+        "answer_label": "D",
+        "answer_analysis": "B、C 都是常见的字符数字与整数互转写法，D 不是合法赋值目标。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与数字的双向转换"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-06-sc10",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 6,
+      "source_question_no": 10,
+      "title": "已知 ASCII 值的字符运算",
+      "sort_order": 80,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型且 a 的值为 'C'（已知 ASCII 码为 67），则执行 cout << (a + 2); 会输出什么？",
+        "options": [
+          {"key": "A", "text": "E"},
+          {"key": "B", "text": "C+2"},
+          {"key": "C", "text": "C2"},
+          {"key": "D", "text": "69"}
+        ],
+        "code": "cout << (a + 2);",
+        "answer_label": "D",
+        "answer_analysis": "a+2 先提升为整数参与运算，输出编码值 69。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-06-sc12",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 6,
+      "source_question_no": 12,
+      "title": "数字字符判断",
+      "sort_order": 90,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型的变量，下列哪个表达式可以正确判断“a 是数字”？",
+        "options": [
+          {"key": "A", "text": "'0' <= a && a <= '9'"},
+          {"key": "B", "text": "'1' <= a && a <= '0'"},
+          {"key": "C", "text": "'0' <= a <= '9'"},
+          {"key": "D", "text": "'1' <= a <= '0'"}
+        ],
+        "code": "",
+        "answer_label": "A",
+        "answer_analysis": "数字字符在编码表中连续，需用两个比较配合 &&。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符区间判断"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-06-sc13",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 6,
+      "source_question_no": 13,
+      "title": "数字字符相加去掉 '0'",
+      "sort_order": 100,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "在代码横线处填写一项，使得输出是 9。",
+        "options": [
+          {"key": "A", "text": "(a + b)"},
+          {"key": "B", "text": "(a + b - '0')"},
+          {"key": "C", "text": "(char)(a + b)"},
+          {"key": "D", "text": "(char)(a + b - '0')"}
+        ],
+        "code": "#include <iostream>\nusing namespace std;\nint main() {\n    char a = '3', b = '6';\n    cout << ________ << endl;\n    return 0;\n}",
+        "answer_label": "D",
+        "answer_analysis": "a、b 分别是数字字符 '3' 和 '6'，先相加得到两个编码值之和；减去一个 '0' 后得到字符 '9' 的编码值 57，再转回 char 才会输出字符 9。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic_plus",
+        "ability_point": "字符与数字的双向转换"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-06-tf09",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2023,
+      "source_month": 6,
+      "source_question_no": 9,
+      "title": "字符后移一位",
+      "sort_order": 110,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "如果 a 为 char 类型变量且取值为大写字母 'F'，则执行 a = a + 1; 后，a 的值会变为大写字母 'G'。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "a = a + 1;",
+        "answer_label": "T",
+        "answer_analysis": "相邻字母在编码表中顺序相邻。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符比较与编码顺序"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-09-sc13",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2023,
+      "source_month": 9,
+      "source_question_no": 13,
+      "title": "ABC 循环输出",
+      "sort_order": 120,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "每一行从字母 A 开始，以 ABC 方式重复，选择能实现该输出的表达式。",
+        "options": [
+          {"key": "A", "text": "'A' + j / 3"},
+          {"key": "B", "text": "(char)('A' + j / 3)"},
+          {"key": "C", "text": "'A' + j % 3"},
+          {"key": "D", "text": "(char)('A' + j % 3)"}
+        ],
+        "code": "",
+        "answer_label": "D",
+        "answer_analysis": "j%3 控制在 A/B/C 三个字符之间循环，外层再转回字符。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic_plus",
+        "ability_point": "基于字符编码规律的构造输出"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2023-12-tf02",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2023,
+      "source_month": 12,
+      "source_question_no": 2,
+      "title": "int('9') 的数值理解",
+      "sort_order": 130,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "判断：C++ 表达式 2*int('9')*2 的值为 36。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "2*int('9')*2",
+        "answer_label": "F",
+        "answer_analysis": "int('9') 取的是字符 '9' 的编码值，不是十进制数 9。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2024-03-tf06",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2024,
+      "source_month": 3,
+      "source_question_no": 6,
+      "title": "ASCII 值参与表达式计算",
+      "sort_order": 140,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "已知 A 的 ASCII 码值为 65，判断：int('C')+abs(-5.8) 的值为 72.8。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "int('C') + abs(-5.8)",
+        "answer_label": "T",
+        "answer_analysis": "int('C') 是 67，abs(-5.8) 是 5.8，两者相加为 72.8，所以判断正确。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic_plus",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2024-06-tf01",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2024,
+      "source_month": 6,
+      "source_question_no": 1,
+      "title": "字符相加不是十进制加法",
+      "sort_order": 150,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "判断：执行 C++ 代码 cout << '9'+'1'; 的输出为 10。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "cout << '9' + '1';",
+        "answer_label": "F",
+        "answer_analysis": "两个字符相加得到的是两个编码值之和，不是数字 9+1。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2024-09-sc06",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "single_choice",
+      "source_year": 2024,
+      "source_month": 9,
+      "source_question_no": 6,
+      "title": "混合类型中的字符编码值",
+      "sort_order": 160,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "已知字符 '+'、'-'、'=' 的 ASCII 码值分别是 43、45、61。判断一段 a+b 的代码在输入 -2 和 3.14 后，哪种输出不可能出现。",
+        "options": [
+          {"key": "A", "text": "1"},
+          {"key": "B", "text": "1.14"},
+          {"key": "C", "text": "47"},
+          {"key": "D", "text": "将触发异常"}
+        ],
+        "code": "",
+        "answer_label": "D",
+        "answer_analysis": "命题点在于字符输入时会按编码值参与运算，因此 47 这类结果可能来自 '+' 与数值混算。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic_plus",
+        "ability_point": "字符与整数的本质关系"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2024-09-tf05",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2024,
+      "source_month": 9,
+      "source_question_no": 5,
+      "title": "整型变量保存字符常量",
+      "sort_order": 170,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "定义 C++ 的 int 类型变量 ch，而且值为 '1'，则语句 cout << int(ch); 的输出为 1。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "int ch = '1'; cout << int(ch);",
+        "answer_label": "F",
+        "answer_analysis": "输出的是字符 '1' 的编码值，不是十进制数 1。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与数字的双向转换"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2025-09-tf06",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2025,
+      "source_month": 9,
+      "source_question_no": 6,
+      "title": "数字转字母偏移输出 DCB",
+      "sort_order": 180,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "执行代码时输入 123，则输出是 DCB。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "while(a){ cout << 'A'+a%10; a/=10; }",
+        "answer_label": "T",
+        "answer_analysis": "依次取个位 3、2、1，与 'A' 偏移后得到 D、C、B。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "123",
+        "sample_output": "DCB",
+        "difficulty": "basic_plus",
+        "ability_point": "大小写转换与字母偏移"
+      }
+    },
+    {
+      "code": "gesp2-ascii-2025-09-tf10",
+      "content_slug": "ascii-char-encoding",
+      "level_code": "GESP2",
+      "question_type": "judgement",
+      "source_year": 2025,
+      "source_month": 9,
+      "source_question_no": 10,
+      "title": "字符加整数后的输出理解",
+      "sort_order": 190,
+      "is_active": true,
+      "is_demo": false,
+      "payload": {
+        "statement": "判断：C++ 代码 cout << ('5'+4); 执行后的输出为 9。",
+        "options": [
+          {"key": "T", "text": "正确"},
+          {"key": "F", "text": "错误"}
+        ],
+        "code": "cout << ('5' + 4);",
+        "answer_label": "F",
+        "answer_analysis": "输出的是编码值加 4 后的整数结果，不是字符意义上的“9”。",
+        "input_format": "",
+        "output_format": "",
+        "sample_input": "",
+        "sample_output": "",
+        "difficulty": "basic",
+        "ability_point": "字符与整数的本质关系"
+      }
+    }
+  ]
+}

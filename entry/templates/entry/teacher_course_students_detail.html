@@ -1,0 +1,76 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Course Students</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Student Datagrid</p>
+            <h3>{{ course_title }} · 关联学生</h3>
+            <p>这里保留原来的学生列字段，但交互改成 Tabulator：本地分页、每页数量切换和姓名过滤都交给 datagrid 处理。</p>
+        </div>
+
+        <div class="teacher-tabulator-shell">
+            <div class="teacher-tabulator-toolbar">
+                <div class="teacher-tabulator-toolbar__search">
+                    <label for="course-student-search">姓名</label>
+                    <input id="course-student-search" class="teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="按学生姓名模糊查找">
+                </div>
+                <div class="teacher-tabulator-toolbar__actions">
+                    <a class="system-header__link" href="{{ student_pool_href }}">从学生池加入我名下</a>
+                    <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                    <a class="system-header__link" href="{% url 'teacher-course-detail' course_slug %}">返回课程页</a>
+                </div>
+            </div>
+            <div id="course-students-table" class="teacher-tabulator-container"></div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ student_table_rows|json_script:"course-students-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        window.CodeMasterTeacherTabulator.initCourseStudents({
+            tableId: "course-students-table",
+            dataScriptId: "course-students-table-data",
+            searchInputId: "course-student-search"
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Knowledge Point Grid</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Knowledge Point Controls</p>
+                <h3>{{ level_title }} · Knowledge Point data-grid</h3>
+                <p>这轮先把搜索、知识点列表和操作入口接起来。学生权限管理已可真实读写，新增 / 修改是最小表单，删除是确认后停用。</p>
+            </div>
+
+            {% if success_message %}
+                <div class="entry-hint-bar">{{ success_message }}</div>
+            {% endif %}
+
+            <div class="teacher-tabulator-shell">
+                <div class="teacher-tabulator-toolbar">
+                <div class="teacher-tabulator-toolbar__search">
+                    <label for="knowledge-search">Title</label>
+                    <input id="knowledge-search" class="teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="按 Title 模糊查找">
+                </div>
+                <div class="teacher-tabulator-toolbar__actions">
+                    <a class="system-header__link" href="{{ export_href }}">导出当前 Level 结构</a>
+                    <a class="system-header__link" href="{{ add_knowledge_point_href }}">新增知识点</a>
+                    <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                </div>
+            </div>
+                <div id="knowledge-point-grid-table" class="teacher-tabulator-container"></div>
+            </div>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Grid Notes</p>
+                    <h3>当前说明</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ knowledge_point_table_rows|json_script:"knowledge-point-grid-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        window.CodeMasterTeacherTabulator.initKnowledgePointGrid({
+            tableId: "knowledge-point-grid-table",
+            dataScriptId: "knowledge-point-grid-data",
+            searchInputId: "knowledge-search"
+        });
+    </script>
+{% endblock %}
