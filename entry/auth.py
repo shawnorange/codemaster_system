@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import wraps
 from typing import Any
 
+from django.conf import settings
 from django.core import signing
 from django.db.utils import OperationalError, ProgrammingError
 from django.http import HttpRequest, HttpResponse
@@ -15,7 +16,7 @@ from .models import PortalUser
 AUTH_COOKIE_NAME = "codemaster_auth"
 AUTH_COOKIE_MAX_AGE = 60 * 60 * 8
 AUTH_COOKIE_SALT = "codemaster.entry.auth"
-DEFAULT_TEST_PASSWORD = "123456"
+DEFAULT_TEST_PASSWORD = str(getattr(settings, "DEFAULT_TEST_PASSWORD", "") or "")
 
 ROLE_CONFIG = {
     "student": {

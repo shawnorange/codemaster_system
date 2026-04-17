@@ -34,6 +34,7 @@ from .views import (
     teacher_course_level_export,
     teacher_course_students_detail,
     teacher_assignment_new,
+    teacher_homework_builder,
     teacher_student_assignment_edit,
     teacher_student_assignment_remove,
     teacher_student_assignments,
@@ -71,6 +72,11 @@ urlpatterns = [
         "teacher/students/<int:student_id>/assignments",
         teacher_student_assignments,
         name="teacher-student-assignments",
+    ),
+    path(
+        "teacher/students/<int:student_id>/homework/<int:assignment_id>",
+        teacher_homework_builder,
+        name="teacher-homework-builder",
     ),
     path(
         "teacher/courses/cpp/gesp2/ascii-char-encoding",

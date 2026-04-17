@@ -1,6 +1,8 @@
+import logging
 import json
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.db import transaction
 from django.db.models import Max
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpRequest, HttpResponse
@@ -21,7 +23,26 @@ from .auth import (
 from .gesp2_catalog import ASCII_CHAR_ENCODING_CONTENT_SLUG, ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .gesp4_catalog import BINARY_SEARCH_CONTENT_SLUG, SORTING_CONTENT_SLUG, STRINGS_CONTENT_SLUG
-from .models import Course, CourseContent, LessonHourLedger, PortalUser, RewardRecord, Student, TeacherEvaluation, TeacherStudentAssignment
+from .homework_online import (
+    HomeworkImportParseError,
+    compute_uploaded_file_sha256,
+    confirm_homework_import_job,
+    detect_homework_source_type,
+    extract_import_job_user_facing_message,
+    parse_homework_import_job,
+)
+from .models import (
+    Course,
+    CourseContent,
+    HomeworkAssignment,
+    HomeworkImportJob,
+    LessonHourLedger,
+    PortalUser,
+    RewardRecord,
+    Student,
+    TeacherEvaluation,
+    TeacherStudentAssignment,
+)
 from .portal_context import (
     build_gesp2_reserved_topic_page,
     build_gesp4_reserved_topic_page,
@@ -38,6 +59,7 @@ from .portal_context import (
     build_teacher_course_detail_context,
     build_teacher_course_level_detail_context,
     build_teacher_course_workflow_placeholder_context,
+    build_teacher_homework_builder_context,
     build_teacher_page_shell,
     build_teacher_student_assignment_list_context,
     build_teacher_student_detail_context,
@@ -60,6 +82,8 @@ from .topic_content.gesp2_ascii_char_encoding.context import (
 )
 from .topic_content.gesp4_array_2d.context import get_topic_page_context
 from .topic_content.gesp4_shared.context import get_topic_page_context as get_generic_gesp4_topic_page_context
+
+logger = logging.getLogger(__name__)
 
 
 def build_shell_identity_context(request: HttpRequest) -> dict[str, str]:
@@ -139,6 +163,19 @@ def build_json_download_response(*, payload: dict, filename: str) -> HttpRespons
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def build_redirect_with_query(base_path: str, *, params: dict[str, object], anchor: str = "") -> str:
+    split_result = urlsplit(base_path)
+    current_query = dict(parse_qsl(split_result.query, keep_blank_values=True))
+    for key, value in params.items():
+        if value in (None, ""):
+            current_query.pop(key, None)
+        else:
+            current_query[key] = str(value)
+    query = urlencode(current_query)
+    fragment = anchor.lstrip("#")
+    return urlunsplit((split_result.scheme, split_result.netloc, split_result.path, query, fragment))
 
 
 def build_knowledge_point_form_context(
@@ -1402,6 +1439,206 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
             **context,
         },
     )
+
+
+@role_required("teacher")
+def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+
+    success_map = {
+        "parsed": "源文件已上传并完成候选题识别，请先确认题目再写入正式作业。",
+    }
+
+    def get_success_message() -> str:
+        op = (request.GET.get("op") or "").strip()
+        if op == "confirmed":
+            confirmed_count = normalize_positive_int(request.GET.get("confirmed_count"), default=0, minimum=0)
+            if confirmed_count > 0:
+                return f"确认成功，已写入 {confirmed_count} 道正式题目。学生端现在会进入在线作答模式。"
+            return "候选题已确认并写入正式作业题目，学生端现在会进入在线作答模式。"
+        return success_map.get(op, "")
+
+    def render_builder(*, upload_error_message: str = "", upload_success_message: str = "") -> HttpResponse:
+        success_message = upload_success_message or get_success_message()
+        try:
+            builder_context = build_teacher_homework_builder_context(
+                portal_user,
+                student_id,
+                assignment_id,
+                upload_error_message=upload_error_message,
+                upload_success_message=success_message,
+            )
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该作业") from exc
+        return render(
+            request,
+            "entry/teacher_homework_question_builder.html",
+            {
+                "role_label": ROLE_CONFIG["teacher"]["label"],
+                **build_shell_identity_context(request),
+                **builder_context,
+            },
+        )
+
+    def get_assignment() -> HomeworkAssignment:
+        assignment = (
+            HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level")
+            .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
+            .first()
+        )
+        if not assignment:
+            raise Http404("未找到该作业")
+        return assignment
+
+    if request.method == "POST":
+        action = request.POST.get("form_action", "").strip()
+        assignment = get_assignment()
+
+        if action == "upload_choice_file":
+            source_file = request.FILES.get("source_file")
+            if not source_file:
+                return render_builder(upload_error_message="请先选择一个文件再上传。")
+            source_type = detect_homework_source_type(source_file.name)
+            if not source_type:
+                return render_builder(upload_error_message="当前只支持 pdf / image / html / txt / docx / xlsx 文件。")
+            source_sha256 = compute_uploaded_file_sha256(source_file)
+            with transaction.atomic():
+                locked_assignment = (
+                    HomeworkAssignment.objects.select_for_update()
+                    .get(id=assignment.id, teacher=portal_user, student_id=student_id, is_active=True)
+                )
+                pending_import_job = (
+                    HomeworkImportJob.objects.select_for_update()
+                    .filter(
+                        assignment=locked_assignment,
+                        is_active=True,
+                        parse_status__in=[HomeworkImportJob.STATUS_UPLOADED, HomeworkImportJob.STATUS_PARSING],
+                    )
+                    .order_by("-created_at", "-id")
+                    .first()
+                )
+                if pending_import_job:
+                    return render_builder(upload_error_message="当前作业已有导入任务正在上传或识别中，请等待完成后再试。")
+                import_job = HomeworkImportJob.objects.create(
+                    teacher=portal_user,
+                    assignment=locked_assignment,
+                    source_file=source_file,
+                    source_filename=source_file.name,
+                    source_sha256=source_sha256,
+                    source_type=source_type,
+                    parse_status=HomeworkImportJob.STATUS_UPLOADED,
+                    is_active=True,
+                )
+            parse_homework_import_job(import_job)
+            if import_job.parse_status == HomeworkImportJob.STATUS_FAILED:
+                return render_builder(
+                    upload_error_message=extract_import_job_user_facing_message(
+                        import_job,
+                        default="文件解析失败，请检查源文件内容。",
+                    )
+                )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-homework-builder", args=[student_id, assignment_id]),
+                    params={"op": "parsed"},
+                    anchor="candidate-editor",
+                )
+            )
+
+        if action == "confirm_import_job":
+            import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
+            import_job = assignment.import_jobs.filter(id=import_job_id, teacher=portal_user, is_active=True).first()
+            if not import_job:
+                raise Http404("未找到该导入任务")
+            candidate_count = normalize_positive_int(request.POST.get("candidate_count"), default=0, minimum=0)
+            if candidate_count <= 0:
+                logger.warning(
+                    "homework import confirm rejected: empty payload import_job=%s assignment=%s payload_count=0 included_count=0",
+                    import_job.id,
+                    assignment.id,
+                )
+                return render_builder(upload_error_message="确认失败：候选题提交数据为空，请刷新页面后重试。")
+            payloads = []
+            has_candidate_fields = False
+            for index in range(candidate_count):
+                included_field_name = f"candidate_{index}_included"
+                has_candidate_fields = has_candidate_fields or any(
+                    field_name in request.POST
+                    for field_name in [
+                        included_field_name,
+                        f"candidate_{index}_stem",
+                        f"candidate_{index}_option_A",
+                        f"candidate_{index}_option_B",
+                        f"candidate_{index}_option_C",
+                        f"candidate_{index}_option_D",
+                        f"candidate_{index}_correct_answer",
+                        f"candidate_{index}_analysis",
+                        f"candidate_{index}_notes",
+                    ]
+                )
+                payloads.append(
+                    {
+                        "included": "1" in request.POST.getlist(included_field_name),
+                        "stem": request.POST.get(f"candidate_{index}_stem", ""),
+                        "options": {
+                            "A": request.POST.get(f"candidate_{index}_option_A", ""),
+                            "B": request.POST.get(f"candidate_{index}_option_B", ""),
+                            "C": request.POST.get(f"candidate_{index}_option_C", ""),
+                            "D": request.POST.get(f"candidate_{index}_option_D", ""),
+                        },
+                        "correct_answer": request.POST.get(f"candidate_{index}_correct_answer", ""),
+                        "analysis": request.POST.get(f"candidate_{index}_analysis", ""),
+                        "notes": request.POST.get(f"candidate_{index}_notes", ""),
+                    }
+                )
+            if not has_candidate_fields or not payloads:
+                logger.warning(
+                    "homework import confirm rejected: candidate fields missing import_job=%s assignment=%s payload_count=%s included_count=0",
+                    import_job.id,
+                    assignment.id,
+                    len(payloads),
+                )
+                return render_builder(upload_error_message="确认失败：候选题提交数据为空，请刷新页面后重试。")
+            included_count = sum(1 for payload in payloads if payload["included"])
+            logger.info(
+                "homework import confirm attempt import_job=%s assignment=%s payload_count=%s included_count=%s",
+                import_job.id,
+                assignment.id,
+                len(payloads),
+                included_count,
+            )
+            try:
+                created_questions = confirm_homework_import_job(import_job, payloads, operator=portal_user)
+            except HomeworkImportParseError as exc:
+                logger.warning(
+                    "homework import confirm failed import_job=%s assignment=%s payload_count=%s included_count=%s written_count=0 error=%s",
+                    import_job.id,
+                    assignment.id,
+                    len(payloads),
+                    included_count,
+                    exc,
+                )
+                import_job.candidates_json = payloads
+                import_job.parse_status = HomeworkImportJob.STATUS_PARSED
+                import_job.save(update_fields=["candidates_json", "parse_status", "updated_at"])
+                return render_builder(upload_error_message=f"确认失败：{exc}")
+            logger.info(
+                "homework import confirm succeeded import_job=%s assignment=%s payload_count=%s included_count=%s written_count=%s",
+                import_job.id,
+                assignment.id,
+                len(payloads),
+                included_count,
+                len(created_questions),
+            )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-homework-builder", args=[student_id, assignment_id]),
+                    params={"op": "confirmed", "confirmed_count": len(created_questions)},
+                    anchor="candidate-editor",
+                )
+            )
+
+    return render_builder()
 
 
 @role_required("principal")

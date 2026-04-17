@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .course_identity import summarize_course_level_labels
+from .homework_online import normalize_candidate_editor_rows
 from .gesp2_catalog import (
     ASCII_CHAR_ENCODING_CONTENT_SLUG,
     ENUMERATION_METHOD_CONTENT_SLUG,
@@ -33,6 +34,9 @@ from .models import (
     CourseCategory,
     CourseContent,
     CourseLevel,
+    HomeworkAssignment,
+    HomeworkImportJob,
+    HomeworkQuestion,
     LessonHourLedger,
     PortalUser,
     RewardRecord,
@@ -48,6 +52,34 @@ from .teacher_course_catalog import TEACHER_COURSE_DEFINITIONS, TEACHER_COURSE_M
 
 GRID_PAGE_SIZE_OPTIONS = [10, 15, 50, 100]
 DEFAULT_GRID_PAGE_SIZE = 10
+HOMEWORK_STATUS_LABELS = {
+    HomeworkAssignment.STATUS_ASSIGNED: "待完成",
+    HomeworkAssignment.STATUS_COMPLETED: "已完成",
+    HomeworkAssignment.STATUS_REVIEWED: "已评阅",
+    HomeworkAssignment.STATUS_CANCELLED: "已取消",
+}
+HOMEWORK_STATUS_TONES = {
+    HomeworkAssignment.STATUS_ASSIGNED: "trial",
+    HomeworkAssignment.STATUS_COMPLETED: "open",
+    HomeworkAssignment.STATUS_REVIEWED: "future",
+    HomeworkAssignment.STATUS_CANCELLED: "locked",
+}
+HOMEWORK_IMPORT_STATUS_LABELS = {
+    HomeworkImportJob.STATUS_UPLOADED: "已上传",
+    HomeworkImportJob.STATUS_PARSING: "解析中",
+    HomeworkImportJob.STATUS_PARSED: "待确认",
+    HomeworkImportJob.STATUS_CONFIRMED: "已确认",
+    HomeworkImportJob.STATUS_FAILED: "解析失败",
+    HomeworkImportJob.STATUS_CANCELLED: "已取消",
+}
+HOMEWORK_IMPORT_STATUS_TONES = {
+    HomeworkImportJob.STATUS_UPLOADED: "trial",
+    HomeworkImportJob.STATUS_PARSING: "future",
+    HomeworkImportJob.STATUS_PARSED: "open",
+    HomeworkImportJob.STATUS_CONFIRMED: "future",
+    HomeworkImportJob.STATUS_FAILED: "locked",
+    HomeworkImportJob.STATUS_CANCELLED: "locked",
+}
 
 
 def normalize_positive_value(value, *, default: int = 0, minimum: int = 0) -> int:
@@ -827,6 +859,227 @@ def serialize_lesson_hour(record: LessonHourLedger) -> dict:
         "teacher_name": record.teacher.full_name if record.teacher else "教师",
         "created_at": record.created_at,
         "created_at_text": format_datetime(record.created_at),
+    }
+
+
+def format_date(value) -> str:
+    if not value:
+        return "暂无"
+    return value.strftime("%Y-%m-%d")
+
+
+def get_homework_status_text(status: str) -> str:
+    return HOMEWORK_STATUS_LABELS.get(status, status or "未知状态")
+
+
+def get_homework_status_tone(status: str) -> str:
+    return HOMEWORK_STATUS_TONES.get(status, "future")
+
+
+def get_homework_import_status_text(status: str) -> str:
+    return HOMEWORK_IMPORT_STATUS_LABELS.get(status, status or "未知状态")
+
+
+def get_homework_import_status_tone(status: str) -> str:
+    return HOMEWORK_IMPORT_STATUS_TONES.get(status, "future")
+
+
+def get_homework_status_note(status: str) -> str:
+    status_notes = {
+        HomeworkAssignment.STATUS_ASSIGNED: "等待学生完成，老师可先补充提醒型评语。",
+        HomeworkAssignment.STATUS_COMPLETED: "学生已标记完成，建议老师尽快查看并给出评语。",
+        HomeworkAssignment.STATUS_REVIEWED: "最新评语已保存，学生端会同步看到当前版本。",
+        HomeworkAssignment.STATUS_CANCELLED: "作业已取消，但记录会保留在当前列表里。",
+    }
+    return status_notes.get(status, "当前作业状态待确认。")
+
+
+def get_homework_content_level_label(content: CourseContent) -> str:
+    if content.level_id and content.level:
+        return content.level.title
+    return (content.phase or "").strip() or "未分级"
+
+
+def format_homework_content_label(content: CourseContent) -> str:
+    return f"{content.course.title} / {get_homework_content_level_label(content)} / {content.title}"
+
+
+def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
+    status = assignment.status
+    teacher_comment = assignment.teacher_comment.strip()
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    has_comment = bool(teacher_comment)
+    online_question_count = getattr(assignment, "online_question_count", None)
+    if online_question_count is None:
+        online_question_count = assignment.questions.filter(is_active=True).count()
+    return {
+        "id": assignment.id,
+        "title": assignment.title,
+        "description": assignment.description or "当前老师没有补充额外说明，先进入知识点页完成本次任务。",
+        "due_date": assignment.due_date,
+        "due_date_text": format_date(assignment.due_date),
+        "status": status,
+        "status_text": get_homework_status_text(status),
+        "status_tone": get_homework_status_tone(status),
+        "status_note": get_homework_status_note(status),
+        "teacher_name": assignment.teacher.full_name,
+        "teacher_comment": teacher_comment,
+        "teacher_comment_text": teacher_comment or "当前老师还没有填写评语。",
+        "teacher_comment_summary": shorten_text(teacher_comment, limit=36) if teacher_comment else "暂无评语",
+        "has_teacher_comment": has_comment,
+        "content_id": assignment.content_id,
+        "content_title": assignment.content.title,
+        "content_level_label": get_homework_content_level_label(assignment.content),
+        "content_path_label": format_homework_content_label(assignment.content),
+        "content_route_path": assignment.content.route_path,
+        "assigned_at": assignment.assigned_at,
+        "assigned_at_text": format_datetime(assignment.assigned_at),
+        "completed_at": assignment.completed_at,
+        "completed_at_text": format_datetime(assignment.completed_at) if assignment.completed_at else "未完成",
+        "reviewed_at": assignment.reviewed_at,
+        "reviewed_at_text": format_datetime(assignment.reviewed_at) if assignment.reviewed_at else "未评阅",
+        "online_question_count": online_question_count,
+        "is_online_homework": online_question_count > 0,
+        "homework_mode_text": f"在线选择题 {online_question_count} 题" if online_question_count else "知识点任务型作业",
+        "is_completed": status in completed_like,
+        "is_reviewed": status == HomeworkAssignment.STATUS_REVIEWED,
+        "is_cancelled": status == HomeworkAssignment.STATUS_CANCELLED,
+        "can_mark_completed": status == HomeworkAssignment.STATUS_ASSIGNED,
+        "can_cancel": status != HomeworkAssignment.STATUS_CANCELLED,
+        "review_action_label": "修改评语" if status == HomeworkAssignment.STATUS_REVIEWED else "写评语",
+        "review_action_class": "teacher-anchor-link" if status == HomeworkAssignment.STATUS_REVIEWED else "login-button",
+    }
+
+
+def serialize_homework_question(question: HomeworkQuestion) -> dict:
+    options = question.options_json if isinstance(question.options_json, dict) else {}
+    option_items = [
+        {"key": key, "text": str(options.get(key) or "").strip()}
+        for key in ["A", "B", "C", "D"]
+        if str(options.get(key) or "").strip()
+    ]
+    return {
+        "id": question.id,
+        "question_no": question.question_no,
+        "question_type": question.question_type,
+        "question_type_text": "单选题",
+        "stem": question.stem,
+        "option_items": option_items,
+        "correct_answer": question.correct_answer,
+        "analysis": question.analysis or "当前老师没有补充解析。",
+    }
+
+
+def serialize_homework_import_job(
+    import_job: HomeworkImportJob,
+    *,
+    can_confirm: bool | None = None,
+    confirm_disabled_reason: str = "",
+) -> dict:
+    candidate_rows = normalize_candidate_editor_rows(import_job.candidates_json)
+    parse_notes = import_job.parse_notes or "当前没有额外解析备注。"
+    ocr_preview = ""
+    manual_review_message = ""
+    page_message = ""
+    for raw_line in parse_notes.splitlines():
+        line = raw_line.strip()
+        if line.startswith("OCR 文本预览："):
+            ocr_preview = line.split("：", 1)[1].strip()
+        elif line.startswith("已完成 OCR"):
+            manual_review_message = line
+        elif line.startswith("页面提示："):
+            page_message = line.split("：", 1)[1].strip()
+    return {
+        "id": import_job.id,
+        "source_filename": import_job.source_filename,
+        "source_type": import_job.source_type,
+        "source_type_text": dict(HomeworkImportJob.SOURCE_TYPE_CHOICES).get(import_job.source_type, import_job.source_type),
+        "parse_status": import_job.parse_status,
+        "parse_status_text": get_homework_import_status_text(import_job.parse_status),
+        "parse_status_tone": get_homework_import_status_tone(import_job.parse_status),
+        "parse_notes": parse_notes,
+        "candidate_rows": candidate_rows,
+        "candidate_count": len(candidate_rows),
+        "has_candidates": bool(candidate_rows),
+        "ocr_preview": ocr_preview,
+        "manual_review_message": manual_review_message,
+        "page_message": page_message,
+        "source_file_url": import_job.source_file.url if import_job.source_file else "",
+        "created_at_text": format_datetime(import_job.created_at),
+        "confirmed_at_text": format_datetime(import_job.confirmed_at) if import_job.confirmed_at else "未确认",
+        "can_confirm": (
+            can_confirm
+            if can_confirm is not None
+            else import_job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(candidate_rows)
+        ),
+        "confirm_disabled_reason": confirm_disabled_reason,
+    }
+
+
+def build_teacher_homework_builder_context(
+    portal_user: PortalUser,
+    student_id: int,
+    assignment_id: int,
+    *,
+    upload_error_message: str = "",
+    upload_success_message: str = "",
+) -> dict:
+    assignment = (
+        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level")
+        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
+        .get()
+    )
+    student = assignment.student
+    has_submission = assignment.submissions.filter(is_active=True).exists()
+    base_confirm_allowed = assignment.status != HomeworkAssignment.STATUS_CANCELLED and not has_submission
+    confirm_disabled_reason = ""
+    if assignment.status == HomeworkAssignment.STATUS_CANCELLED:
+        confirm_disabled_reason = "当前作业已取消，不能再确认导入正式题目。"
+    elif has_submission:
+        confirm_disabled_reason = "当前作业已有学生提交记录，不能再覆盖正式题目。"
+    import_jobs = list(
+        assignment.import_jobs.select_related("teacher")
+        .filter(is_active=True)
+        .order_by("-created_at", "-id")
+    )
+    serialized_jobs = [
+        serialize_homework_import_job(
+            job,
+            can_confirm=base_confirm_allowed and job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(normalize_candidate_editor_rows(job.candidates_json)),
+            confirm_disabled_reason=confirm_disabled_reason,
+        )
+        for job in import_jobs
+    ]
+    latest_job = serialized_jobs[0] if serialized_jobs else None
+    confirmed_questions = [
+        serialize_homework_question(question)
+        for question in assignment.questions.filter(is_active=True).order_by("question_no", "id")
+    ]
+    return {
+        "student": student,
+        "assignment": serialize_homework_assignment(assignment),
+        "page_title": f"{assignment.title} · 在线选择题",
+        "page_description": "在当前作业下上传题目源文件、确认候选单选题，再让学生在线作答和自动判分。",
+        "breadcrumbs": [
+            {"label": "教师学生列表", "href": reverse("teacher-students")},
+            {"label": student.display_name, "href": reverse("teacher-student-detail", args=[student.id])},
+            {"label": assignment.title},
+        ],
+        "summary_cards": [
+            {"label": "当前学生", "value": student.display_name, "hint": student.grade or "年级待补充"},
+            {"label": "所属知识点", "value": assignment.content.title, "hint": assignment.content.route_path},
+            {"label": "正式题目", "value": f"{len(confirmed_questions)} 题", "hint": "老师确认后写入 HomeworkQuestion"},
+            {"label": "导入任务", "value": f"{len(serialized_jobs)} 个", "hint": latest_job["parse_status_text"] if latest_job else "还没有导入任务"},
+        ],
+        "upload_accept": ".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.html,.htm,.txt,.docx,.xlsx",
+        "upload_error_message": upload_error_message,
+        "upload_success_message": upload_success_message,
+        "latest_import_job": latest_job,
+        "import_jobs": serialized_jobs,
+        "confirmed_questions": confirmed_questions,
+        "question_builder_href": reverse("teacher-homework-builder", args=[student.id, assignment.id]),
+        "back_href": reverse("teacher-student-detail", args=[student.id]),
     }
 
 

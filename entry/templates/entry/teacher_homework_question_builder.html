@@ -1,0 +1,393 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Homework Choice Builder</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Upload Source</p>
+                <h3>上传文件生成单选题候选</h3>
+                <p>先上传源文件，再由系统识别单选题候选；只有老师确认后，才会写入正式作业题目。</p>
+            </div>
+
+            {% if upload_success_message %}
+                <div class="entry-hint-bar">
+                    <strong>操作反馈</strong>
+                    <span>{{ upload_success_message }}</span>
+                </div>
+            {% endif %}
+
+            {% if upload_error_message %}
+                <div class="entry-hint-bar">
+                    <strong>操作失败</strong>
+                    <span>{{ upload_error_message }}</span>
+                </div>
+            {% endif %}
+
+            <section class="record-panel record-panel--composer">
+                <form method="post" enctype="multipart/form-data" class="record-form" data-upload-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="upload_choice_file">
+                    <div class="record-form__row">
+                        <input type="file" name="source_file" accept="{{ upload_accept }}" required>
+                    </div>
+                    <div class="record-inline-feedback">
+                        <strong>支持格式</strong>
+                        <span>pdf / image / html / txt / docx / xlsx。当前环境对不稳定格式会给出明确错误，不会静默失败。</span>
+                    </div>
+                    <div class="record-inline-feedback">
+                        <strong>确认规则</strong>
+                        <span>本次确认会整体覆盖当前作业的正式题目；如果学生已经提交过这份作业，系统会阻止覆盖。</span>
+                    </div>
+                    <div class="record-upload-progress" data-upload-progress hidden>
+                        <div class="record-upload-progress__track" data-upload-progress-track role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <span class="record-upload-progress__bar" data-upload-progress-bar></span>
+                        </div>
+                        <span class="record-upload-progress__text" data-upload-progress-text>等待上传</span>
+                    </div>
+                    <button type="submit" class="login-button record-form__button" data-upload-submit>
+                        <span data-upload-submit-label>上传并识别候选题</span>
+                    </button>
+                </form>
+            </section>
+
+            {% if latest_import_job %}
+                <section class="record-panel record-panel--recent" id="candidate-editor" style="margin-top: 20px;">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Latest Import Job</p>
+                        <h3>最近一次导入任务</h3>
+                    </div>
+
+                    {% if upload_success_message %}
+                        <div class="entry-hint-bar" style="margin-bottom: 14px;">
+                            <strong>确认结果</strong>
+                            <span>{{ upload_success_message }}</span>
+                        </div>
+                    {% endif %}
+
+                    {% if upload_error_message %}
+                        <div class="entry-hint-bar" style="margin-bottom: 14px;">
+                            <strong>确认失败</strong>
+                            <span>{{ upload_error_message }}</span>
+                        </div>
+                    {% endif %}
+
+                    <article class="content-access-card content-access-card--{{ latest_import_job.parse_status_tone }}">
+                        <div class="content-access-card__top">
+                            <div>
+                                <h5>{{ latest_import_job.source_filename }}</h5>
+                                <p>{{ latest_import_job.source_type_text }} · {{ latest_import_job.created_at_text }}</p>
+                            </div>
+                            <span class="state-pill state-pill--{{ latest_import_job.parse_status_tone }}">{{ latest_import_job.parse_status_text }}</span>
+                        </div>
+                        <p class="content-access-card__description content-access-card__description--multiline">{{ latest_import_job.parse_notes }}</p>
+                        <div class="content-access-card__footer">
+                            <span>候选题 {{ latest_import_job.candidate_count }} 道</span>
+                            {% if latest_import_job.source_file_url %}
+                                <a href="{{ latest_import_job.source_file_url }}" target="_blank" rel="noopener">查看原文件</a>
+                            {% endif %}
+                        </div>
+                    </article>
+
+                    {% if latest_import_job.page_message %}
+                        <div class="entry-hint-bar" style="margin-top: 16px;">
+                            <strong>当前提示</strong>
+                            <span>{{ latest_import_job.page_message }}</span>
+                        </div>
+                    {% endif %}
+
+                    {% if not latest_import_job.has_candidates and latest_import_job.manual_review_message %}
+                        <div class="entry-hint-bar" style="margin-top: 16px;">
+                            <strong>未生成候选题</strong>
+                            <span>{{ latest_import_job.manual_review_message }}</span>
+                        </div>
+                    {% endif %}
+
+                    {% if not latest_import_job.has_candidates and latest_import_job.ocr_preview %}
+                        <article class="content-access-card" style="margin-top: 16px;">
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>OCR 文本预览</h5>
+                                    <p>当前没有自动生成候选题，请结合原文件和诊断信息人工确认。</p>
+                                </div>
+                                <span class="state-pill state-pill--trial">OCR</span>
+                            </div>
+                            <p class="content-access-card__description content-access-card__description--multiline">{{ latest_import_job.ocr_preview }}</p>
+                        </article>
+                    {% endif %}
+
+                    {% if latest_import_job.can_confirm %}
+                        <form method="post" class="record-form" style="margin-top: 16px;">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="confirm_import_job">
+                            <input type="hidden" name="import_job_id" value="{{ latest_import_job.id }}">
+                            <input type="hidden" name="candidate_count" value="{{ latest_import_job.candidate_count }}">
+
+                            <div class="content-access-list">
+                                {% for item in latest_import_job.candidate_rows %}
+                                    <article class="content-access-card">
+                                        <div class="content-access-card__top">
+                                            <div>
+                                                <h5>候选题 {{ forloop.counter }}</h5>
+                                                <p>{{ item.notes|default:"请老师确认题干、选项、答案和解析。" }}</p>
+                                            </div>
+                                            <span class="state-pill state-pill--trial">待确认</span>
+                                        </div>
+
+                                        <input type="hidden" name="candidate_{{ item.row_index }}_included" value="0">
+                                        <input type="hidden" name="candidate_{{ item.row_index }}_notes" value="{{ item.notes }}">
+                                        <label style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                                            <input type="checkbox" name="candidate_{{ item.row_index }}_included" value="1" {% if item.included %}checked{% endif %}>
+                                            <strong>保留这道题并写入正式作业</strong>
+                                        </label>
+
+                                        <div class="record-form">
+                                            <textarea name="candidate_{{ item.row_index }}_stem" rows="4" placeholder="题干">{{ item.stem }}</textarea>
+                                            <input type="text" name="candidate_{{ item.row_index }}_option_A" value="{{ item.options.A }}" placeholder="A 选项">
+                                            <input type="text" name="candidate_{{ item.row_index }}_option_B" value="{{ item.options.B }}" placeholder="B 选项">
+                                            <input type="text" name="candidate_{{ item.row_index }}_option_C" value="{{ item.options.C }}" placeholder="C 选项">
+                                            <input type="text" name="candidate_{{ item.row_index }}_option_D" value="{{ item.options.D }}" placeholder="D 选项">
+                                            <select name="candidate_{{ item.row_index }}_correct_answer">
+                                                <option value="">选择正确答案</option>
+                                                {% for key in "ABCD" %}
+                                                    <option value="{{ key }}" {% if item.correct_answer == key %}selected{% endif %}>{{ key }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <textarea name="candidate_{{ item.row_index }}_analysis" rows="3" placeholder="解析">{{ item.analysis }}</textarea>
+                                        </div>
+                                    </article>
+                                {% endfor %}
+                            </div>
+
+                            <button type="submit" class="login-button record-form__button">确认导入正式题目</button>
+                        </form>
+                    {% elif latest_import_job.parse_status == "parsed" and latest_import_job.confirm_disabled_reason %}
+                        <div class="entry-hint-bar" style="margin-top: 16px;">
+                            <strong>当前不可确认</strong>
+                            <span>{{ latest_import_job.confirm_disabled_reason }}</span>
+                        </div>
+                    {% elif not latest_import_job.has_candidates %}
+                        <div class="entry-hint-bar" style="margin-top: 16px;">
+                            <strong>候选题为空</strong>
+                            <span>当前导入仅保留 OCR 与诊断信息，没有可直接确认的选择题候选。</span>
+                        </div>
+                    {% endif %}
+                </section>
+            {% endif %}
+
+            <section class="record-panel record-panel--recent" id="confirmed-questions" style="margin-top: 20px;">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Confirmed Questions</p>
+                    <h3>当前正式题目</h3>
+                </div>
+
+                <div class="content-access-list">
+                    {% for item in confirmed_questions %}
+                        <article class="content-access-card">
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>第 {{ item.question_no }} 题</h5>
+                                    <p>{{ item.question_type_text }}</p>
+                                </div>
+                                <span class="state-pill state-pill--future">{{ item.correct_answer }}</span>
+                            </div>
+                            <p class="content-access-card__description">{{ item.stem }}</p>
+                            <div class="topic-work-card__meta">
+                                {% for option in item.option_items %}
+                                    <article class="topic-work-card__meta-item">
+                                        <span>{{ option.key }}</span>
+                                        <strong>{{ option.text }}</strong>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                            <div class="record-inline-feedback" style="margin-top: 14px;">
+                                <strong>解析</strong>
+                                <span>{{ item.analysis }}</span>
+                            </div>
+                        </article>
+                    {% empty %}
+                        <div class="entry-hint-bar">
+                            <strong>当前还没有正式题目</strong>
+                            <span>先上传源文件并确认候选题，学生端才会进入在线作答模式。</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            </section>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Assignment</p>
+                    <h3>当前作业</h3>
+                </div>
+
+                <div class="context-list">
+                    <div class="context-list__item">
+                        <span>学生</span>
+                        <strong>{{ student.display_name }}</strong>
+                    </div>
+                    <div class="context-list__item">
+                        <span>知识点</span>
+                        <strong>{{ assignment.content_title }}</strong>
+                    </div>
+                    <div class="context-list__item">
+                        <span>作业模式</span>
+                        <strong>{{ assignment.homework_mode_text }}</strong>
+                    </div>
+                </div>
+            </section>
+
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Import Jobs</p>
+                    <h3>历史导入任务</h3>
+                </div>
+
+                <div class="record-list">
+                    {% for item in import_jobs %}
+                        <article class="record-list-item">
+                            <strong>{{ item.source_filename }}</strong>
+                            <span>{{ item.parse_status_text }} · {{ item.candidate_count }} 题</span>
+                            <span>{{ item.created_at_text }}</span>
+                        </article>
+                    {% empty %}
+                        <article class="record-list-item">
+                            <strong>还没有导入任务</strong>
+                            <span>上传一次源文件后，这里会记录解析状态。</span>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Next Step</p>
+                    <h3>后续流程</h3>
+                </div>
+
+                <ul class="support-list">
+                    <li>
+                        <strong>确认候选题</strong>
+                        <span>上传后先核对题干、选项、答案和解析，再写入 HomeworkQuestion。</span>
+                    </li>
+                    <li>
+                        <strong>学生在线作答</strong>
+                        <span>只要正式题目写入成功，学生端作业详情就会切到在线选择题模式。</span>
+                    </li>
+                    <li>
+                        <strong>自动判分与打印</strong>
+                        <span>提交后自动生成 Submission 和每题答案，并提供浏览器打印友好页。</span>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script>
+        (function () {
+            var uploadForm = document.querySelector("[data-upload-form]");
+            if (!uploadForm) {
+                return;
+            }
+
+            var submitButton = uploadForm.querySelector("[data-upload-submit]");
+            var submitLabel = uploadForm.querySelector("[data-upload-submit-label]");
+            var progressRoot = uploadForm.querySelector("[data-upload-progress]");
+            var progressTrack = uploadForm.querySelector("[data-upload-progress-track]");
+            var progressBar = uploadForm.querySelector("[data-upload-progress-bar]");
+            var progressText = uploadForm.querySelector("[data-upload-progress-text]");
+            if (!submitButton || !submitLabel || !progressRoot || !progressTrack || !progressBar || !progressText) {
+                return;
+            }
+
+            var isSubmitting = false;
+            var stageTimers = [];
+            var currentProgress = 0;
+
+            function setProgress(value, text, buttonText) {
+                currentProgress = Math.max(currentProgress, value);
+                progressRoot.hidden = false;
+                progressBar.style.width = currentProgress + "%";
+                progressTrack.setAttribute("aria-valuenow", String(currentProgress));
+                progressText.textContent = text + " " + currentProgress + "%";
+                submitLabel.textContent = buttonText;
+            }
+
+            function finishProgress() {
+                setProgress(100, "完成", "识别中…");
+            }
+
+            uploadForm.addEventListener("submit", function (event) {
+                if (isSubmitting) {
+                    event.preventDefault();
+                    return;
+                }
+                isSubmitting = true;
+                submitButton.disabled = true;
+                submitButton.setAttribute("aria-busy", "true");
+                setProgress(10, "文件上传中", "上传中…");
+                stageTimers.push(window.setTimeout(function () {
+                    setProgress(40, "读取文件内容", "上传中…");
+                }, 450));
+                stageTimers.push(window.setTimeout(function () {
+                    setProgress(70, "识别候选题", "识别中…");
+                }, 1200));
+                window.addEventListener("pagehide", finishProgress, { once: true });
+            });
+
+            window.addEventListener("pageshow", function () {
+                if (!isSubmitting) {
+                    return;
+                }
+                while (stageTimers.length) {
+                    window.clearTimeout(stageTimers.pop());
+                }
+                isSubmitting = false;
+                currentProgress = 0;
+                submitButton.disabled = false;
+                submitButton.removeAttribute("aria-busy");
+                submitLabel.textContent = "上传并识别候选题";
+                progressRoot.hidden = true;
+                progressBar.style.width = "0%";
+                progressTrack.setAttribute("aria-valuenow", "0");
+                progressText.textContent = "等待上传";
+            });
+        })();
+    </script>
+{% endblock %}

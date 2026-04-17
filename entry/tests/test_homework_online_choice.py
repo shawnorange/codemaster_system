@@ -1,0 +1,1303 @@
+from __future__ import annotations
+
+import hashlib
+import io
+import shutil
+import tempfile
+import zipfile
+from datetime import timedelta
+from unittest.mock import patch
+
+import requests
+from django.core import signing
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+
+from entry.auth import AUTH_COOKIE_NAME, AUTH_COOKIE_SALT
+from entry.gesp4_catalog import ARRAY_2D_CONTENT_SLUG, GESP4_TOPIC_DEFINITIONS
+from entry.homework_online import (
+    HomeworkImportParseError,
+    call_external_json_api,
+    detect_homework_source_type,
+    parse_homework_import_job,
+    split_vision_ocr_text_into_blocks,
+)
+from entry.models import (
+    Course,
+    CourseCategory,
+    CourseContent,
+    CourseLevel,
+    HomeworkAssignment,
+    HomeworkImportJob,
+    HomeworkQuestion,
+    HomeworkSubmission,
+    PortalUser,
+    Student,
+    TeacherStudentAssignment,
+)
+
+
+@override_settings(
+    HOMEWORK_IMPORT_ROUTER_ENABLED=True,
+    HOMEWORK_IMPORT_DEBUG=True,
+    HOMEWORK_PARSE_PROVIDER_TEXT="qwen",
+    DASHSCOPE_API_KEY="",
+    HOMEWORK_LLM_MODEL="qwen-plus",
+    HOMEWORK_LLM_API_URL="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    HOMEWORK_LLM_TIMEOUT_SECONDS=40,
+    HOMEWORK_SSL_VERIFY=True,
+    HOMEWORK_SSL_CA_BUNDLE="",
+    HOMEWORK_REQUESTS_USER_AGENT="codemaster-homework-import/1.0",
+    HOMEWORK_PARSE_PROVIDER_OCR="volc_vision",
+    ARK_API_KEY="",
+    VOLC_VISION_MODEL="doubao-seed-1-6-vision-250815",
+    VOLC_VISION_API_URL="https://ark.cn-beijing.volces.com/api/v3/responses",
+    VOLC_VISION_TIMEOUT_SECONDS=40,
+    VOLC_VISION_CONNECT_TIMEOUT_SECONDS=10,
+    VOLC_VISION_READ_TIMEOUT_SECONDS=60,
+    VOLC_VISION_MAX_RETRIES=2,
+    VOLC_VISION_RETRY_BACKOFF_SECONDS=0.0,
+    HOMEWORK_PDF_FORCE_OCR=False,
+    HOMEWORK_PDF_MIN_TEXT_LENGTH=200,
+    HOMEWORK_PDF_MIN_LINE_COUNT=8,
+    HOMEWORK_PARSE_REQUIRE_REVIEW=True,
+    HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC=True,
+    HOMEWORK_IMAGE_SLICE_HEIGHT_THRESHOLD=2400,
+    HOMEWORK_IMAGE_SLICE_OVERLAP=120,
+    HOMEWORK_PDF_RASTER_MAX_PAGES=6,
+    HOMEWORK_PDF_RASTER_SCALE=2,
+    HOMEWORK_VISION_LOCAL_TEXT_PREVIEW_LIMIT=1200,
+)
+class HomeworkOnlineChoiceTests(TestCase):
+    class _DummyResponse:
+        def __init__(self, *, status_code: int = 200, text: str = "{}") -> None:
+            self.status_code = status_code
+            self.text = text
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise requests.exceptions.HTTPError(response=self)
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._media_root = tempfile.mkdtemp(prefix="codemaster-homework-media-")
+        cls._media_override = override_settings(MEDIA_ROOT=cls._media_root)
+        cls._media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._media_override.disable()
+        shutil.rmtree(cls._media_root, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.teacher = PortalUser.objects.create(
+            username="teacher_online_choice",
+            role=PortalUser.ROLE_TEACHER,
+            full_name="在线题老师",
+            phone="13800000101",
+        )
+        self.parent = PortalUser.objects.create(
+            username="parent_online_choice",
+            role=PortalUser.ROLE_PARENT,
+            full_name="在线题家长",
+            phone="13800000102",
+        )
+        self.student_user = PortalUser.objects.create(
+            username="student_online_choice",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="在线题学生",
+            phone="13800000103",
+        )
+        self.student = Student.objects.create(
+            user=self.student_user,
+            parent_user=self.parent,
+            teacher_user=self.teacher,
+            display_name="在线题学生",
+            grade="四年级",
+            campus="虹桥校区",
+            primary_course_name="C++",
+            primary_track_name="GESP",
+            primary_level_name="GESP4",
+        )
+
+        self.cpp_course, _ = Course.objects.get_or_create(
+            slug="cpp",
+            defaults={"title": "C++", "summary": "算法与竞赛"},
+        )
+        self.gesp_category, _ = CourseCategory.objects.get_or_create(
+            course=self.cpp_course,
+            slug="gesp",
+            defaults={
+                "title": "GESP",
+                "summary": "GESP 课程",
+                "sort_order": 1,
+                "is_active": True,
+            },
+        )
+        self.gesp4_level, _ = CourseLevel.objects.get_or_create(
+            category=self.gesp_category,
+            code="GESP4",
+            defaults={
+                "title": "GESP4",
+                "summary": "GESP4 级别",
+                "sort_order": 4,
+                "is_active": True,
+            },
+        )
+        self.array_content = CourseContent.objects.update_or_create(
+            slug=ARRAY_2D_CONTENT_SLUG,
+            defaults={
+                "course": self.cpp_course,
+                "level": self.gesp4_level,
+                "content_type": "topic",
+                "title": next(item["title"] for item in GESP4_TOPIC_DEFINITIONS if item["slug"] == ARRAY_2D_CONTENT_SLUG),
+                "phase": "GESP4",
+                "sort_order": 1,
+                "route_path": "/student/cpp/gesp/gesp4/array-2d",
+                "summary": "二维数组专题",
+                "has_real_content": True,
+                "is_active": True,
+            },
+        )[0]
+        TeacherStudentAssignment.objects.create(
+            teacher=self.teacher,
+            student=self.student,
+            course=self.cpp_course,
+            level_code="C4",
+            is_active=True,
+        )
+
+    def sign_in(self, user: PortalUser) -> None:
+        self.client.cookies[AUTH_COOKIE_NAME] = signing.dumps(
+            {"username": user.username, "role": user.role},
+            salt=AUTH_COOKIE_SALT,
+        )
+
+    def create_assignment(self, *, title: str = "在线单选题作业") -> HomeworkAssignment:
+        return HomeworkAssignment.objects.create(
+            teacher=self.teacher,
+            student=self.student,
+            content=self.array_content,
+            title=title,
+            description="先在线完成选择题，再看错题解析。",
+            due_date=timezone.localdate() + timedelta(days=3),
+            status=HomeworkAssignment.STATUS_ASSIGNED,
+        )
+
+    def create_question(
+        self,
+        assignment: HomeworkAssignment,
+        *,
+        question_no: int,
+        stem: str,
+        correct_answer: str,
+    ) -> HomeworkQuestion:
+        return HomeworkQuestion.objects.create(
+            assignment=assignment,
+            question_no=question_no,
+            question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem=stem,
+            options_json={
+                "A": "选项 A",
+                "B": "选项 B",
+                "C": "选项 C",
+                "D": "选项 D",
+            },
+            correct_answer=correct_answer,
+            analysis=f"{stem} 的解析",
+            source_snapshot_json={"source": "test"},
+            is_active=True,
+        )
+
+    def build_candidate(self, *, stem: str = "候选题一", correct_answer: str = "A") -> dict:
+        return {
+            "stem": stem,
+            "options": {
+                "A": "选项 A",
+                "B": "选项 B",
+                "C": "选项 C",
+                "D": "选项 D",
+            },
+            "correct_answer": correct_answer,
+            "analysis": f"{stem} 的解析",
+            "notes": "",
+            "confidence": 0.92,
+        }
+
+    def build_docx_bytes(self, body_text: str) -> bytes:
+        document_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body>"
+            + "".join(
+                f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>"
+                for line in body_text.splitlines()
+                if line.strip()
+            )
+            + "</w:body></w:document>"
+        )
+        content_types = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>"
+        )
+        rels = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="word/document.xml"/>'
+            "</Relationships>"
+        )
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("[Content_Types].xml", content_types)
+            archive.writestr("_rels/.rels", rels)
+            archive.writestr("word/document.xml", document_xml)
+        return buffer.getvalue()
+
+    def build_png_bytes(self, *, width: int = 80, height: int = 260) -> bytes:
+        from PIL import Image  # type: ignore
+
+        image = Image.new("RGB", (width, height), color=(255, 255, 255))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def build_pdf_bytes(self, *, page_count: int = 3) -> bytes:
+        from pypdf import PdfWriter  # type: ignore
+
+        writer = PdfWriter()
+        for _ in range(page_count):
+            writer.add_blank_page(width=200, height=200)
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        return buffer.getvalue()
+
+    def create_import_job(
+        self,
+        assignment: HomeworkAssignment,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+    ) -> HomeworkImportJob:
+        source_type = detect_homework_source_type(filename)
+        self.assertTrue(source_type)
+        return HomeworkImportJob.objects.create(
+            teacher=self.teacher,
+            assignment=assignment,
+            source_file=SimpleUploadedFile(filename, content, content_type=content_type),
+            source_filename=filename,
+            source_sha256=hashlib.sha256(content).hexdigest(),
+            source_type=source_type,
+            parse_status=HomeworkImportJob.STATUS_UPLOADED,
+            is_active=True,
+        )
+
+    def upload_html_import(self, assignment: HomeworkAssignment) -> HomeworkImportJob:
+        self.sign_in(self.teacher)
+        html_content = """
+        <html><body>
+        <p>1. 下面哪个关键字用于条件判断？</p>
+        <p>A. if</p><p>B. for</p><p>C. while</p><p>D. break</p>
+        <p>答案：A</p>
+        <p>解析：if 用于条件判断。</p>
+        <p>2. C++ 中用于标准输出的是？</p>
+        <p>A. cin</p><p>B. cout</p><p>C. scanf</p><p>D. break</p>
+        <p>答案：B</p>
+        <p>解析：cout 负责输出。</p>
+        </body></html>
+        """.strip()
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            {
+                "form_action": "upload_choice_file",
+                "source_file": SimpleUploadedFile(
+                    "choice-homework.html",
+                    html_content.encode("utf-8"),
+                    content_type="text/html",
+                ),
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=parsed", response["Location"])
+        return HomeworkImportJob.objects.get(assignment=assignment)
+
+    def build_confirm_payload(
+        self,
+        import_job: HomeworkImportJob,
+        *,
+        included_indexes: set[int] | None = None,
+        stem_suffix: str = "（确认版）",
+    ) -> dict[str, str]:
+        candidates = import_job.candidates_json
+        included_indexes = included_indexes if included_indexes is not None else set(range(len(candidates)))
+        payload = {
+            "form_action": "confirm_import_job",
+            "import_job_id": str(import_job.id),
+            "candidate_count": str(len(candidates)),
+        }
+        for index, candidate in enumerate(candidates):
+            payload[f"candidate_{index}_included"] = "1" if index in included_indexes else "0"
+            payload[f"candidate_{index}_stem"] = candidate["stem"] + stem_suffix
+            payload[f"candidate_{index}_option_A"] = candidate["options"]["A"] or "A"
+            payload[f"candidate_{index}_option_B"] = candidate["options"]["B"] or "B"
+            payload[f"candidate_{index}_option_C"] = candidate["options"]["C"] or "C"
+            payload[f"candidate_{index}_option_D"] = candidate["options"]["D"] or "D"
+            payload[f"candidate_{index}_correct_answer"] = candidate["correct_answer"] or "A"
+            payload[f"candidate_{index}_analysis"] = candidate["analysis"] or "老师补的解析"
+            payload[f"candidate_{index}_notes"] = candidate.get("notes", "")
+        return payload
+
+    def test_call_external_json_api_classifies_ssl_error(self) -> None:
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            side_effect=requests.exceptions.SSLError("CERTIFICATE_VERIFY_FAILED"),
+        ):
+            with self.assertRaises(HomeworkImportParseError) as captured:
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+        self.assertIn("SSL 握手失败", str(captured.exception))
+        self.assertEqual(captured.exception.error_code, "ssl_handshake_failed")
+        self.assertEqual(captured.exception.failure_type, "SSL 握手失败")
+
+    def test_call_external_json_api_classifies_connect_read_timeout_and_empty_response(self) -> None:
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            side_effect=requests.exceptions.ConnectTimeout("connect deadline"),
+        ):
+            with self.assertRaises(HomeworkImportParseError) as captured_connect:
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+        self.assertIn("connect timeout", str(captured_connect.exception))
+        self.assertEqual(captured_connect.exception.error_code, "connect_timeout")
+        self.assertEqual(captured_connect.exception.failure_type, "connect timeout")
+
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            side_effect=requests.exceptions.ReadTimeout("read deadline"),
+        ):
+            with self.assertRaises(HomeworkImportParseError) as captured_read:
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+        self.assertIn("read timeout", str(captured_read.exception))
+        self.assertEqual(captured_read.exception.error_code, "read_timeout")
+        self.assertEqual(captured_read.exception.failure_type, "read timeout")
+
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            return_value=self._DummyResponse(status_code=200, text=""),
+        ):
+            with self.assertRaises(HomeworkImportParseError) as captured_empty:
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+        self.assertIn("空响应", str(captured_empty.exception))
+        self.assertEqual(captured_empty.exception.error_code, "empty_response")
+        self.assertEqual(captured_empty.exception.failure_type, "空响应")
+
+    def test_call_external_json_api_classifies_http_status_and_invalid_json(self) -> None:
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            return_value=self._DummyResponse(status_code=502, text="bad gateway"),
+        ):
+            with self.assertRaisesMessage(HomeworkImportParseError, "HTTP 状态异常（502）"):
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+
+        with patch(
+            "entry.homework_online.requests.Session.post",
+            return_value=self._DummyResponse(status_code=200, text="not-json"),
+        ):
+            with self.assertRaisesMessage(HomeworkImportParseError, "JSON 解析失败"):
+                call_external_json_api(
+                    provider_label="qwen-plus",
+                    url="https://example.com/api",
+                    headers={"Authorization": "Bearer test"},
+                    payload={"model": "qwen-plus"},
+                    timeout_seconds=5,
+                )
+
+    @override_settings(DASHSCOPE_API_KEY="test-qwen-key")
+    def test_parse_notes_report_qwen_ssl_failure_and_fallback(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="ssl-fallback.html",
+            content=(
+                "<html><body><p>1. 下面哪个关键字用于条件判断？</p><p>A. if</p><p>B. for</p>"
+                "<p>C. while</p><p>D. break</p><p>答案：A</p></body></html>"
+            ).encode("utf-8"),
+            content_type="text/html",
+        )
+
+        with patch(
+            "entry.homework_online.call_external_json_api",
+            side_effect=HomeworkImportParseError("SSL 失败：CERTIFICATE_VERIFY_FAILED"),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertIn("qwen-plus：是，失败（SSL 失败：CERTIFICATE_VERIFY_FAILED）", import_job.parse_notes)
+        self.assertIn("fallback heuristic：是", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key")
+    def test_parse_notes_report_vision_ssl_failure(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="ssl-image.png",
+            content=self.build_png_bytes(width=32, height=32),
+            content_type="image/png",
+        )
+
+        with patch(
+            "entry.homework_online.call_external_json_api",
+            side_effect=HomeworkImportParseError(
+                "SSL 握手失败：CERTIFICATE_VERIFY_FAILED",
+                error_code="ssl_handshake_failed",
+                failure_type="SSL 握手失败",
+                retryable=False,
+            ),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_FAILED)
+        self.assertIn("火山视觉：是，失败", import_job.parse_notes)
+        self.assertIn("视觉最终失败类型：SSL 握手失败", import_job.parse_notes)
+        self.assertIn("页面提示：视觉识别失败（SSL 握手失败），未生成候选题，请稍后重试。", import_job.parse_notes)
+        self.assertIn("失败步骤：火山视觉", import_job.parse_notes)
+
+    def test_html_document_uses_local_text_then_qwen(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="router.html",
+            content=(
+                "<html><body><p>1. 条件判断关键字是？</p><p>A. if</p><p>B. for</p>"
+                "<p>C. while</p><p>D. break</p><p>答案：A</p></body></html>"
+            ).encode("utf-8"),
+            content_type="text/html",
+        )
+
+        with (
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="HTML 路由题")], "Qwen HTML")),
+            patch("entry.homework_online.extract_text_with_volc_vision") as mock_vision,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(len(import_job.candidates_json), 1)
+        self.assertFalse(mock_vision.called)
+        self.assertIn("路由：html_local_text_to_qwen", import_job.parse_notes)
+        self.assertIn("本地抽文本：是", import_job.parse_notes)
+        self.assertIn("火山视觉：否", import_job.parse_notes)
+        self.assertIn("qwen-plus：是，成功", import_job.parse_notes)
+
+    def test_docx_document_uses_local_text_then_qwen(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="router.docx",
+            content=self.build_docx_bytes(
+                "1. C++ 输出使用哪个对象？\nA. cin\nB. cout\nC. scanf\nD. break\n答案：B"
+            ),
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        with (
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="DOCX 路由题", correct_answer="B")], "Qwen DOCX")),
+            patch("entry.homework_online.extract_text_with_volc_vision") as mock_vision,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertFalse(mock_vision.called)
+        self.assertIn("路由：docx_local_text_to_qwen", import_job.parse_notes)
+        self.assertIn("qwen-plus：是，成功", import_job.parse_notes)
+
+    def test_pdf_with_enough_text_skips_vision_route(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="enough-text.pdf",
+            content=b"%PDF-1.4 enough-text",
+            content_type="application/pdf",
+        )
+        rich_text = "\n".join([f"第{i}行 这是足够长的 PDF 文本内容，用来满足长度和行数判断。答案 A 解析说明。" for i in range(1, 16)])
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value=rich_text),
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="PDF 本地题")], "Qwen PDF")),
+            patch("entry.homework_online.extract_text_with_volc_vision") as mock_vision,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertFalse(mock_vision.called)
+        self.assertIn("路由：pdf_local_text_to_qwen", import_job.parse_notes)
+        self.assertIn("火山视觉：否", import_job.parse_notes)
+
+    def test_pdf_with_low_text_enters_vision_route(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="low-text.pdf",
+            content=b"%PDF-1.4 low-text",
+            content_type="application/pdf",
+        )
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value="第1题 模糊内容"),
+            patch("entry.homework_online.extract_text_with_volc_vision", return_value=("1. 视觉提取题\nA. 1\nB. 2\nC. 3\nD. 4\n答案：A", "Volc Vision OCR")),
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="PDF 视觉题")], "Qwen Vision")),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertIn("路由：pdf_low_text_to_volc_vision_to_qwen", import_job.parse_notes)
+        self.assertIn("本地抽文本：是", import_job.parse_notes)
+        self.assertIn("火山视觉：是，成功", import_job.parse_notes)
+        self.assertIn("qwen-plus：是，成功", import_job.parse_notes)
+
+    def test_image_enters_vision_route(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="choice.png",
+            content=b"\x89PNG\r\n\x1a\nfake",
+            content_type="image/png",
+        )
+
+        with (
+            patch("entry.homework_online.extract_text_with_volc_vision", return_value=("1. 图片题\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n答案：A", "Volc Vision Image")),
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="图片视觉题")], "Qwen Image")),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertIn("路由：image_to_volc_vision_to_qwen", import_job.parse_notes)
+        self.assertIn("本地抽文本：否", import_job.parse_notes)
+        self.assertIn("火山视觉：是，成功", import_job.parse_notes)
+
+    def test_split_vision_ocr_text_into_blocks_preserves_question_boundaries(self) -> None:
+        ocr_text = "\n".join(
+            [
+                "第1题 下列哪个关键字用于循环？",
+                "A. if",
+                "B. for",
+                "C. break",
+                "D. return",
+                "答案：B",
+                "第2题 哪个对象用于标准输出？",
+                "A. cin",
+                "B. cout",
+                "C. scanf",
+                "D. getchar",
+                "答案：B",
+            ]
+        )
+
+        blocks = split_vision_ocr_text_into_blocks(ocr_text)
+
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].startswith("第1题"))
+        self.assertTrue(blocks[1].startswith("第2题"))
+
+    @override_settings(ARK_API_KEY="test-ark-key")
+    def test_visual_qwen_failure_does_not_fallback_to_heuristic(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="vision-fail.png",
+            content=self.build_png_bytes(width=80, height=80),
+            content_type="image/png",
+        )
+
+        with (
+            patch(
+                "entry.homework_online.extract_text_with_volc_vision",
+                return_value=(
+                    "第1题 条件判断关键字是？\nA. if\nB. for\nC. while\nD. break\n答案：A",
+                    "vision-note",
+                ),
+            ),
+            patch(
+                "entry.homework_online.parse_candidates_with_qwen",
+                side_effect=HomeworkImportParseError("SSL 失败：CERTIFICATE_VERIFY_FAILED"),
+            ),
+            patch("entry.homework_online.parse_candidates_with_heuristic") as mock_heuristic,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(import_job.candidates_json, [])
+        self.assertFalse(mock_heuristic.called)
+        self.assertIn("题块切分：否，按 1 个 block 结构化", import_job.parse_notes)
+        self.assertIn("block1: 长度", import_job.parse_notes)
+        self.assertIn("qwen 失败：SSL 失败：CERTIFICATE_VERIFY_FAILED", import_job.parse_notes)
+        self.assertIn("视觉链路下 qwen 失败，已停止 heuristic 自动产题。", import_job.parse_notes)
+        self.assertIn("已完成 OCR，但结构化失败，请人工确认。", import_job.parse_notes)
+        self.assertIn("最终候选题数量：0 道", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key")
+    def test_visual_blocks_are_structured_individually_without_merging_into_one_question(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="multi-question.png",
+            content=self.build_png_bytes(width=120, height=120),
+            content_type="image/png",
+        )
+        ocr_text = "\n".join(
+            [
+                "第1题 下列哪个关键字用于循环？",
+                "A. if",
+                "B. for",
+                "C. break",
+                "D. return",
+                "答案：B",
+                "第2题 哪个对象用于标准输出？",
+                "A. cin",
+                "B. cout",
+                "C. scanf",
+                "D. getchar",
+                "答案：B",
+            ]
+        )
+        qwen_results = [
+            ([self.build_candidate(stem="第一题候选", correct_answer="B")], "block1"),
+            ([self.build_candidate(stem="第二题候选", correct_answer="B")], "block2"),
+        ]
+
+        with (
+            patch("entry.homework_online.extract_text_with_volc_vision", return_value=(ocr_text, "vision-note")),
+            patch("entry.homework_online.parse_candidates_with_qwen", side_effect=qwen_results) as mock_qwen,
+            patch("entry.homework_online.parse_candidates_with_heuristic") as mock_heuristic,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(len(import_job.candidates_json), 2)
+        self.assertEqual(mock_qwen.call_count, 2)
+        self.assertFalse(mock_heuristic.called)
+        self.assertIn("题块切分：是，切出 2 个 block", import_job.parse_notes)
+        self.assertIn("block1: 长度", import_job.parse_notes)
+        self.assertIn("block2: 长度", import_job.parse_notes)
+        self.assertIn("最终候选题数量：2 道", import_job.parse_notes)
+
+    def test_missing_qwen_falls_back_to_heuristic_with_clear_notes(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="fallback.html",
+            content=(
+                "<html><body><p>1. 下面哪个关键字用于条件判断？</p><p>A. if</p><p>B. for</p>"
+                "<p>C. while</p><p>D. break</p><p>答案：A</p>"
+                "<p>2. 标准输出对象是？</p><p>A. cin</p><p>B. cout</p><p>C. scanf</p><p>D. break</p><p>答案：B</p></body></html>"
+            ).encode("utf-8"),
+            content_type="text/html",
+        )
+
+        parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertGreaterEqual(len(import_job.candidates_json), 2)
+        self.assertIn("qwen-plus：是，失败", import_job.parse_notes)
+        self.assertIn("fallback heuristic：是", import_job.parse_notes)
+
+    def test_missing_volc_vision_produces_clear_error_notes(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="missing-vision.png",
+            content=self.build_png_bytes(width=36, height=36),
+            content_type="image/png",
+        )
+
+        parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_FAILED)
+        self.assertIn("火山视觉：是，失败", import_job.parse_notes)
+        self.assertIn("ARK_API_KEY", import_job.parse_notes)
+        self.assertIn("失败步骤：火山视觉", import_job.parse_notes)
+
+    def test_parse_notes_reflect_route_diagnostics(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="diagnostic.pdf",
+            content=b"%PDF-1.4 diagnostics",
+            content_type="application/pdf",
+        )
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value="短文本"),
+            patch("entry.homework_online.extract_text_with_volc_vision", return_value=("1. 诊断题\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n答案：A", "Vision 诊断")),
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="诊断题")], "Qwen 诊断")),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertIn("文件类型：PDF", import_job.parse_notes)
+        self.assertIn("本地抽文本：是", import_job.parse_notes)
+        self.assertIn("火山视觉：是，成功", import_job.parse_notes)
+        self.assertIn("qwen-plus：是，成功", import_job.parse_notes)
+        self.assertIn("fallback heuristic：否", import_job.parse_notes)
+        self.assertIn("最终候选题数量：1 道", import_job.parse_notes)
+
+    def test_teacher_upload_html_creates_import_job(self) -> None:
+        assignment = self.create_assignment()
+
+        import_job = self.upload_html_import(assignment)
+
+        self.assertEqual(import_job.source_type, HomeworkImportJob.SOURCE_TYPE_HTML)
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertGreaterEqual(len(import_job.candidates_json), 2)
+        self.assertTrue(import_job.source_file.name.startswith("homework_imports/"))
+
+    def test_teacher_builder_page_renders_upload_progress_and_double_submit_guards(self) -> None:
+        assignment = self.create_assignment()
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-homework-builder", args=[self.student.id, assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-upload-form", html=False)
+        self.assertContains(response, "data-upload-progress", html=False)
+        self.assertContains(response, "上传中…")
+        self.assertContains(response, "识别中…")
+
+    def test_teacher_builder_shows_manual_review_notice_when_visual_chain_has_no_candidates(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="visual-empty.png",
+            content=self.build_png_bytes(width=80, height=80),
+            content_type="image/png",
+        )
+        import_job.parse_status = HomeworkImportJob.STATUS_PARSED
+        import_job.candidates_json = []
+        import_job.parse_notes = "\n".join(
+            [
+                "视觉链路：是",
+                "OCR 文本预览：第1题 条件判断关键字是？ A. if B. for",
+                "已完成 OCR，但结构化失败，请人工确认。",
+                "最终候选题数量：0 道",
+            ]
+        )
+        import_job.save(update_fields=["parse_status", "candidates_json", "parse_notes", "updated_at"])
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-homework-builder", args=[self.student.id, assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "未生成候选题")
+        self.assertContains(response, "已完成 OCR，但结构化失败，请人工确认。")
+        self.assertContains(response, "OCR 文本预览")
+        self.assertContains(response, "候选题为空")
+
+    def test_upload_is_blocked_when_pending_import_job_exists(self) -> None:
+        assignment = self.create_assignment()
+        pending_job = self.create_import_job(
+            assignment,
+            filename="pending.html",
+            content=b"<html><body><p>pending</p></body></html>",
+            content_type="text/html",
+        )
+        pending_job.parse_status = HomeworkImportJob.STATUS_PARSING
+        pending_job.save(update_fields=["parse_status", "updated_at"])
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            {
+                "form_action": "upload_choice_file",
+                "source_file": SimpleUploadedFile(
+                    "choice-homework.html",
+                    "<html><body><p>1. 新题</p><p>A. A</p><p>B. B</p><p>C. C</p><p>D. D</p><p>答案：A</p></body></html>".encode("utf-8"),
+                    content_type="text/html",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前作业已有导入任务正在上传或识别中，请等待完成后再试。")
+        self.assertEqual(HomeworkImportJob.objects.filter(assignment=assignment).count(), 1)
+
+    def test_confirm_import_job_writes_homework_questions(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+        payload = self.build_confirm_payload(import_job)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            payload,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=confirmed", response["Location"])
+        candidates = import_job.candidates_json
+        questions = list(assignment.questions.filter(is_active=True).order_by("question_no"))
+        self.assertEqual(len(questions), len(candidates))
+        self.assertTrue(questions[0].stem.endswith("（确认版）"))
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+        self.assertIsNotNone(import_job.confirmed_at)
+
+    def test_confirm_import_job_success_feedback_is_visible(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            self.build_confirm_payload(import_job, included_indexes={0, 1}),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "确认成功，已写入 2 道正式题目。")
+        self.assertContains(response, "当前正式题目")
+        self.assertEqual(assignment.questions.filter(is_active=True).count(), 2)
+
+    def test_confirm_import_job_logs_payload_and_written_counts(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        with self.assertLogs("entry.views", level="INFO") as captured_logs:
+            response = self.client.post(
+                reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+                self.build_confirm_payload(import_job, included_indexes={0, 1}),
+            )
+
+        self.assertEqual(response.status_code, 302)
+        combined_logs = "\n".join(captured_logs.output)
+        self.assertIn("payload_count=2", combined_logs)
+        self.assertIn("included_count=2", combined_logs)
+        self.assertIn("written_count=2", combined_logs)
+
+    def test_confirm_import_job_replaces_existing_active_questions(self) -> None:
+        assignment = self.create_assignment()
+        old_question = self.create_question(assignment, question_no=1, stem="旧正式题", correct_answer="D")
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            self.build_confirm_payload(import_job, included_indexes={0}, stem_suffix="（新版）"),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        active_questions = list(assignment.questions.filter(is_active=True).order_by("question_no"))
+        self.assertEqual(len(active_questions), 1)
+        self.assertEqual(active_questions[0].question_no, 1)
+        self.assertTrue(active_questions[0].stem.endswith("（新版）"))
+        self.assertEqual(active_questions[0].import_job_id, import_job.id)
+        old_question.refresh_from_db()
+        self.assertFalse(old_question.is_active)
+
+    def test_confirm_import_job_allows_completed_and_reviewed_without_submission_and_resets_assignment(self) -> None:
+        for status in [HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED]:
+            with self.subTest(status=status):
+                assignment = self.create_assignment(title=f"{status} 作业")
+                assignment.status = status
+                assignment.completed_at = timezone.now()
+                assignment.reviewed_at = timezone.now() if status == HomeworkAssignment.STATUS_REVIEWED else None
+                assignment.teacher_comment = "旧评语"
+                assignment.save(update_fields=["status", "completed_at", "reviewed_at", "teacher_comment", "updated_at"])
+                import_job = self.upload_html_import(assignment)
+                self.sign_in(self.teacher)
+
+                response = self.client.post(
+                    reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+                    self.build_confirm_payload(import_job, included_indexes={0}, stem_suffix="（重置版）"),
+                )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertIn("op=confirmed", response["Location"])
+                assignment.refresh_from_db()
+                self.assertEqual(assignment.status, HomeworkAssignment.STATUS_ASSIGNED)
+                self.assertIsNone(assignment.completed_at)
+                self.assertIsNone(assignment.reviewed_at)
+                self.assertEqual(assignment.teacher_comment, "")
+
+    def test_confirm_import_job_is_blocked_after_submission_exists(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="先提交的题", correct_answer="A")
+        HomeworkSubmission.objects.create(
+            assignment=assignment,
+            student=self.student,
+            status=HomeworkSubmission.STATUS_SUBMITTED,
+            total_count=1,
+            correct_count=1,
+            wrong_count=0,
+            score=100,
+        )
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            self.build_confirm_payload(import_job, included_indexes={0}, stem_suffix="（覆盖失败）"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前作业已经有学生提交记录，不能再覆盖正式题目。")
+        active_questions = list(assignment.questions.filter(is_active=True).order_by("question_no"))
+        self.assertEqual(len(active_questions), 1)
+        self.assertEqual(active_questions[0].id, question.id)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+
+    def test_duplicate_upload_same_content_shows_hint_but_is_not_blocked(self) -> None:
+        assignment = self.create_assignment()
+        self.sign_in(self.teacher)
+        html_content = (
+            "<html><body><p>1. 条件判断关键字是？</p><p>A. if</p><p>B. for</p>"
+            "<p>C. while</p><p>D. break</p><p>答案：A</p></body></html>"
+        ).encode("utf-8")
+
+        first_response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            {
+                "form_action": "upload_choice_file",
+                "source_file": SimpleUploadedFile("first-upload.html", html_content, content_type="text/html"),
+            },
+        )
+        second_response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            {
+                "form_action": "upload_choice_file",
+                "source_file": SimpleUploadedFile("second-upload.html", html_content, content_type="text/html"),
+            },
+        )
+
+        self.assertEqual(first_response.status_code, 302)
+        self.assertEqual(second_response.status_code, 302)
+        latest_job, previous_job = list(HomeworkImportJob.objects.filter(assignment=assignment).order_by("-created_at", "-id"))[:2]
+        self.assertEqual(latest_job.source_sha256, previous_job.source_sha256)
+        self.assertIn("重复内容提示：是", latest_job.parse_notes)
+        self.assertIn(f"#{previous_job.id}", latest_job.parse_notes)
+
+    @override_settings(
+        ARK_API_KEY="test-ark-key",
+        HOMEWORK_IMAGE_SLICE_HEIGHT_THRESHOLD=100,
+        HOMEWORK_IMAGE_SLICE_OVERLAP=10,
+        VOLC_VISION_MAX_RETRIES=2,
+        VOLC_VISION_RETRY_BACKOFF_SECONDS=0.0,
+    )
+    def test_long_image_is_sliced_before_ocr(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="long-image.png",
+            content=self.build_png_bytes(height=260),
+            content_type="image/png",
+        )
+
+        with (
+            patch(
+                "entry.homework_online.call_external_json_api",
+                side_effect=[
+                    HomeworkImportParseError(
+                        "read timeout：first slice slow",
+                        error_code="read_timeout",
+                        failure_type="read timeout",
+                        retryable=True,
+                    ),
+                    ({"output_text": "第1片文本"}, "vision-1"),
+                    ({"output_text": "第2片文本"}, "vision-2"),
+                    ({"output_text": "第3片文本"}, "vision-3"),
+                ],
+            ) as mock_vision_api,
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="长图切片题")], "Qwen Long Image")),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(mock_vision_api.call_count, 4)
+        self.assertIn("图片切片：是，3 片", import_job.parse_notes)
+        self.assertIn("切片结果：第1片成功；第2片成功；第3片成功", import_job.parse_notes)
+        self.assertIn("第1片: 第1次请求失败（read timeout）", import_job.parse_notes)
+        self.assertIn("第1片: 第2次请求成功", import_job.parse_notes)
+
+    @override_settings(
+        ARK_API_KEY="test-ark-key",
+        HOMEWORK_IMAGE_SLICE_HEIGHT_THRESHOLD=100,
+        HOMEWORK_IMAGE_SLICE_OVERLAP=10,
+        VOLC_VISION_MAX_RETRIES=2,
+        VOLC_VISION_RETRY_BACKOFF_SECONDS=0.0,
+    )
+    def test_visual_timeout_page_message_is_precise_and_no_ssl_mislabel(self) -> None:
+        assignment = self.create_assignment()
+        self.sign_in(self.teacher)
+
+        def raise_read_timeout(*args, **kwargs):
+            raise HomeworkImportParseError(
+                "read timeout：vision service slow",
+                error_code="read_timeout",
+                failure_type="read timeout",
+                retryable=True,
+            )
+
+        with patch("entry.homework_online.call_external_json_api", side_effect=raise_read_timeout):
+            response = self.client.post(
+                reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+                {
+                    "form_action": "upload_choice_file",
+                    "source_file": SimpleUploadedFile(
+                        "timeout-image.png",
+                        self.build_png_bytes(width=80, height=180),
+                        content_type="image/png",
+                    ),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "视觉识别超时，未生成候选题，请稍后重试。")
+        self.assertNotContains(response, "SSL 配置错误")
+        self.assertNotContains(response, "SSL 握手失败")
+
+        import_job = HomeworkImportJob.objects.get(assignment=assignment)
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_FAILED)
+        self.assertIn("全部片段超时中止：是", import_job.parse_notes)
+        self.assertIn("视觉最终失败类型：全部片段超时", import_job.parse_notes)
+        self.assertIn("第1片: 第1次请求失败（read timeout）", import_job.parse_notes)
+        self.assertIn("第2片: 第3次请求失败（read timeout）", import_job.parse_notes)
+        self.assertIn("页面提示：视觉识别超时，未生成候选题，请稍后重试。", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key", HOMEWORK_PDF_RASTER_MAX_PAGES=2)
+    def test_pdf_without_text_uses_page_rasterization(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="rasterized.pdf",
+            content=self.build_pdf_bytes(page_count=3),
+            content_type="application/pdf",
+        )
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value=""),
+            patch(
+                "entry.homework_online.call_external_json_api",
+                side_effect=[
+                    ({"output_text": "第1题 PDF 第一页题目\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n答案：A"}, "vision-page-1"),
+                    ({"output_text": "第2题 PDF 第二页题目\nA. 一\nB. 二\nC. 三\nD. 四\n答案：B"}, "vision-page-2"),
+                ],
+            ) as mock_vision_api,
+            patch("entry.homework_online.parse_candidates_with_qwen", return_value=([self.build_candidate(stem="PDF 光栅题")], "Qwen Raster")),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(mock_vision_api.call_count, 2)
+        self.assertIn("视觉链路：是", import_job.parse_notes)
+        self.assertIn("PDF 光栅化：是，处理 2/3 页（已命中页数上限）", import_job.parse_notes)
+        self.assertIn("第1页渲染成功", import_job.parse_notes)
+        self.assertIn("第2页渲染成功", import_job.parse_notes)
+        self.assertIn("第1页继续切片：否，1 片", import_job.parse_notes)
+        self.assertIn("第2页继续切片：否，1 片", import_job.parse_notes)
+        self.assertIn("第1页: 第1次请求成功", import_job.parse_notes)
+        self.assertIn("第2页: 第1次请求成功", import_job.parse_notes)
+        self.assertIn("图片切片：否", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key")
+    def test_pdf_missing_pypdfium2_shows_clear_failure_reason(self) -> None:
+        assignment = self.create_assignment()
+        self.sign_in(self.teacher)
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value=""),
+            patch.dict("sys.modules", {"pypdfium2": None}),
+        ):
+            response = self.client.post(
+                reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+                {
+                    "form_action": "upload_choice_file",
+                    "source_file": SimpleUploadedFile(
+                        "missing-pdfium.pdf",
+                        self.build_pdf_bytes(page_count=1),
+                        content_type="application/pdf",
+                    ),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前环境缺少 PDF 光栅化依赖，未生成候选题。")
+        import_job = HomeworkImportJob.objects.get(assignment=assignment)
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_FAILED)
+        self.assertIn("PDF 光栅化：是，失败（pdf_render_unavailable）", import_job.parse_notes)
+        self.assertIn("视觉最终失败原因：pdf_render_unavailable", import_job.parse_notes)
+        self.assertIn("页面提示：当前环境缺少 PDF 光栅化依赖，未生成候选题。", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key")
+    def test_pdf_render_failure_shows_clear_page_message(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="broken-render.pdf",
+            content=self.build_pdf_bytes(page_count=1),
+            content_type="application/pdf",
+        )
+
+        class _BrokenPdfium:
+            class PdfDocument:
+                def __init__(self, file_path):
+                    raise RuntimeError("renderer boot failed")
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value=""),
+            patch.dict("sys.modules", {"pypdfium2": _BrokenPdfium}),
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_FAILED)
+        self.assertIn("PDF 光栅化：是，失败（pdf_render_failed）", import_job.parse_notes)
+        self.assertIn("视觉最终失败原因：pdf_render_failed", import_job.parse_notes)
+        self.assertIn("页面提示：PDF 页面渲染失败，未生成候选题，请稍后重试。", import_job.parse_notes)
+
+    @override_settings(ARK_API_KEY="test-ark-key", HOMEWORK_PDF_RASTER_MAX_PAGES=2)
+    def test_pdf_visual_qwen_failure_does_not_fallback_to_heuristic(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.create_import_job(
+            assignment,
+            filename="pdf-qwen-fail.pdf",
+            content=self.build_pdf_bytes(page_count=2),
+            content_type="application/pdf",
+        )
+
+        with (
+            patch("entry.homework_online.extract_local_source_text", return_value=""),
+            patch(
+                "entry.homework_online.call_external_json_api",
+                side_effect=[
+                    ({"output_text": "第1题 PDF 第一页题目\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n答案：A"}, "vision-page-1"),
+                    ({"output_text": "第2题 PDF 第二页题目\nA. 一\nB. 二\nC. 三\nD. 四\n答案：B"}, "vision-page-2"),
+                ],
+            ),
+            patch(
+                "entry.homework_online.parse_candidates_with_qwen",
+                side_effect=HomeworkImportParseError("read timeout：qwen slow", error_code="read_timeout", failure_type="read timeout", retryable=True),
+            ),
+            patch("entry.homework_online.parse_candidates_with_heuristic") as mock_heuristic,
+        ):
+            parse_homework_import_job(import_job)
+
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertEqual(import_job.candidates_json, [])
+        self.assertFalse(mock_heuristic.called)
+        self.assertIn("PDF 光栅化：是，处理 2/2 页", import_job.parse_notes)
+        self.assertIn("第1页渲染成功", import_job.parse_notes)
+        self.assertIn("视觉链路下 qwen 失败，已停止 heuristic 自动产题。", import_job.parse_notes)
+        self.assertIn("已完成 OCR，但结构化失败，请人工确认。", import_job.parse_notes)
+
+    def test_confirm_import_job_rejects_empty_payload_with_visible_error(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            {
+                "form_action": "confirm_import_job",
+                "import_job_id": str(import_job.id),
+                "candidate_count": "0",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "确认失败：候选题提交数据为空，请刷新页面后重试。")
+        self.assertEqual(assignment.questions.filter(is_active=True).count(), 0)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+
+    def test_confirm_import_job_with_incomplete_option_shows_error_and_writes_nothing(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+        payload = self.build_confirm_payload(import_job, included_indexes={0})
+        payload["candidate_0_option_C"] = ""
+
+        with self.assertLogs("entry.views", level="WARNING") as captured_logs:
+            response = self.client.post(
+                reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+                payload,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "确认失败：A/B/C/D 选项必须全部填写完整。")
+        self.assertEqual(assignment.questions.filter(is_active=True).count(), 0)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        combined_logs = "\n".join(captured_logs.output)
+        self.assertIn("payload_count=2", combined_logs)
+        self.assertIn("included_count=1", combined_logs)
+        self.assertIn("written_count=0", combined_logs)
+
+    def test_confirm_import_job_requires_at_least_one_selected_candidate(self) -> None:
+        assignment = self.create_assignment()
+        import_job = self.upload_html_import(assignment)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            self.build_confirm_payload(import_job, included_indexes=set()),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "确认失败：请至少保留一道候选题后再确认导入。")
+        self.assertEqual(assignment.questions.filter(is_active=True).count(), 0)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)

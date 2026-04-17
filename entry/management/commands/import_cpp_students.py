@@ -6,6 +6,7 @@ from pathlib import Path
 from zipfile import ZipFile
 from xml.etree import ElementTree as ET
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -146,6 +147,7 @@ class Command(BaseCommand):
     help = "导入 C++ 学生 Excel，创建并更新 PortalUser / Student 记录。"
 
     def add_arguments(self, parser):
+        default_import_password = str(getattr(settings, "IMPORT_CPP_DEFAULT_PASSWORD", "") or "")
         parser.add_argument("xlsx_path", type=str, help="Excel 文件路径")
         parser.add_argument(
             "--teacher-username",
@@ -154,8 +156,8 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--default-password",
-            default="123456",
-            help="新建学生账号和家长账号的默认密码，默认 123456",
+            default=default_import_password,
+            help="新建学生账号和家长账号的默认密码；默认读取 CODEMASTER_IMPORT_DEFAULT_PASSWORD",
         )
         parser.add_argument(
             "--dry-run",
