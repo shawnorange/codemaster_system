@@ -33,6 +33,7 @@ from entry.models import (
     HomeworkImportJob,
     HomeworkQuestion,
     HomeworkSubmission,
+    HomeworkSubmissionAnswer,
     PortalUser,
     Student,
     TeacherStudentAssignment,
@@ -196,13 +197,15 @@ class HomeworkOnlineChoiceTests(TestCase):
         question_no: int,
         stem: str,
         correct_answer: str,
+        options_json: dict[str, str] | None = None,
     ) -> HomeworkQuestion:
         return HomeworkQuestion.objects.create(
             assignment=assignment,
             question_no=question_no,
             question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
             stem=stem,
-            options_json={
+            options_json=options_json
+            or {
                 "A": "选项 A",
                 "B": "选项 B",
                 "C": "选项 C",
@@ -212,6 +215,20 @@ class HomeworkOnlineChoiceTests(TestCase):
             analysis=f"{stem} 的解析",
             source_snapshot_json={"source": "test"},
             is_active=True,
+        )
+
+    def submit_choice_answers(
+        self,
+        assignment: HomeworkAssignment,
+        answers: dict[int, str],
+        *,
+        follow: bool = False,
+    ):
+        payload = {f"question_{question_id}": value for question_id, value in answers.items()}
+        return self.client.post(
+            reverse("student-homework-practice", args=[assignment.id]),
+            payload,
+            follow=follow,
         )
 
     def build_candidate(self, *, stem: str = "候选题一", correct_answer: str = "A") -> dict:
@@ -358,6 +375,16 @@ class HomeworkOnlineChoiceTests(TestCase):
             payload[f"candidate_{index}_analysis"] = candidate["analysis"] or "老师补的解析"
             payload[f"candidate_{index}_notes"] = candidate.get("notes", "")
         return payload
+
+    def test_teacher_detail_shows_question_builder_entry(self) -> None:
+        assignment = self.create_assignment()
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-student-detail", args=[self.student.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "上传生成选择题")
+        self.assertContains(response, reverse("teacher-homework-builder", args=[self.student.id, assignment.id]))
 
     def test_call_external_json_api_classifies_ssl_error(self) -> None:
         with patch(
@@ -972,15 +999,8 @@ class HomeworkOnlineChoiceTests(TestCase):
     def test_confirm_import_job_is_blocked_after_submission_exists(self) -> None:
         assignment = self.create_assignment()
         question = self.create_question(assignment, question_no=1, stem="先提交的题", correct_answer="A")
-        HomeworkSubmission.objects.create(
-            assignment=assignment,
-            student=self.student,
-            status=HomeworkSubmission.STATUS_SUBMITTED,
-            total_count=1,
-            correct_count=1,
-            wrong_count=0,
-            score=100,
-        )
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(assignment, {question.id: "A"})
         import_job = self.upload_html_import(assignment)
         self.sign_in(self.teacher)
 
@@ -1301,3 +1321,295 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertEqual(assignment.questions.filter(is_active=True).count(), 0)
         import_job.refresh_from_db()
         self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+
+    def test_student_can_submit_online_choice_homework_and_auto_grade(self) -> None:
+        assignment = self.create_assignment()
+        question_1 = self.create_question(assignment, question_no=1, stem="第一题", correct_answer="A")
+        question_2 = self.create_question(assignment, question_no=2, stem="第二题", correct_answer="C")
+        self.sign_in(self.student_user)
+
+        get_response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+        self.assertEqual(get_response.status_code, 200)
+        self.assertContains(get_response, "开始新的练习")
+        self.assertContains(get_response, 'name="question_%s"' % question_1.id, html=False)
+
+        post_response = self.submit_choice_answers(
+            assignment,
+            {
+                question_1.id: "A",
+                question_2.id: "B",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertContains(post_response, "本次练习已提交并自动判分")
+        self.assertContains(post_response, "逐题结果")
+        self.assertContains(post_response, "错题区")
+        submission = HomeworkSubmission.objects.get(assignment=assignment, student=self.student)
+        self.assertEqual(submission.status, HomeworkSubmission.STATUS_AUTO_CHECKED)
+        self.assertEqual(submission.total_count, 2)
+        self.assertEqual(submission.correct_count, 1)
+        self.assertEqual(submission.wrong_count, 1)
+        self.assertEqual(HomeworkSubmissionAnswer.objects.filter(submission=submission).count(), 2)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.status, HomeworkAssignment.STATUS_COMPLETED)
+
+    def test_student_detail_page_uses_scoped_option_classes_for_radio_layout(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="样式题", correct_answer="A")
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "student-homework-detail")
+        self.assertContains(response, "homework-question")
+        self.assertContains(response, "homework-question__option homework-question__option--interactive")
+        self.assertContains(response, "homework-question__selector")
+        self.assertContains(response, 'name="question_%s"' % question.id, html=False)
+
+    def test_student_detail_page_formats_code_like_options(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem="代码选项题",
+            correct_answer="A",
+            options_json={
+                "A": "for (int i = 0; i < n; i++) { sum += a[i]; }",
+                "B": "普通文本选项",
+                "C": "if (x > 0) { return x; } else { return 0; }",
+                "D": "输出最后结果",
+            },
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-question__option-code")
+        self.assertContains(response, "for (int i = 0; i &lt; n; i++) {", html=False)
+        self.assertContains(response, "return 0;", html=False)
+        self.assertContains(response, "普通文本选项")
+
+    def test_student_result_page_marks_wrong_selected_answer_in_red_state(self) -> None:
+        assignment = self.create_assignment()
+        question_1 = self.create_question(assignment, question_no=1, stem="错题一", correct_answer="A")
+        question_2 = self.create_question(assignment, question_no=2, stem="对题二", correct_answer="B")
+        self.sign_in(self.student_user)
+
+        response = self.submit_choice_answers(
+            assignment,
+            {
+                question_1.id: "D",
+                question_2.id: "B",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-question__option--wrong")
+        self.assertContains(response, "homework-question__option-status--wrong")
+        self.assertContains(response, "homework-question__feedback--wrong")
+        self.assertContains(response, "你的错误选择")
+
+    def test_wrong_questions_are_derived_from_submission_answers(self) -> None:
+        assignment = self.create_assignment()
+        question_1 = self.create_question(assignment, question_no=1, stem="错题一", correct_answer="A")
+        question_2 = self.create_question(assignment, question_no=2, stem="对题二", correct_answer="B")
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(
+            assignment,
+            {
+                question_1.id: "D",
+                question_2.id: "B",
+            },
+        )
+
+        submission = HomeworkSubmission.objects.get(assignment=assignment, student=self.student)
+        wrong_answers = HomeworkSubmissionAnswer.objects.filter(submission=submission, is_correct=False)
+        self.assertEqual(wrong_answers.count(), 1)
+        self.assertEqual(wrong_answers.first().homework_question, question_1)
+
+    def test_cancelled_assignment_cannot_submit_online_homework(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="取消题", correct_answer="A")
+        assignment.cancel()
+        assignment.save(update_fields=["status", "updated_at"])
+        self.sign_in(self.student_user)
+
+        response = self.submit_choice_answers(
+            assignment,
+            {question.id: "A"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前作业已取消，不能继续提交。")
+        self.assertFalse(HomeworkSubmission.objects.filter(assignment=assignment, student=self.student).exists())
+
+    def test_assignment_without_questions_keeps_task_mode(self) -> None:
+        assignment = self.create_assignment(title="知识点任务型作业")
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "在线选择题作答")
+        self.assertContains(response, "标记已完成")
+        self.assertNotContains(response, "submit_choice_answers")
+
+    def test_print_pages_open_after_submission(self) -> None:
+        assignment = self.create_assignment()
+        question_1 = self.create_question(assignment, question_no=1, stem="打印错题", correct_answer="A")
+        question_2 = self.create_question(assignment, question_no=2, stem="打印对题", correct_answer="B")
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(
+            assignment,
+            {
+                question_1.id: "C",
+                question_2.id: "B",
+            },
+        )
+        submission = HomeworkSubmission.objects.get(assignment=assignment, student=self.student)
+
+        print_all = self.client.get(reverse("student-homework-print", args=[assignment.id, submission.id]))
+        print_wrong = self.client.get(reverse("student-homework-print-wrong", args=[assignment.id, submission.id]))
+        print_blank = self.client.get(reverse("student-homework-print-blank", args=[assignment.id]))
+
+        self.assertEqual(print_all.status_code, 200)
+        self.assertContains(print_all, "打印")
+        self.assertContains(print_all, "打印错题")
+        self.assertContains(print_all, "打印对题")
+        self.assertContains(print_all, "正确答案")
+        self.assertNotContains(print_all, 'type="radio"', html=False)
+        self.assertContains(print_all, "homework-question__option--static")
+        self.assertEqual(print_wrong.status_code, 200)
+        self.assertContains(print_wrong, "错题打印")
+        self.assertContains(print_wrong, "打印错题")
+        self.assertNotContains(print_wrong, "打印对题")
+        self.assertNotContains(print_wrong, 'type="radio"', html=False)
+        self.assertEqual(print_blank.status_code, 200)
+        self.assertContains(print_blank, "空白练习卷")
+        self.assertContains(print_blank, "打印错题")
+        self.assertContains(print_blank, "打印对题")
+        self.assertNotContains(print_blank, "正确答案")
+        self.assertNotContains(print_blank, "解析")
+
+    def test_repractice_creates_new_submission_and_preserves_history(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="重新练习题", correct_answer="A")
+        self.sign_in(self.student_user)
+
+        self.submit_choice_answers(assignment, {question.id: "B"})
+        first_submission = HomeworkSubmission.objects.get(assignment=assignment, student=self.student)
+        first_answer = HomeworkSubmissionAnswer.objects.get(submission=first_submission, homework_question=question)
+        self.assertEqual(first_answer.selected_answer, "B")
+
+        response = self.submit_choice_answers(
+            assignment,
+            {question.id: "A"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "本次练习已提交并自动判分")
+        submissions = list(HomeworkSubmission.objects.filter(assignment=assignment, student=self.student).order_by("id"))
+        self.assertEqual(len(submissions), 2)
+        self.assertEqual(submissions[0].id, first_submission.id)
+        self.assertEqual(submissions[1].correct_count, 1)
+        self.assertEqual(
+            HomeworkSubmissionAnswer.objects.get(submission=submissions[0], homework_question=question).selected_answer,
+            "B",
+        )
+        self.assertEqual(
+            HomeworkSubmissionAnswer.objects.get(submission=submissions[1], homework_question=question).selected_answer,
+            "A",
+        )
+
+    def test_assignment_detail_shows_submission_datagrid_and_detail_links(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="submission 列表题", correct_answer="A")
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(assignment, {question.id: "B"})
+        self.submit_choice_answers(assignment, {question.id: "A"})
+
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        submissions = list(HomeworkSubmission.objects.filter(assignment=assignment, student=self.student).order_by("-id"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Submission History")
+        self.assertContains(response, "第 1 次提交")
+        self.assertContains(response, "第 2 次提交")
+        self.assertContains(response, "查看详情")
+        self.assertContains(
+            response,
+            reverse("student-homework-submission-detail", args=[assignment.id, submissions[0].id]),
+        )
+
+    def test_submission_detail_route_renders_specific_submission(self) -> None:
+        assignment = self.create_assignment()
+        question = self.create_question(assignment, question_no=1, stem="指定批次题", correct_answer="A")
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(assignment, {question.id: "B"})
+        self.submit_choice_answers(assignment, {question.id: "A"})
+        first_submission, second_submission = HomeworkSubmission.objects.filter(
+            assignment=assignment,
+            student=self.student,
+        ).order_by("id")
+
+        response = self.client.get(
+            reverse("student-homework-submission-detail", args=[assignment.id, first_submission.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "第 1 次提交")
+        self.assertContains(response, "你的错误选择")
+        self.assertContains(response, reverse("student-homework-print", args=[assignment.id, first_submission.id]))
+        self.assertNotContains(response, reverse("student-homework-print", args=[assignment.id, second_submission.id]))
+
+    def test_parent_can_view_child_homework_records_and_print_but_cannot_repractice(self) -> None:
+        assignment = self.create_assignment()
+        question_1 = self.create_question(assignment, question_no=1, stem="家长查看错题", correct_answer="A")
+        question_2 = self.create_question(assignment, question_no=2, stem="家长查看对题", correct_answer="B")
+        self.sign_in(self.student_user)
+        self.submit_choice_answers(
+            assignment,
+            {
+                question_1.id: "C",
+                question_2.id: "B",
+            },
+        )
+        submission = HomeworkSubmission.objects.get(assignment=assignment, student=self.student)
+        self.sign_in(self.parent)
+
+        list_response = self.client.get(reverse("parent-homework-list"))
+        detail_response = self.client.get(reverse("parent-homework-detail", args=[assignment.id]))
+        submission_response = self.client.get(
+            reverse("parent-homework-submission-detail", args=[assignment.id, submission.id])
+        )
+        print_all = self.client.get(reverse("parent-homework-print", args=[assignment.id, submission.id]))
+        print_wrong = self.client.get(reverse("parent-homework-print-wrong", args=[assignment.id, submission.id]))
+        print_blank = self.client.get(reverse("parent-homework-print-blank", args=[assignment.id]))
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "孩子作业记录")
+        self.assertContains(list_response, assignment.title)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "提交记录")
+        self.assertNotContains(detail_response, "重新练习")
+        self.assertNotContains(detail_response, "打开知识点")
+        self.assertContains(detail_response, "仅学生账号可进入内容")
+        self.assertEqual(submission_response.status_code, 200)
+        self.assertContains(submission_response, "逐题结果")
+        self.assertContains(submission_response, reverse("parent-homework-print", args=[assignment.id, submission.id]))
+        self.assertNotContains(submission_response, "重新练习")
+        self.assertEqual(print_all.status_code, 200)
+        self.assertContains(print_all, "正确答案")
+        self.assertEqual(print_wrong.status_code, 200)
+        self.assertContains(print_wrong, "家长查看错题")
+        self.assertNotContains(print_wrong, "家长查看对题")
+        self.assertEqual(print_blank.status_code, 200)
+        self.assertNotContains(print_blank, "正确答案")
+        self.assertNotContains(print_blank, "解析")

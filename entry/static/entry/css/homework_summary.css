@@ -1,0 +1,212 @@
+.homework-summary-page {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.homework-summary-panel {
+    padding: 22px;
+}
+
+.homework-summary-sheet {
+    max-width: 100%;
+}
+
+.summary-print-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+.summary-print-toolbar__copy p,
+.summary-print-toolbar__copy span {
+    margin: 0;
+    color: #6a7890;
+}
+
+.summary-print-toolbar__copy h1 {
+    margin: 8px 0 10px;
+    font-size: clamp(28px, 3vw, 38px);
+    line-height: 1.2;
+    color: #172033;
+}
+
+.summary-print-toolbar__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.homework-summary-content {
+    margin-top: 8px;
+}
+
+.summary-section-heading {
+    margin-bottom: 18px;
+}
+
+.homework-summary-richtext {
+    color: #25324a;
+    font-size: 16px;
+    line-height: 1.82;
+}
+
+.homework-summary-richtext > :first-child {
+    margin-top: 0;
+}
+
+.homework-summary-richtext > :last-child {
+    margin-bottom: 0;
+}
+
+.homework-summary-richtext h1,
+.homework-summary-richtext h2,
+.homework-summary-richtext h3,
+.homework-summary-richtext h4,
+.homework-summary-richtext h5,
+.homework-summary-richtext h6 {
+    margin: 28px 0 12px;
+    color: #172033;
+    line-height: 1.35;
+}
+
+.homework-summary-richtext p,
+.homework-summary-richtext ul,
+.homework-summary-richtext ol,
+.homework-summary-richtext blockquote,
+.homework-summary-richtext pre,
+.homework-summary-richtext table {
+    margin: 0 0 16px;
+}
+
+.homework-summary-richtext ul,
+.homework-summary-richtext ol {
+    padding-left: 22px;
+}
+
+.homework-summary-richtext li + li {
+    margin-top: 6px;
+}
+
+.homework-summary-richtext a {
+    color: #0f67b8;
+    text-decoration: none;
+}
+
+.homework-summary-richtext a:hover {
+    text-decoration: underline;
+}
+
+.homework-summary-richtext blockquote {
+    margin-left: 0;
+    padding: 12px 16px;
+    border-left: 4px solid rgba(15, 103, 184, 0.24);
+    border-radius: 0 14px 14px 0;
+    background: rgba(15, 103, 184, 0.05);
+}
+
+.homework-summary-richtext code,
+.homework-summary-richtext pre {
+    font-family: "SFMono-Regular", "Consolas", monospace;
+}
+
+.homework-summary-richtext pre {
+    overflow-x: auto;
+    padding: 16px 18px;
+    border-radius: 16px;
+    background: #172033;
+    color: #f7f9fc;
+}
+
+.homework-summary-richtext code {
+    padding: 0.15em 0.35em;
+    border-radius: 8px;
+    background: rgba(23, 32, 51, 0.08);
+}
+
+.homework-summary-richtext pre code {
+    padding: 0;
+    background: transparent;
+    color: inherit;
+}
+
+.homework-summary-richtext table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.homework-summary-richtext th,
+.homework-summary-richtext td {
+    padding: 10px 12px;
+    border: 1px solid rgba(15, 103, 184, 0.14);
+    text-align: left;
+    vertical-align: top;
+}
+
+.homework-summary-richtext th {
+    background: rgba(15, 103, 184, 0.08);
+}
+
+@media (max-width: 720px) {
+    .homework-summary-panel {
+        padding: 16px;
+    }
+
+    .summary-print-toolbar {
+        flex-direction: column;
+    }
+
+    .summary-print-toolbar__actions {
+        width: 100%;
+    }
+}
+
+@media print {
+    body,
+    .page-shell.system-shell,
+    .system-main {
+        background: #fff !important;
+    }
+
+    .system-header,
+    .site-footer,
+    .portal-breadcrumbs,
+    .summary-screen-only {
+        display: none !important;
+    }
+
+    .system-main {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .homework-summary-panel {
+        padding: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border: 0 !important;
+    }
+
+    .homework-summary-sheet {
+        padding: 0 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        max-width: none !important;
+    }
+
+    .summary-print-toolbar {
+        margin-bottom: 16px;
+    }
+
+    .summary-print-toolbar__copy span {
+        color: #4d5b73;
+    }
+
+    .homework-summary-richtext a {
+        color: inherit;
+        text-decoration: none;
+    }
+}

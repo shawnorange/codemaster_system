@@ -2,15 +2,33 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, QuerySet, Sum
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 
-from .course_identity import summarize_course_level_labels
+from .content_visibility import (
+    CONTENT_PERMISSION_ORDER,
+    infer_content_permission_code,
+    get_visible_cpp_stage_codes,
+    get_visible_permission_codes,
+    permission_code_allows,
+    pick_highest_permission_code,
+)
+from .course_identity import resolve_course_slug, summarize_course_level_labels
+from .html_sanitizer import sanitize_rich_html
 from .homework_online import normalize_candidate_editor_rows
+from .homework_option_formatting import format_homework_option_display
+from .homework_question_rendering import (
+    QUESTION_STATE_ANSWERING,
+    QUESTION_STATE_PRINT_BLANK,
+    build_homework_question_view_models,
+    get_question_render_state,
+)
 from .gesp2_catalog import (
     ASCII_CHAR_ENCODING_CONTENT_SLUG,
     ENUMERATION_METHOD_CONTENT_SLUG,
@@ -37,6 +55,9 @@ from .models import (
     HomeworkAssignment,
     HomeworkImportJob,
     HomeworkQuestion,
+    HomeworkSummary,
+    HomeworkSubmission,
+    HomeworkSubmissionAnswer,
     LessonHourLedger,
     PortalUser,
     RewardRecord,
@@ -52,6 +73,9 @@ from .teacher_course_catalog import TEACHER_COURSE_DEFINITIONS, TEACHER_COURSE_M
 
 GRID_PAGE_SIZE_OPTIONS = [10, 15, 50, 100]
 DEFAULT_GRID_PAGE_SIZE = 10
+CPP_PORTAL_CATEGORY_GESP_SLUG = "gesp"
+CPP_PORTAL_CATEGORY_CSP_SLUG = "csp"
+CPP_PORTAL_CATEGORY_ROBOTICS_SLUG = "robotics"
 HOMEWORK_STATUS_LABELS = {
     HomeworkAssignment.STATUS_ASSIGNED: "待完成",
     HomeworkAssignment.STATUS_COMPLETED: "已完成",
@@ -80,6 +104,102 @@ HOMEWORK_IMPORT_STATUS_TONES = {
     HomeworkImportJob.STATUS_FAILED: "locked",
     HomeworkImportJob.STATUS_CANCELLED: "locked",
 }
+HOMEWORK_SUBMISSION_STATUS_LABELS = {
+    HomeworkSubmission.STATUS_IN_PROGRESS: "作答中",
+    HomeworkSubmission.STATUS_SUBMITTED: "已提交",
+    HomeworkSubmission.STATUS_AUTO_CHECKED: "已自动判分",
+    HomeworkSubmission.STATUS_REVIEWED: "已复核",
+}
+HOMEWORK_SUBMISSION_STATUS_TONES = {
+    HomeworkSubmission.STATUS_IN_PROGRESS: "trial",
+    HomeworkSubmission.STATUS_SUBMITTED: "open",
+    HomeworkSubmission.STATUS_AUTO_CHECKED: "future",
+    HomeworkSubmission.STATUS_REVIEWED: "future",
+}
+CPP_HOMEWORK_LEVEL_ORDER = [
+    ("C1", "GESP1"),
+    ("C2", "GESP2"),
+    ("C3", "GESP3"),
+    ("C4", "GESP4"),
+]
+
+
+def get_homework_summary_title(summary: HomeworkSummary | None, assignment: HomeworkAssignment | dict) -> str:
+    assignment_title = (
+        str(assignment.get("title") or "").strip()
+        if isinstance(assignment, dict)
+        else str(getattr(assignment, "title", "") or "").strip()
+    )
+    raw_title = str(getattr(summary, "title", "") or "").strip() if summary else ""
+    return raw_title or f"{assignment_title} · 本周总结"
+
+
+def get_homework_summary_rendered_html(summary: HomeworkSummary | None) -> str:
+    raw_html = getattr(summary, "summary_html", "") if summary else ""
+    sanitized = sanitize_rich_html(raw_html)
+    if sanitized:
+        return mark_safe(sanitized)
+    return mark_safe("<p>当前还没有填入本周总结内容。</p>")
+
+
+def get_week_date_range(anchor_date: date) -> tuple[date, date]:
+    start_date = anchor_date - timedelta(days=anchor_date.weekday())
+    end_date = start_date + timedelta(days=6)
+    return start_date, end_date
+
+
+def get_assignment_assigned_localdate(assignment: HomeworkAssignment) -> date:
+    assigned_at = getattr(assignment, "assigned_at", None)
+    if not assigned_at:
+        return timezone.localdate()
+    return timezone.localtime(assigned_at).date()
+
+
+def resolve_homework_summary_default_range(assignments: list[HomeworkAssignment]) -> tuple[date, date]:
+    if assignments:
+        latest_assignment = max(assignments, key=get_assignment_assigned_localdate)
+        return get_week_date_range(get_assignment_assigned_localdate(latest_assignment))
+    return get_week_date_range(timezone.localdate())
+
+
+def filter_homework_assignments_by_assigned_date(
+    assignments: list[HomeworkAssignment],
+    *,
+    start_date: date,
+    end_date: date,
+) -> list[HomeworkAssignment]:
+    return [
+        assignment
+        for assignment in assignments
+        if start_date <= get_assignment_assigned_localdate(assignment) <= end_date
+    ]
+
+
+def build_default_homework_summary_title(student: Student, *, start_date: date, end_date: date) -> str:
+    return f"{student.display_name} · {start_date.isoformat()} 至 {end_date.isoformat()} 本周总结"
+UAV_HOMEWORK_LEVEL_ORDER = [
+    ("S1",),
+    ("S2",),
+    ("S3",),
+]
+
+
+def build_cascading_level_code_map(level_groups: list[tuple[str, ...]]) -> dict[str, set[str]]:
+    cascading_map: dict[str, set[str]] = {}
+    for index, group in enumerate(level_groups):
+        visible_codes = {
+            code
+            for visible_group in level_groups[: index + 1]
+            for code in visible_group
+        }
+        for code in group:
+            cascading_map[code] = set(visible_codes)
+    return cascading_map
+
+
+CPP_HOMEWORK_LEVEL_CODE_MAP = build_cascading_level_code_map(CPP_HOMEWORK_LEVEL_ORDER)
+UAV_HOMEWORK_LEVEL_CODE_MAP = build_cascading_level_code_map(UAV_HOMEWORK_LEVEL_ORDER)
+STUDENT_PORTAL_EXCEPTION_NAMES = {"林一诺"}
 
 
 def normalize_positive_value(value, *, default: int = 0, minimum: int = 0) -> int:
@@ -198,6 +318,14 @@ def get_student_primary_course(student: Student) -> str:
     return (student.primary_course_name or "").strip()
 
 
+def is_student_portal_exception(student: Student) -> bool:
+    candidate_names = {
+        (student.display_name or "").strip(),
+        (student.user.full_name or "").strip() if student.user_id else "",
+    }
+    return bool(STUDENT_PORTAL_EXCEPTION_NAMES.intersection(candidate_names))
+
+
 def get_student_by_user(portal_user: PortalUser) -> Student:
     return Student.objects.select_related("user", "parent_user", "teacher_user").get(user=portal_user)
 
@@ -258,8 +386,108 @@ def build_default_teacher_course_definition(course: Course) -> dict:
     }
 
 
-def get_student_content_access(student: Student, content: CourseContent) -> StudentContentAccess:
-    access, _ = StudentContentAccess.objects.get_or_create(student=student, content=content)
+def get_student_content_access(student: Student, content: CourseContent) -> StudentContentAccess | None:
+    return (
+        StudentContentAccess.objects.select_related("content", "granted_by")
+        .filter(student=student, content=content)
+        .first()
+    )
+
+
+def get_content_permission_code(content: CourseContent) -> str:
+    level_code = content.level.code if content.level_id and content.level else ""
+    return infer_content_permission_code(
+        content.course.slug,
+        permission_code=content.permission_code,
+        level_code=level_code,
+        phase=content.phase,
+    )
+
+
+def get_student_course_level_map(
+    student: Student,
+    *,
+    course_ids: set[int] | None = None,
+) -> dict[int, str]:
+    queryset = TeacherStudentAssignment.objects.filter(student=student, is_active=True)
+    if course_ids:
+        queryset = queryset.filter(course_id__in=course_ids)
+
+    level_map: dict[int, str] = {}
+    for course_id, level_code in queryset.values_list("course_id", "level_code"):
+        level_map[course_id] = pick_highest_permission_code((level_map.get(course_id), level_code))
+    return level_map
+
+
+def get_student_course_level_code(student: Student, *, course_slug: str) -> str:
+    course_id = Course.objects.filter(slug=course_slug).values_list("id", flat=True).first()
+    if course_id is None:
+        return ""
+    return get_student_course_level_map(student, course_ids={course_id}).get(course_id, "")
+
+
+def should_show_cpp_portal_category(category_slug: str, level_code: str) -> bool:
+    normalized_category_slug = (category_slug or "").strip().lower()
+    if normalized_category_slug == CPP_PORTAL_CATEGORY_GESP_SLUG:
+        return True
+    if normalized_category_slug == CPP_PORTAL_CATEGORY_CSP_SLUG:
+        return permission_code_allows(level_code, "C3")
+    if normalized_category_slug == CPP_PORTAL_CATEGORY_ROBOTICS_SLUG:
+        return False
+    return True
+
+
+def build_portal_state_summary_cards(portal_cards: list[dict]) -> list[dict[str, str]]:
+    state_titles = {
+        state: [card["title"] for card in portal_cards if card.get("state") == state]
+        for state in ("open", "trial", "locked")
+    }
+    return [
+        {"label": "已开放", "value": " / ".join(state_titles["open"]) if state_titles["open"] else "无"},
+        {"label": "体验中", "value": " / ".join(state_titles["trial"]) if state_titles["trial"] else "无"},
+        {"label": "未开放", "value": " / ".join(state_titles["locked"]) if state_titles["locked"] else "无"},
+    ]
+
+
+def get_student_content_visibility(student: Student, content: CourseContent) -> dict[str, object]:
+    access = get_student_content_access(student, content)
+    course_level_code = get_student_course_level_map(student, course_ids={content.course_id}).get(content.course_id, "")
+    permission_code = get_content_permission_code(content)
+    default_visible = permission_code_allows(course_level_code, permission_code)
+    override_mode = "default"
+    if access is not None:
+        override_mode = "allow" if access.is_open else "deny"
+    is_visible = access.is_open if access is not None else default_visible
+    return {
+        "access": access,
+        "course_level_code": course_level_code,
+        "permission_code": permission_code,
+        "default_visible": default_visible,
+        "is_visible": is_visible,
+        "override_mode": override_mode,
+    }
+
+
+def set_student_content_visibility(
+    student: Student,
+    content: CourseContent,
+    *,
+    is_visible: bool,
+    granted_by: PortalUser | None,
+) -> StudentContentAccess | None:
+    visibility = get_student_content_visibility(student, content)
+    access = visibility["access"]
+    default_visible = bool(visibility["default_visible"])
+    if is_visible == default_visible:
+        if access and access.pk:
+            access.delete()
+        return None
+    if access is None:
+        access = StudentContentAccess(student=student, content=content)
+    elif access.is_open == is_visible:
+        return access
+    access.set_open_state(is_open=is_visible, granted_by=granted_by)
+    access.save()
     return access
 
 
@@ -718,17 +946,17 @@ def build_teacher_course_structure_export_payload(
 
 
 def student_has_content_access(student: Student, content_slug: str) -> bool:
-    return StudentContentAccess.objects.filter(
-        student=student,
-        content__slug=content_slug,
-        is_open=True,
-    ).exists()
+    try:
+        content = CourseContent.objects.select_related("course", "level").get(slug=content_slug, is_active=True)
+    except CourseContent.DoesNotExist:
+        return False
+    return bool(get_student_content_visibility(student, content)["is_visible"])
 
 
 def get_gesp4_topic_contents() -> list[CourseContent]:
     content_map = {
         content.slug: content
-        for content in CourseContent.objects.select_related("course").filter(
+        for content in CourseContent.objects.select_related("course", "level").filter(
             course__slug="cpp",
             phase=GESP4_PHASE,
             slug__in=GESP4_TOPIC_SLUGS,
@@ -744,7 +972,7 @@ def get_gesp4_topic_contents() -> list[CourseContent]:
 def get_gesp2_knowledge_contents() -> list[CourseContent]:
     content_map = {
         content.slug: content
-        for content in CourseContent.objects.select_related("course").filter(
+        for content in CourseContent.objects.select_related("course", "level").filter(
             course__slug="cpp",
             phase=GESP2_PHASE,
             slug__in=GESP2_KNOWLEDGE_SLUGS,
@@ -760,7 +988,7 @@ def get_gesp2_knowledge_contents() -> list[CourseContent]:
 def get_gesp4_topic_content(topic_slug: str) -> CourseContent:
     if topic_slug not in GESP4_TOPIC_MAP:
         raise CourseContent.DoesNotExist(f"Unknown GESP4 topic: {topic_slug}")
-    return CourseContent.objects.select_related("course").get(
+    return CourseContent.objects.select_related("course", "level").get(
         course__slug="cpp",
         phase=GESP4_PHASE,
         slug=topic_slug,
@@ -771,7 +999,7 @@ def get_gesp4_topic_content(topic_slug: str) -> CourseContent:
 def get_gesp2_knowledge_content(topic_slug: str) -> CourseContent:
     if topic_slug not in GESP2_KNOWLEDGE_MAP:
         raise CourseContent.DoesNotExist(f"Unknown GESP2 knowledge point: {topic_slug}")
-    return CourseContent.objects.select_related("course").get(
+    return CourseContent.objects.select_related("course", "level").get(
         course__slug="cpp",
         phase=GESP2_PHASE,
         slug=topic_slug,
@@ -862,10 +1090,16 @@ def serialize_lesson_hour(record: LessonHourLedger) -> dict:
     }
 
 
-def format_date(value) -> str:
+def format_date(value: date | None) -> str:
     if not value:
         return "暂无"
     return value.strftime("%Y-%m-%d")
+
+
+def get_week_date_range(today: date | None = None) -> tuple[date, date]:
+    current_day = today or timezone.localdate()
+    week_start = current_day - timedelta(days=current_day.weekday())
+    return week_start, week_start + timedelta(days=6)
 
 
 def get_homework_status_text(status: str) -> str:
@@ -884,6 +1118,14 @@ def get_homework_import_status_tone(status: str) -> str:
     return HOMEWORK_IMPORT_STATUS_TONES.get(status, "future")
 
 
+def get_homework_submission_status_text(status: str) -> str:
+    return HOMEWORK_SUBMISSION_STATUS_LABELS.get(status, status or "未知状态")
+
+
+def get_homework_submission_status_tone(status: str) -> str:
+    return HOMEWORK_SUBMISSION_STATUS_TONES.get(status, "future")
+
+
 def get_homework_status_note(status: str) -> str:
     status_notes = {
         HomeworkAssignment.STATUS_ASSIGNED: "等待学生完成，老师可先补充提醒型评语。",
@@ -892,6 +1134,18 @@ def get_homework_status_note(status: str) -> str:
         HomeworkAssignment.STATUS_CANCELLED: "作业已取消，但记录会保留在当前列表里。",
     }
     return status_notes.get(status, "当前作业状态待确认。")
+
+
+def get_homework_level_codes(course_slug: str, raw_level_code: str) -> set[str]:
+    normalized = (raw_level_code or "").strip().upper()
+    if not normalized:
+        return set()
+    if course_slug == "cpp":
+        stage_codes = get_visible_cpp_stage_codes(normalized)
+        return stage_codes or {normalized}
+    if course_slug == "uav":
+        return UAV_HOMEWORK_LEVEL_CODE_MAP.get(normalized, {normalized})
+    return {normalized}
 
 
 def get_homework_content_level_label(content: CourseContent) -> str:
@@ -904,11 +1158,215 @@ def format_homework_content_label(content: CourseContent) -> str:
     return f"{content.course.title} / {get_homework_content_level_label(content)} / {content.title}"
 
 
+def serialize_homework_content_option(content: CourseContent) -> dict:
+    return {
+        "id": content.id,
+        "title": content.title,
+        "summary": content.summary or "当前知识点未补充额外说明。",
+        "route_path": content.route_path,
+        "level_label": get_homework_content_level_label(content),
+        "label": format_homework_content_label(content),
+    }
+
+
+def get_teacher_student_homework_queryset(portal_user: PortalUser, student: Student) -> QuerySet[HomeworkAssignment]:
+    return (
+        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
+        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        .filter(teacher=portal_user, student=student, is_active=True)
+        .order_by("-due_date", "-assigned_at", "-id")
+    )
+
+
+def get_student_homework_queryset(student: Student) -> QuerySet[HomeworkAssignment]:
+    return (
+        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
+        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        .filter(student=student, is_active=True)
+        .order_by("-due_date", "-assigned_at", "-id")
+    )
+
+
+def get_teacher_student_homework_scope_assignments(
+    portal_user: PortalUser,
+    student: Student,
+) -> list[TeacherStudentAssignment]:
+    return list(
+        TeacherStudentAssignment.objects.select_related("course")
+        .filter(teacher=portal_user, student=student, is_active=True)
+        .order_by("course_id", "level_code", "id")
+    )
+
+
+def get_teacher_student_homework_contents(portal_user: PortalUser, student: Student) -> list[CourseContent]:
+    assignments = get_teacher_student_homework_scope_assignments(portal_user, student)
+    if not assignments:
+        return []
+
+    content_map: dict[int, CourseContent] = {}
+    for assignment in assignments:
+        queryset = CourseContent.objects.select_related("course", "level").filter(course=assignment.course, is_active=True)
+        if assignment.course.slug == "cpp":
+            visible_permission_codes = get_visible_permission_codes(assignment.level_code)
+            visible_stage_codes = get_visible_cpp_stage_codes(assignment.level_code)
+            queryset = queryset.filter(
+                Q(permission_code__in=visible_permission_codes)
+                | (
+                    Q(permission_code="")
+                    & (Q(level__code__in=visible_stage_codes) | Q(phase__in=visible_stage_codes))
+                )
+            )
+        else:
+            level_codes = get_homework_level_codes(assignment.course.slug, assignment.level_code)
+            if level_codes:
+                queryset = queryset.filter(Q(level__code__in=level_codes) | Q(phase__in=level_codes))
+        for content in queryset.order_by("course_id", "phase", "sort_order", "id"):
+            content_map.setdefault(content.id, content)
+
+    return sorted(
+        content_map.values(),
+        key=lambda item: (
+            item.course.title.lower(),
+            get_homework_content_level_label(item).lower(),
+            item.sort_order,
+            item.id,
+        ),
+    )
+
+
+def build_teacher_student_homework_empty_state(
+    portal_user: PortalUser,
+    student: Student,
+    *,
+    assignments: list[TeacherStudentAssignment] | None = None,
+) -> dict:
+    scope_assignments = assignments if assignments is not None else get_teacher_student_homework_scope_assignments(portal_user, student)
+    if not scope_assignments:
+        return {
+            "title": "当前没有可布置内容",
+            "message": "当前老师对这个学生还没有启用中的 TeacherStudentAssignment。先检查学生关系管理里的课程与级别范围。",
+            "scope_rows": [],
+        }
+
+    scope_rows = []
+    matched_content_total = 0
+    for assignment in scope_assignments:
+        queryset = CourseContent.objects.filter(course=assignment.course, is_active=True)
+        if assignment.course.slug == "cpp":
+            visible_permission_codes = get_visible_permission_codes(assignment.level_code)
+            visible_stage_codes = get_visible_cpp_stage_codes(assignment.level_code)
+            queryset = queryset.filter(
+                Q(permission_code__in=visible_permission_codes)
+                | (
+                    Q(permission_code="")
+                    & (Q(level__code__in=visible_stage_codes) | Q(phase__in=visible_stage_codes))
+                )
+            )
+            mapped_level_codes = sorted(visible_stage_codes)
+        else:
+            mapped_level_codes = sorted(get_homework_level_codes(assignment.course.slug, assignment.level_code))
+            if mapped_level_codes:
+                queryset = queryset.filter(Q(level__code__in=mapped_level_codes) | Q(phase__in=mapped_level_codes))
+        matched_count = queryset.count()
+        matched_content_total += matched_count
+        scope_rows.append(
+            {
+                "course_title": assignment.course.title,
+                "raw_level_code": assignment.level_code,
+                "mapped_level_codes_text": " / ".join(mapped_level_codes) if mapped_level_codes else "未映射",
+                "matched_content_count": matched_count,
+            }
+        )
+
+    if matched_content_total == 0:
+        message = "当前老师和学生之间已有负责范围，但该范围下没有可用的 CourseContent。先检查 TeacherStudentAssignment 的级别是否匹配，或补齐对应课程内容。"
+    else:
+        message = "当前页面没有拿到可布置内容。请先检查 TeacherStudentAssignment 与 CourseContent 的课程/级别映射。"
+
+    return {
+        "title": "当前负责范围内没有可布置知识点",
+        "message": message,
+        "scope_rows": scope_rows,
+    }
+
+
+def get_teacher_student_homework_content_options(portal_user: PortalUser, student: Student) -> list[dict]:
+    return [
+        serialize_homework_content_option(content)
+        for content in get_teacher_student_homework_contents(portal_user, student)
+    ]
+
+
+def build_teacher_student_content_restriction_context(
+    portal_user: PortalUser,
+    student: Student,
+) -> dict:
+    items = []
+    for content in get_teacher_student_homework_contents(portal_user, student):
+        visibility = get_student_content_visibility(student, content)
+        if not visibility["default_visible"]:
+            continue
+        is_restricted = not visibility["is_visible"]
+        items.append(
+            {
+                "id": content.id,
+                "title": content.title,
+                "label": format_homework_content_label(content),
+                "course_title": content.course.title,
+                "level_label": get_homework_content_level_label(content),
+                "summary": content.summary or "当前知识点未补充额外说明。",
+                "route_path": content.route_path,
+                "permission_code": visibility["permission_code"] or "未配置",
+                "course_level_code": visibility["course_level_code"] or "未分配",
+                "is_restricted": is_restricted,
+                "selected": is_restricted,
+                "state": "locked" if is_restricted else "open",
+                "status_text": "已限制" if is_restricted else "默认可见",
+                "note": (
+                    "当前已写入学生级限制，学生端不会显示该内容。"
+                    if is_restricted
+                    else f"当前等级 {visibility['course_level_code'] or '未分配'} 默认可见。"
+                ),
+            }
+        )
+
+    restricted_items = [item for item in items if item["is_restricted"]]
+    visible_items = [item for item in items if not item["is_restricted"]]
+    if restricted_items:
+        summary_text = "已限制：" + "、".join(item["title"] for item in restricted_items[:3])
+        if len(restricted_items) > 3:
+            summary_text += f" 等 {len(restricted_items)} 个内容"
+    elif items:
+        summary_text = "当前还没有限制记录，学生会直接看到这些默认可见内容。"
+    else:
+        summary_text = "当前老师负责范围内还没有可限制的默认可见内容。"
+
+    return {
+        "content_restriction_items": items,
+        "restricted_content_items": restricted_items,
+        "content_restriction_total_count": len(items),
+        "content_restriction_restricted_count": len(restricted_items),
+        "content_restriction_visible_count": len(visible_items),
+        "content_restriction_summary_text": summary_text,
+    }
+
+
+def ensure_homework_content_access(
+    student: Student,
+    content: CourseContent,
+    teacher: PortalUser,
+) -> StudentContentAccess | None:
+    access = set_student_content_visibility(student, content, is_visible=True, granted_by=teacher)
+    return access or get_student_content_access(student, content)
+
+
 def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
     status = assignment.status
     teacher_comment = assignment.teacher_comment.strip()
     completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
     has_comment = bool(teacher_comment)
+    summary = getattr(assignment, "summary", None)
+    has_summary = bool(summary)
     online_question_count = getattr(assignment, "online_question_count", None)
     if online_question_count is None:
         online_question_count = assignment.questions.filter(is_active=True).count()
@@ -941,6 +1399,12 @@ def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
         "online_question_count": online_question_count,
         "is_online_homework": online_question_count > 0,
         "homework_mode_text": f"在线选择题 {online_question_count} 题" if online_question_count else "知识点任务型作业",
+        "has_summary": has_summary,
+        "summary_id": summary.id if has_summary else 0,
+        "summary_title": get_homework_summary_title(summary, assignment) if has_summary else "",
+        "summary_updated_at": summary.updated_at if has_summary else None,
+        "summary_updated_at_text": format_datetime(summary.updated_at) if has_summary else "",
+        "summary_status_text": "查看总结" if has_summary else "未生成",
         "is_completed": status in completed_like,
         "is_reviewed": status == HomeworkAssignment.STATUS_REVIEWED,
         "is_cancelled": status == HomeworkAssignment.STATUS_CANCELLED,
@@ -951,20 +1415,245 @@ def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
     }
 
 
+def build_homework_summary_items(assignments: list[HomeworkAssignment]) -> list[dict]:
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    total_count = len(assignments)
+    assigned_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
+    completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
+    cancelled_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_CANCELLED)
+    return [
+        {"label": "作业总数", "value": f"{total_count} 条", "hint": "当前学生下的全部作业记录"},
+        {"label": "待完成", "value": f"{assigned_count} 条", "hint": "学生还没有标记完成的作业"},
+        {"label": "已完成", "value": f"{completed_count} 条", "hint": "包含已完成与已评阅作业"},
+        {"label": "已取消", "value": f"{cancelled_count} 条", "hint": "教师手动取消的作业"},
+    ]
+
+
+def build_teacher_student_homework_context(
+    portal_user: PortalUser,
+    student: Student,
+    *,
+    homework_form_values: dict[str, object] | None = None,
+    homework_error_message: str = "",
+    homework_success_message: str = "",
+    homework_summary_form_values: dict[str, object] | None = None,
+    homework_summary_error_message: str = "",
+) -> dict:
+    assignments = list(get_teacher_student_homework_queryset(portal_user, student))
+    homework_items = [serialize_homework_assignment(item) for item in assignments]
+    for item in homework_items:
+        item["question_builder_href"] = reverse("teacher-homework-builder", args=[student.id, item["id"]])
+        item["question_builder_label"] = (
+            f"管理在线题目（{item['online_question_count']}）"
+            if item["online_question_count"]
+            else "上传生成选择题"
+        )
+    default_summary_start_date, default_summary_end_date = resolve_homework_summary_default_range(assignments)
+    summary_start_raw = str((homework_summary_form_values or {}).get("start_date") or default_summary_start_date.isoformat())
+    summary_end_raw = str((homework_summary_form_values or {}).get("end_date") or default_summary_end_date.isoformat())
+    try:
+        summary_start_date = date.fromisoformat(summary_start_raw)
+    except ValueError:
+        summary_start_date = default_summary_start_date
+        summary_start_raw = default_summary_start_date.isoformat()
+    try:
+        summary_end_date = date.fromisoformat(summary_end_raw)
+    except ValueError:
+        summary_end_date = default_summary_end_date
+        summary_end_raw = default_summary_end_date.isoformat()
+    summary_scope_assignments = (
+        filter_homework_assignments_by_assigned_date(
+            assignments,
+            start_date=summary_start_date,
+            end_date=summary_end_date,
+        )
+        if summary_start_date <= summary_end_date
+        else []
+    )
+    summary_scope_rows = [
+        {
+            "id": assignment.id,
+            "title": assignment.title,
+            "content_title": assignment.content.title,
+            "assigned_at_text": format_datetime(assignment.assigned_at),
+            "status_text": get_homework_status_text(assignment.status),
+            "summary_title": get_homework_summary_title(assignment.summary, assignment) if assignment.summary_id else "",
+        }
+        for assignment in summary_scope_assignments
+    ]
+    content_options = get_teacher_student_homework_content_options(portal_user, student)
+    scope_assignments = get_teacher_student_homework_scope_assignments(portal_user, student)
+    empty_state = build_teacher_student_homework_empty_state(
+        portal_user,
+        student,
+        assignments=scope_assignments,
+    )
+    selected_content_id = normalize_positive_value((homework_form_values or {}).get("content_id"), default=0, minimum=0)
+    if not selected_content_id and content_options:
+        selected_content_id = content_options[0]["id"]
+    selected_option = next((item for item in content_options if item["id"] == selected_content_id), None)
+    return {
+        "homework_items": homework_items,
+        "homework_summary_items": build_homework_summary_items(assignments),
+        "homework_content_options": content_options,
+        "homework_content_option_ids": [item["id"] for item in content_options],
+        "homework_selected_content_option": selected_option,
+        "homework_scope_assignments": empty_state["scope_rows"],
+        "homework_empty_state_title": empty_state["title"],
+        "homework_empty_state_message": empty_state["message"],
+        "homework_create_disabled_reason": empty_state["message"] if not content_options else "",
+        "homework_error_message": homework_error_message,
+        "homework_success_message": homework_success_message,
+        "homework_modal_should_open": bool(homework_error_message),
+        "homework_form_values": {
+            "content_id": selected_content_id,
+            "title": str((homework_form_values or {}).get("title") or (selected_option["title"] if selected_option else "")),
+            "description": str((homework_form_values or {}).get("description") or ""),
+            "due_date": str((homework_form_values or {}).get("due_date") or timezone.localdate().isoformat()),
+        },
+        "homework_summary_error_message": homework_summary_error_message,
+        "homework_summary_modal_should_open": bool(homework_summary_error_message),
+        "homework_summary_form_values": {
+            "title": str(
+                (homework_summary_form_values or {}).get("title")
+                or build_default_homework_summary_title(
+                    student,
+                    start_date=summary_start_date,
+                    end_date=summary_end_date,
+                )
+            ),
+            "start_date": summary_start_raw,
+            "end_date": summary_end_raw,
+            "summary_html": str((homework_summary_form_values or {}).get("summary_html") or ""),
+        },
+        "homework_summary_scope_rows": summary_scope_rows,
+        "homework_summary_scope_count": len(summary_scope_rows),
+        "homework_summary_create_disabled_reason": "当前还没有作业，先布置作业后再上传本周总结。" if not assignments else "",
+    }
+
+
+def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
+    student = get_student_by_user(portal_user)
+    assignments = list(get_student_homework_queryset(student))
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    pending_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
+    completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
+    return {
+        "page_mode": "entry_grid",
+        "grid_variant": "three",
+        "hero_eyebrow": "Practice Portal",
+        "page_title": "练习",
+        "page_description": "先在这里看老师布置的任务，再按作业详情进入对应知识点练习。",
+        "breadcrumb_items": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习"},
+        ],
+        "summary_cards": [
+            {"label": "我的作业", "value": f"{len(assignments)} 条"},
+            {"label": "待完成", "value": f"{pending_count} 条"},
+            {"label": "已完成", "value": f"{completed_count} 条"},
+        ],
+        "entry_hint": "先看“我的作业”，再打开对应知识点页完成练习。",
+        "portal_cards": [
+            {
+                "slug": "homework",
+                "title": "我的作业",
+                "meta": "教师布置",
+                "subtitle": "查看老师布置的当前任务",
+                "note": f"当前共有 {len(assignments)} 条作业，待完成 {pending_count} 条。",
+                "state": "open",
+                "status_text": "已开放",
+                "featured": True,
+                "action_label": "进入我的作业",
+                "action_href": reverse("student-homework-list"),
+            },
+            {
+                "slug": "oj",
+                "title": "OJ 练习",
+                "meta": "外部练习",
+                "subtitle": "占位入口",
+                "note": "后续再接统一信息。",
+                "state": "trial",
+                "status_text": "占位中",
+                "action_label": "打开 OJ",
+                "action_href": "http://oi.dashima.com:88",
+            },
+        ],
+    }
+
+
+def build_student_homework_list_context(portal_user: PortalUser) -> dict:
+    student = get_student_by_user(portal_user)
+    assignments = list(get_student_homework_queryset(student))
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    pending_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
+    completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
+    reviewed_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_REVIEWED)
+    homework_items = [serialize_homework_assignment(item) for item in assignments]
+    for item in homework_items:
+        item["detail_href"] = reverse("student-homework-detail", args=[item["id"]])
+        item["summary_href"] = reverse("student-homework-summary", args=[item["id"]]) if item["has_summary"] else ""
+    return {
+        "page_title": "我的作业",
+        "page_description": "这里集中展示当前学生账号下的全部作业，按截止日期倒序排列。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的作业"},
+        ],
+        "summary_cards": [
+            {"label": "作业总数", "value": f"{len(assignments)} 条", "hint": "当前学生全部作业"},
+            {"label": "待完成", "value": f"{pending_count} 条", "hint": "还没有标记完成"},
+            {"label": "已完成", "value": f"{completed_count} 条", "hint": "包含已评阅作业"},
+            {"label": "已评语", "value": f"{reviewed_count} 条", "hint": "老师已写评语并完成评阅"},
+        ],
+        "homework_items": homework_items,
+        "homework_table_rows": build_homework_assignment_table_rows(homework_items),
+        "empty_message": "当前还没有老师布置的作业，先继续按课程进度学习。",
+    }
+
+
+def build_homework_option_items(
+    options: dict[str, object],
+    *,
+    selected_answer: str = "",
+    correct_answer: str = "",
+) -> list[dict[str, object]]:
+    normalized_selected_answer = str(selected_answer or "").strip().upper()
+    normalized_correct_answer = str(correct_answer or "").strip().upper()
+    option_items: list[dict[str, object]] = []
+
+    for key in ["A", "B", "C", "D"]:
+        raw_text = str(options.get(key) or "").strip()
+        if not raw_text:
+            continue
+        formatted = format_homework_option_display(raw_text)
+        is_selected = key == normalized_selected_answer and bool(normalized_selected_answer)
+        is_correct_answer = key == normalized_correct_answer and bool(normalized_correct_answer)
+        option_items.append(
+            {
+                "key": key,
+                "text": formatted["text"],
+                "display_text": formatted["display_text"],
+                "is_code_option": formatted["is_code_option"],
+                "is_selected": is_selected,
+                "is_correct_answer": is_correct_answer,
+                "is_wrong_selected": is_selected and normalized_selected_answer != normalized_correct_answer,
+            }
+        )
+
+    return option_items
+
+
 def serialize_homework_question(question: HomeworkQuestion) -> dict:
     options = question.options_json if isinstance(question.options_json, dict) else {}
-    option_items = [
-        {"key": key, "text": str(options.get(key) or "").strip()}
-        for key in ["A", "B", "C", "D"]
-        if str(options.get(key) or "").strip()
-    ]
     return {
         "id": question.id,
         "question_no": question.question_no,
         "question_type": question.question_type,
         "question_type_text": "单选题",
         "stem": question.stem,
-        "option_items": option_items,
+        "option_items": build_homework_option_items(options),
         "correct_answer": question.correct_answer,
         "analysis": question.analysis or "当前老师没有补充解析。",
     }
@@ -1016,6 +1705,175 @@ def serialize_homework_import_job(
     }
 
 
+def serialize_homework_submission(submission: HomeworkSubmission | None) -> dict | None:
+    if not submission:
+        return None
+    submitted_at = submission.submitted_at or submission.created_at
+    return {
+        "id": submission.id,
+        "status": submission.status,
+        "status_text": get_homework_submission_status_text(submission.status),
+        "status_tone": get_homework_submission_status_tone(submission.status),
+        "total_count": submission.total_count,
+        "correct_count": submission.correct_count,
+        "wrong_count": submission.wrong_count,
+        "score_text": f"{submission.score}",
+        "score_ratio_text": f"{submission.correct_count} / {submission.total_count}" if submission.total_count else "0 / 0",
+        "result_summary_text": (
+            f"正确 {submission.correct_count} 题，错误 {submission.wrong_count} 题"
+            if submission.total_count
+            else "当前还没有判分结果"
+        ),
+        "started_at_text": format_datetime(submission.started_at),
+        "submitted_at_text": format_datetime(submitted_at) if submitted_at else "未提交",
+        "checked_at_text": format_datetime(submission.checked_at) if submission.checked_at else "未判分",
+        "is_locked": is_homework_submission_locked(submission),
+    }
+
+
+def is_homework_submission_locked(submission: HomeworkSubmission | None) -> bool:
+    return bool(
+        submission
+        and submission.status
+        in {
+            HomeworkSubmission.STATUS_SUBMITTED,
+            HomeworkSubmission.STATUS_AUTO_CHECKED,
+            HomeworkSubmission.STATUS_REVIEWED,
+        }
+    )
+
+
+def get_homework_submission_queryset(
+    assignment: HomeworkAssignment,
+    student: Student,
+) -> QuerySet[HomeworkSubmission]:
+    return (
+        HomeworkSubmission.objects.select_related("assignment", "student")
+        .filter(assignment=assignment, student=student, is_active=True)
+        .order_by("-submitted_at", "-created_at", "-id")
+    )
+
+
+def serialize_homework_submission_row(
+    submission: HomeworkSubmission,
+    *,
+    attempt_no: int,
+) -> dict:
+    serialized = serialize_homework_submission(submission) or {}
+    serialized["attempt_no"] = attempt_no
+    serialized["attempt_label"] = f"第 {attempt_no} 次提交"
+    return serialized
+
+
+def build_homework_submission_rows(
+    submissions: list[HomeworkSubmission],
+    *,
+    detail_href_builder,
+) -> list[dict]:
+    attempt_no_by_id = {
+        submission.id: index + 1
+        for index, submission in enumerate(reversed(submissions))
+    }
+    rows = []
+    for index, submission in enumerate(submissions):
+        row = serialize_homework_submission_row(
+            submission,
+            attempt_no=attempt_no_by_id[submission.id],
+        )
+        row["detail_href"] = detail_href_builder(submission)
+        row["is_latest"] = index == 0
+        rows.append(row)
+    return rows
+
+
+def build_homework_assignment_table_rows(homework_items: list[dict]) -> list[dict]:
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    rows = []
+    for item in homework_items:
+        assignment_title = str(item.get("title") or "").strip()
+        topic_title = str(item.get("content_title") or assignment_title).strip()
+        level_label = str(item.get("content_level_label") or "").strip()
+        topic_subtitle = str(item.get("content_path_label") or "").strip()
+        published_at = item.get("assigned_at")
+        published_at_display = str(item.get("assigned_at_text") or "").strip()
+        published_at_value = published_at.strftime("%Y-%m-%d") if published_at else ""
+        display_title = assignment_title or topic_title
+        knowledge_point = topic_title if topic_title and topic_title != display_title else level_label
+        if not knowledge_point:
+            knowledge_point = topic_subtitle
+        status_text = str(item.get("status_text") or "").strip()
+        completion_status = "completed" if item.get("status") in completed_like or item.get("is_completed") else "pending"
+        completion_status_label = "已完成" if completion_status == "completed" else "未完成"
+        rows.append(
+            {
+                "id": item["id"],
+                "assignment_title": assignment_title,
+                "topic_title": topic_title,
+                "display_title": str(display_title or "").strip(),
+                "knowledge_point": str(knowledge_point or "").strip(),
+                "topic_subtitle": topic_subtitle,
+                "published_at_display": published_at_display,
+                "published_at_value": str(published_at_value or "").strip(),
+                "teacher_name": str(item.get("teacher_name") or "").strip(),
+                "status_text": status_text,
+                "status_label": status_text,
+                "status_tone": str(item.get("status_tone") or "future").strip() or "future",
+                "completion_status": completion_status,
+                "completion_status_label": completion_status_label,
+                "has_summary": bool(item.get("has_summary")),
+                "summary_label": str(item.get("summary_status_text") or "未生成").strip() or "未生成",
+                "summary_title": str(item.get("summary_title") or "").strip(),
+                "summary_href": str(item.get("summary_href") or "").strip(),
+                "detail_label": "查看详情",
+                "detail_href": str(item.get("detail_href") or "").strip(),
+            }
+        )
+    return rows
+
+
+def build_homework_answer_map(submission: HomeworkSubmission | None) -> dict[int, HomeworkSubmissionAnswer]:
+    if not submission:
+        return {}
+    return {
+        answer.homework_question_id: answer
+        for answer in submission.answers.select_related("homework_question").all()
+    }
+
+
+def get_homework_assignment_questions(assignment: HomeworkAssignment) -> list[HomeworkQuestion]:
+    return list(assignment.questions.filter(is_active=True).order_by("question_no", "id"))
+
+
+def build_homework_question_rows_for_assignment(
+    assignment: HomeworkAssignment,
+    *,
+    state: str,
+    submission: HomeworkSubmission | None = None,
+) -> list[dict]:
+    return build_homework_question_view_models(
+        get_homework_assignment_questions(assignment),
+        state=state,
+        answer_map=build_homework_answer_map(submission),
+    )
+
+
+def build_student_submission_question_rows(
+    submission: HomeworkSubmission,
+    *,
+    state: str | None = None,
+) -> list[dict]:
+    answer_map = {
+        answer.homework_question_id: answer
+        for answer in submission.answers.select_related("homework_question").all()
+    }
+    questions = get_homework_assignment_questions(submission.assignment)
+    return build_homework_question_view_models(
+        questions,
+        state=state or get_question_render_state(submission_status=submission.status),
+        answer_map=answer_map,
+    )
+
+
 def build_teacher_homework_builder_context(
     portal_user: PortalUser,
     student_id: int,
@@ -1025,7 +1883,7 @@ def build_teacher_homework_builder_context(
     upload_success_message: str = "",
 ) -> dict:
     assignment = (
-        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level")
+        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
         .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
         .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
         .get()
@@ -1083,36 +1941,584 @@ def build_teacher_homework_builder_context(
     }
 
 
+def build_student_homework_detail_context(portal_user: PortalUser, assignment_id: int) -> dict:
+    student = get_student_by_user(portal_user)
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    serialized = serialize_homework_assignment(assignment)
+    serialized["summary_href"] = reverse("student-homework-summary", args=[assignment.id]) if serialized["has_summary"] else ""
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    has_online_questions = serialized["is_online_homework"]
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda submission: reverse(
+            "student-homework-submission-detail",
+            args=[assignment.id, submission.id],
+        ),
+    )
+    latest_submission = submission_rows[0] if submission_rows else None
+    return {
+        "page_title": serialized["title"],
+        "page_description": (
+            "先看清老师要求，再决定是进入知识点页复习，还是打开新的在线练习。"
+            if has_online_questions
+            else "先看清老师要求，再决定是进入知识点页完成任务，还是标记作业完成。"
+        ),
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的作业", "href": reverse("student-homework-list")},
+            {"label": serialized["title"]},
+        ],
+        "assignment": serialized,
+        "has_online_questions": has_online_questions,
+        "submission_rows": submission_rows,
+        "submission_count": len(submission_rows),
+        "latest_submission": latest_submission,
+        "practice_href": (
+            reverse("student-homework-practice", args=[assignment.id])
+            if has_online_questions and not serialized["is_cancelled"]
+            else ""
+        ),
+        "practice_label": "重新练习" if submission_rows else "开始第一次练习",
+        "blank_print_href": reverse("student-homework-print-blank", args=[assignment.id]) if has_online_questions else "",
+        "submission_empty_message": "这份作业还没有提交记录。开始第一次练习后，每次提交都会新增一条 submission 历史记录。",
+        "allow_content_entry": True,
+        "allow_completion_actions": True,
+        "show_mark_completed": serialized["can_mark_completed"] and not has_online_questions,
+        "back_list_href": reverse("student-homework-list"),
+    }
+
+
+def build_student_homework_practice_context(portal_user: PortalUser, assignment_id: int) -> dict:
+    student = get_student_by_user(portal_user)
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    serialized = serialize_homework_assignment(assignment)
+    if not serialized["is_online_homework"]:
+        raise HomeworkAssignment.DoesNotExist
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda submission: reverse(
+            "student-homework-submission-detail",
+            args=[assignment.id, submission.id],
+        ),
+    )
+    return {
+        "page_title": f"{serialized['title']} · {'重新练习' if submission_rows else '在线作答'}",
+        "page_description": "每次提交都会生成一条新的 HomeworkSubmission 历史记录，不会覆盖旧结果。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的作业", "href": reverse("student-homework-list")},
+            {"label": serialized["title"], "href": reverse("student-homework-detail", args=[assignment.id])},
+            {"label": "在线作答"},
+        ],
+        "assignment": serialized,
+        "online_question_rows": build_homework_question_rows_for_assignment(
+            assignment,
+            state=QUESTION_STATE_ANSWERING,
+        ),
+        "submission_count": len(submission_rows),
+        "latest_submission": submission_rows[0] if submission_rows else None,
+        "back_href": reverse("student-homework-detail", args=[assignment.id]),
+    }
+
+
+def build_student_homework_submission_detail_context(
+    portal_user: PortalUser,
+    assignment_id: int,
+    submission_id: int,
+) -> dict:
+    student = get_student_by_user(portal_user)
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission = next((item for item in submissions if item.id == submission_id), None)
+    if not submission:
+        raise HomeworkSubmission.DoesNotExist
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda item: reverse(
+            "student-homework-submission-detail",
+            args=[assignment.id, item.id],
+        ),
+    )
+    submission_result = next(item for item in submission_rows if item["id"] == submission.id)
+    result_question_rows = build_student_submission_question_rows(submission)
+    wrong_question_rows = [item for item in result_question_rows if item["is_wrong"]]
+    serialized_assignment = serialize_homework_assignment(assignment)
+    return {
+        "page_title": f"{serialized_assignment['title']} · {submission_result['attempt_label']}",
+        "page_description": "这里展示这一次提交的完整判分结果。历史记录会持续保留，可随时切换查看。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的作业", "href": reverse("student-homework-list")},
+            {"label": serialized_assignment["title"], "href": reverse("student-homework-detail", args=[assignment.id])},
+            {"label": submission_result["attempt_label"]},
+        ],
+        "assignment": serialized_assignment,
+        "submission": submission_result,
+        "submission_rows": submission_rows,
+        "result_question_rows": result_question_rows,
+        "wrong_question_rows": wrong_question_rows,
+        "print_all_href": reverse("student-homework-print", args=[assignment.id, submission.id]),
+        "print_wrong_href": reverse("student-homework-print-wrong", args=[assignment.id, submission.id]) if wrong_question_rows else "",
+        "print_blank_href": reverse("student-homework-print-blank", args=[assignment.id]),
+        "repractice_href": (
+            reverse("student-homework-practice", args=[assignment.id])
+            if not serialized_assignment["is_cancelled"]
+            else ""
+        ),
+        "back_href": reverse("student-homework-detail", args=[assignment.id]),
+        "allow_repractice": not serialized_assignment["is_cancelled"],
+    }
+
+
+def build_parent_homework_list_context(portal_user: PortalUser) -> dict:
+    student = get_parent_student(portal_user)
+    assignments = list(get_student_homework_queryset(student)) if student else []
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    pending_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
+    completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
+    homework_items = [serialize_homework_assignment(item) for item in assignments]
+    for item in homework_items:
+        item["detail_href"] = reverse("parent-homework-detail", args=[item["id"]])
+        item["summary_href"] = reverse("parent-homework-summary", args=[item["id"]]) if item["has_summary"] else ""
+    return {
+        "page_title": "孩子作业记录",
+        "page_description": (
+            f"这里按 assignment 展示 {student.display_name} 的全部作业记录。"
+            if student
+            else "当前家长账号还没有绑定学生，暂时无法查看作业记录。"
+        ),
+        "breadcrumbs": [
+            {"label": "家长主页", "href": reverse("parent-student-profile")},
+            {"label": "作业记录"},
+        ],
+        "summary_cards": [
+            {"label": "关联孩子", "value": student.display_name if student else "未关联", "hint": student.grade if student else "请先绑定学生"},
+            {"label": "作业总数", "value": f"{len(assignments)} 条", "hint": "当前孩子名下的全部 assignment"},
+            {"label": "待完成", "value": f"{pending_count} 条", "hint": "当前仍处于待完成状态"},
+            {"label": "已完成", "value": f"{completed_count} 条", "hint": "包含已完成和已评阅作业"},
+        ],
+        "student": student,
+        "homework_items": homework_items,
+        "homework_table_rows": build_homework_assignment_table_rows(homework_items),
+        "empty_message": "当前还没有可查看的作业记录。",
+    }
+
+
+def build_parent_homework_detail_context(portal_user: PortalUser, assignment_id: int) -> dict:
+    student = get_parent_student(portal_user)
+    if not student:
+        raise HomeworkAssignment.DoesNotExist
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    serialized = serialize_homework_assignment(assignment)
+    serialized["summary_href"] = reverse("parent-homework-summary", args=[assignment.id]) if serialized["has_summary"] else ""
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda submission: reverse(
+            "parent-homework-submission-detail",
+            args=[assignment.id, submission.id],
+        ),
+    )
+    return {
+        "page_title": f"{serialized['title']} · 家长查看",
+        "page_description": "家长只读查看模式：可以查看孩子的作业记录、submission 列表和打印页面。",
+        "breadcrumbs": [
+            {"label": "家长主页", "href": reverse("parent-student-profile")},
+            {"label": "作业记录", "href": reverse("parent-homework-list")},
+            {"label": serialized["title"]},
+        ],
+        "assignment": serialized,
+        "student": student,
+        "has_online_questions": serialized["is_online_homework"],
+        "submission_rows": submission_rows,
+        "submission_count": len(submission_rows),
+        "latest_submission": submission_rows[0] if submission_rows else None,
+        "practice_href": "",
+        "practice_label": "",
+        "blank_print_href": reverse("parent-homework-print-blank", args=[assignment.id]) if serialized["is_online_homework"] else "",
+        "submission_empty_message": "孩子目前还没有这份在线作业的提交记录。",
+        "allow_content_entry": False,
+        "allow_completion_actions": False,
+        "show_mark_completed": False,
+        "back_list_href": reverse("parent-homework-list"),
+    }
+
+
+def build_homework_summary_detail_context_payload(
+    *,
+    assignment: HomeworkAssignment,
+    student: Student,
+    page_title: str,
+    page_description: str,
+    breadcrumbs: list[dict[str, str]],
+    back_href: str,
+    back_label: str,
+) -> dict:
+    summary = getattr(assignment, "summary", None)
+    if not summary:
+        raise HomeworkSummary.DoesNotExist
+    serialized_assignment = serialize_homework_assignment(assignment)
+    summary_title = get_homework_summary_title(summary, assignment)
+    return {
+        "page_title": page_title,
+        "page_description": page_description,
+        "breadcrumbs": breadcrumbs,
+        "assignment": serialized_assignment,
+        "student": student,
+        "summary": {
+            "id": summary.id,
+            "title": summary_title,
+            "created_at_text": format_datetime(summary.created_at),
+            "updated_at_text": format_datetime(summary.updated_at),
+            "created_by_name": summary.created_by.full_name if summary.created_by else assignment.teacher.full_name,
+            "rendered_html": get_homework_summary_rendered_html(summary),
+        },
+        "summary_meta_items": [
+            {"label": "当前学生", "value": student.display_name},
+            {"label": "对应作业", "value": assignment.title},
+            {"label": "知识点", "value": serialized_assignment["content_title"]},
+            {"label": "最近更新", "value": format_datetime(summary.updated_at)},
+        ],
+        "summary_overview_cards": [
+            {"label": "截止日期", "value": serialized_assignment["due_date_text"], "hint": "沿用 assignment 截止日期"},
+            {"label": "当前状态", "value": serialized_assignment["status_text"], "hint": serialized_assignment["homework_mode_text"]},
+            {"label": "负责老师", "value": serialized_assignment["teacher_name"], "hint": serialized_assignment["reviewed_at_text"]},
+            {"label": "返回入口", "value": back_label, "hint": "打印后可继续回到 assignment 详情"},
+        ],
+        "back_href": back_href,
+    }
+
+
+def build_student_homework_summary_detail_context(portal_user: PortalUser, assignment_id: int) -> dict:
+    student = get_student_by_user(portal_user)
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    summary = getattr(assignment, "summary", None)
+    summary_title = get_homework_summary_title(summary, assignment)
+    return build_homework_summary_detail_context_payload(
+        assignment=assignment,
+        student=student,
+        page_title=summary_title,
+        page_description="这里集中查看这份作业对应的本周总结，页面支持直接打印。",
+        breadcrumbs=[
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的作业", "href": reverse("student-homework-list")},
+            {"label": assignment.title, "href": reverse("student-homework-detail", args=[assignment.id])},
+            {"label": "本周总结"},
+        ],
+        back_href=reverse("student-homework-detail", args=[assignment.id]),
+        back_label="返回 assignment 详情",
+    )
+
+
+def build_parent_homework_summary_detail_context(portal_user: PortalUser, assignment_id: int) -> dict:
+    student = get_parent_student(portal_user)
+    if not student:
+        raise HomeworkSummary.DoesNotExist
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    summary = getattr(assignment, "summary", None)
+    summary_title = get_homework_summary_title(summary, assignment)
+    return build_homework_summary_detail_context_payload(
+        assignment=assignment,
+        student=student,
+        page_title=f"{summary_title} · 家长查看",
+        page_description="家长只读查看模式：可以查看这份作业对应的本周总结，并直接打印。",
+        breadcrumbs=[
+            {"label": "家长主页", "href": reverse("parent-student-profile")},
+            {"label": "作业记录", "href": reverse("parent-homework-list")},
+            {"label": assignment.title, "href": reverse("parent-homework-detail", args=[assignment.id])},
+            {"label": "本周总结"},
+        ],
+        back_href=reverse("parent-homework-detail", args=[assignment.id]),
+        back_label="返回 assignment 详情",
+    )
+
+
+def build_parent_homework_submission_detail_context(
+    portal_user: PortalUser,
+    assignment_id: int,
+    submission_id: int,
+) -> dict:
+    student = get_parent_student(portal_user)
+    if not student:
+        raise HomeworkSubmission.DoesNotExist
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission = next((item for item in submissions if item.id == submission_id), None)
+    if not submission:
+        raise HomeworkSubmission.DoesNotExist
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda item: reverse(
+            "parent-homework-submission-detail",
+            args=[assignment.id, item.id],
+        ),
+    )
+    submission_result = next(item for item in submission_rows if item["id"] == submission.id)
+    result_question_rows = build_student_submission_question_rows(submission)
+    wrong_question_rows = [item for item in result_question_rows if item["is_wrong"]]
+    serialized_assignment = serialize_homework_assignment(assignment)
+    return {
+        "page_title": f"{serialized_assignment['title']} · {submission_result['attempt_label']} · 家长查看",
+        "page_description": "家长只读查看模式：可以查看孩子这一次提交的完整结果并打印。",
+        "breadcrumbs": [
+            {"label": "家长主页", "href": reverse("parent-student-profile")},
+            {"label": "作业记录", "href": reverse("parent-homework-list")},
+            {"label": serialized_assignment["title"], "href": reverse("parent-homework-detail", args=[assignment.id])},
+            {"label": submission_result["attempt_label"]},
+        ],
+        "assignment": serialized_assignment,
+        "student": student,
+        "submission": submission_result,
+        "submission_rows": submission_rows,
+        "result_question_rows": result_question_rows,
+        "wrong_question_rows": wrong_question_rows,
+        "print_all_href": reverse("parent-homework-print", args=[assignment.id, submission.id]),
+        "print_wrong_href": reverse("parent-homework-print-wrong", args=[assignment.id, submission.id]) if wrong_question_rows else "",
+        "print_blank_href": reverse("parent-homework-print-blank", args=[assignment.id]),
+        "repractice_href": "",
+        "back_href": reverse("parent-homework-detail", args=[assignment.id]),
+        "allow_repractice": False,
+    }
+
+
+def build_homework_print_context_payload(
+    assignment: HomeworkAssignment,
+    *,
+    submission: HomeworkSubmission | None = None,
+    submission_view: dict | None = None,
+    wrong_only: bool = False,
+    blank_only: bool = False,
+) -> dict:
+    serialized_assignment = serialize_homework_assignment(assignment)
+    if blank_only:
+        question_rows = build_homework_question_rows_for_assignment(
+            assignment,
+            state=QUESTION_STATE_PRINT_BLANK,
+        )
+    else:
+        question_rows = build_student_submission_question_rows(
+            submission,
+            state=get_question_render_state(is_print=True),
+        )
+        if wrong_only:
+            question_rows = [item for item in question_rows if item["is_wrong"]]
+
+    meta_items = [
+        {"label": "所属知识点", "value": serialized_assignment["content_title"]},
+        {"label": "题目总数", "value": str(serialized_assignment["online_question_count"])},
+    ]
+    if blank_only:
+        meta_items.extend(
+            [
+                {"label": "打印类型", "value": "空白练习卷"},
+                {"label": "内容说明", "value": "仅保留题干和选项，不展示作答结果信息"},
+            ]
+        )
+        page_title = f"{assignment.title} · 空白练习卷"
+    else:
+        meta_items.extend(
+            [
+                {"label": "提交批次", "value": submission_view["attempt_label"] if submission_view else "提交记录"},
+                {"label": "分数", "value": submission_view["score_text"] if submission_view else "0"},
+                {"label": "正确 / 错误", "value": f"{submission_view['correct_count']} / {submission_view['wrong_count']}" if submission_view else "0 / 0"},
+            ]
+        )
+        page_title = f"{assignment.title} · {submission_view['attempt_label'] if submission_view else '提交记录'} · {'错题打印' if wrong_only else '整份结果打印'}"
+    return {
+        "assignment": serialized_assignment,
+        "submission": submission_view,
+        "question_rows": question_rows,
+        "wrong_only": wrong_only,
+        "blank_only": blank_only,
+        "meta_items": meta_items,
+        "page_title": page_title,
+    }
+
+
+def build_student_homework_print_context(
+    portal_user: PortalUser,
+    assignment_id: int,
+    *,
+    submission_id: int | None = None,
+    wrong_only: bool,
+    blank_only: bool = False,
+) -> dict:
+    student = get_student_by_user(portal_user)
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    if blank_only:
+        return build_homework_print_context_payload(
+            assignment,
+            wrong_only=False,
+            blank_only=True,
+        )
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission = next((item for item in submissions if item.id == submission_id), None)
+    if not submission:
+        raise HomeworkSubmission.DoesNotExist
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda item: reverse(
+            "student-homework-submission-detail",
+            args=[assignment.id, item.id],
+        ),
+    )
+    submission_view = next(item for item in submission_rows if item["id"] == submission.id)
+    return build_homework_print_context_payload(
+        assignment,
+        submission=submission,
+        submission_view=submission_view,
+        wrong_only=wrong_only,
+        blank_only=False,
+    )
+
+
+def build_parent_homework_print_context(
+    portal_user: PortalUser,
+    assignment_id: int,
+    *,
+    submission_id: int | None = None,
+    wrong_only: bool,
+    blank_only: bool = False,
+) -> dict:
+    student = get_parent_student(portal_user)
+    if not student:
+        raise HomeworkAssignment.DoesNotExist
+    assignment = get_student_homework_queryset(student).get(id=assignment_id)
+    if blank_only:
+        return build_homework_print_context_payload(
+            assignment,
+            wrong_only=False,
+            blank_only=True,
+        )
+    submissions = list(get_homework_submission_queryset(assignment, student))
+    submission = next((item for item in submissions if item.id == submission_id), None)
+    if not submission:
+        raise HomeworkSubmission.DoesNotExist
+    submission_rows = build_homework_submission_rows(
+        submissions,
+        detail_href_builder=lambda item: reverse(
+            "parent-homework-submission-detail",
+            args=[assignment.id, item.id],
+        ),
+    )
+    submission_view = next(item for item in submission_rows if item["id"] == submission.id)
+    return build_homework_print_context_payload(
+        assignment,
+        submission=submission,
+        submission_view=submission_view,
+        wrong_only=wrong_only,
+        blank_only=False,
+    )
+
+
+def build_weekly_homework_summary(student: Student) -> dict:
+    # 本周口径统一按 due_date 所在周计算；assigned_at 只用于排序和展示。
+    week_start, week_end = get_week_date_range()
+    week_queryset = (
+        HomeworkAssignment.objects.select_related("teacher", "content", "content__course", "content__level")
+        .filter(student=student, is_active=True, due_date__range=(week_start, week_end))
+        .order_by("-due_date", "-assigned_at", "-id")
+    )
+    assignments = list(week_queryset)
+    visible_assignments = [item for item in assignments if item.status != HomeworkAssignment.STATUS_CANCELLED]
+    completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
+    latest_comment_candidates = [item for item in visible_assignments if item.teacher_comment.strip()]
+    latest_comment_assignment = max(
+        latest_comment_candidates,
+        key=lambda item: item.reviewed_at or item.updated_at or item.assigned_at,
+        default=None,
+    )
+    return {
+        "week_label": f"{format_date(week_start)} - {format_date(week_end)}",
+        "total_count": len(visible_assignments),
+        "completed_count": sum(1 for item in visible_assignments if item.status in completed_like),
+        "pending_count": sum(1 for item in visible_assignments if item.status == HomeworkAssignment.STATUS_ASSIGNED),
+        "latest_comment": {
+            "text": latest_comment_assignment.teacher_comment.strip(),
+            "teacher_name": latest_comment_assignment.teacher.full_name,
+            "updated_at_text": format_datetime(latest_comment_assignment.reviewed_at or latest_comment_assignment.updated_at),
+        }
+        if latest_comment_assignment
+        else None,
+        "items": [serialize_homework_assignment(item) for item in visible_assignments[:4]],
+    }
+
 def _get_access_map(student: Student, contents: list[CourseContent]) -> dict[int, StudentContentAccess]:
-    existing_accesses = {
+    return {
         access.content_id: access
         for access in StudentContentAccess.objects.select_related("content", "granted_by").filter(
             student=student,
             content__in=contents,
         )
     }
+
+
+def _get_content_visibility_map(student: Student, contents: list[CourseContent]) -> dict[int, dict[str, object]]:
+    access_map = _get_access_map(student, contents)
+    course_level_map = get_student_course_level_map(
+        student,
+        course_ids={content.course_id for content in contents},
+    )
+    visibility_map: dict[int, dict[str, object]] = {}
     for content in contents:
-        if content.id not in existing_accesses:
-            existing_accesses[content.id] = get_student_content_access(student, content)
-    return existing_accesses
+        access = access_map.get(content.id)
+        course_level_code = course_level_map.get(content.course_id, "")
+        permission_code = get_content_permission_code(content)
+        default_visible = permission_code_allows(course_level_code, permission_code)
+        override_mode = "default"
+        if access is not None:
+            override_mode = "allow" if access.is_open else "deny"
+        visibility_map[content.id] = {
+            "access": access,
+            "course_level_code": course_level_code,
+            "permission_code": permission_code,
+            "default_visible": default_visible,
+            "is_visible": access.is_open if access is not None else default_visible,
+            "override_mode": override_mode,
+        }
+    return visibility_map
 
 
-def _build_topic_access_item(content: CourseContent, access: StudentContentAccess) -> dict:
+def _build_topic_access_item(content: CourseContent, visibility: dict[str, object]) -> dict:
     topic_definition = GESP4_TOPIC_MAP[content.slug]
     is_real_content = topic_definition["content_mode"] == "real"
     content_mode_text = "真实内容" if is_real_content else "内容预留"
-    state = "open" if access.is_open else "locked"
+    access = visibility["access"]
+    is_visible = bool(visibility["is_visible"])
+    override_mode = str(visibility["override_mode"])
+    permission_code = str(visibility["permission_code"] or "未配置")
+    course_level_code = str(visibility["course_level_code"] or "未分配")
+    state = "open" if is_visible else "locked"
     open_note = "已接入真实内容页。" if is_real_content else "当前先进入内容预留页。"
-    if access.is_open:
-        student_note = f"已开放，{open_note}"
-        teacher_note = f"开放时间：{format_datetime(access.granted_at)}；{open_note}"
-        parent_hint = f"开放时间：{format_datetime(access.granted_at)}"
+    if is_visible:
+        if override_mode == "allow" and access is not None:
+            student_note = f"教师已单独开放，{open_note}"
+            teacher_note = f"单独开放时间：{format_datetime(access.granted_at)}；{open_note}"
+            parent_hint = f"教师已单独开放：{format_datetime(access.granted_at)}"
+            status_text = "已额外开放"
+        else:
+            student_note = f"当前等级已覆盖，{open_note}"
+            teacher_note = f"按当前等级 {course_level_code} 默认可见；{open_note}"
+            parent_hint = f"按当前等级 {course_level_code} 默认可见"
+            status_text = "默认可见"
         action_label = "进入专题" if is_real_content else "查看预留页"
         action_href = content.route_path
     else:
-        student_note = f"教师开放后可进入；{open_note}"
-        teacher_note = f"当前未开放；{open_note}"
-        parent_hint = "当前尚未开放，教师开放后可进入。"
+        if override_mode == "deny":
+            student_note = f"当前已被教师单独关闭；{open_note}"
+            teacher_note = f"当前已单独禁用；{open_note}"
+            parent_hint = "当前已被教师单独关闭。"
+            status_text = "已禁用"
+        else:
+            student_note = f"当前等级未覆盖 {permission_code}；{open_note}"
+            teacher_note = f"当前等级 {course_level_code} 不覆盖 {permission_code}；{open_note}"
+            parent_hint = f"当前等级 {course_level_code} 暂不覆盖 {permission_code}。"
+            status_text = "默认不可见"
         action_label = ""
         action_href = ""
 
@@ -1126,38 +2532,45 @@ def _build_topic_access_item(content: CourseContent, access: StudentContentAcces
         "content_mode": topic_definition["content_mode"],
         "content_mode_text": content_mode_text,
         "is_real_content": is_real_content,
-        "is_open": access.is_open,
+        "is_open": is_visible,
         "state": state,
-        "status_text": "已开放" if access.is_open else "未开放",
-        "granted_at": access.granted_at,
-        "granted_at_text": format_datetime(access.granted_at) if access.is_open else "暂无开放记录",
-        "granted_by_name": access.granted_by.full_name if access.granted_by else "暂无记录",
+        "status_text": status_text,
+        "granted_at": access.granted_at if access else None,
+        "granted_at_text": format_datetime(access.granted_at) if access and access.granted_at else "按默认规则生效",
+        "granted_by_name": access.granted_by.full_name if access and access.granted_by else "默认规则",
         "student_note": student_note,
         "teacher_note": teacher_note,
         "parent_hint": parent_hint,
         "action_label": action_label,
         "action_href": action_href,
-        "toggle_label": "关闭专题" if access.is_open else "开放专题",
+        "toggle_label": "关闭专题" if is_visible else "开放专题",
         "toggle_help": (
-            "关闭后学生端将重新锁定这个专题。"
-            if access.is_open
-            else "开放后学生端、家长端和校长端都会同步显示该专题状态。"
+            "关闭后会写入学生级禁用 override。"
+            if is_visible
+            else "开放后会按默认规则恢复，或写入学生级开放 override。"
         ),
         "path_items": ["C++", "GESP", "GESP4", content.title],
+        "permission_code": permission_code,
+        "course_level_code": course_level_code,
+        "override_mode": override_mode,
     }
 
 
 def get_gesp4_topic_access_items(student: Student) -> list[dict]:
     contents = get_gesp4_topic_contents()
-    access_map = _get_access_map(student, contents)
-    return [_build_topic_access_item(content, access_map[content.id]) for content in contents]
+    visibility_map = _get_content_visibility_map(student, contents)
+    return [_build_topic_access_item(content, visibility_map[content.id]) for content in contents]
 
 
-def get_gesp2_knowledge_items() -> list[dict]:
+def get_gesp2_knowledge_items(student: Student | None = None) -> list[dict]:
     items = []
-    for content in get_gesp2_knowledge_contents():
+    contents = get_gesp2_knowledge_contents()
+    visibility_map = _get_content_visibility_map(student, contents) if student else {}
+    for content in contents:
         definition = GESP2_KNOWLEDGE_MAP[content.slug]
         is_real_content = definition["content_mode"] == "real"
+        if student and not visibility_map[content.id]["is_visible"]:
+            continue
         items.append(
             {
                 "slug": content.slug,
@@ -1192,6 +2605,49 @@ def build_student_portal_page(
     locked_topic_slug: str | None = None,
 ) -> dict:
     page_shell = deepcopy(STUDENT_PORTAL_CONTENT[page_key])
+    student = get_student_by_user(portal_user)
+
+    if page_key == "courses":
+        if not is_student_portal_exception(student):
+            preferred_course_slug = resolve_course_slug(student.primary_course_name, student.primary_level_name)
+            filtered_cards = []
+            for card in page_shell["portal_cards"]:
+                if card["slug"] == "practice":
+                    filtered_cards.append(card)
+                    continue
+                if preferred_course_slug and card["slug"] == preferred_course_slug:
+                    filtered_cards.append(card)
+            page_shell["portal_cards"] = filtered_cards
+            state_counts = {
+                "open": sum(1 for card in filtered_cards if card["state"] == "open"),
+                "trial": sum(1 for card in filtered_cards if card["state"] == "trial"),
+                "locked": sum(1 for card in filtered_cards if card["state"] == "locked"),
+            }
+            page_shell["summary_cards"] = [
+                {"label": "已开放", "value": f"{state_counts['open']} 个"},
+                {"label": "体验中", "value": f"{state_counts['trial']} 个"},
+                {"label": "未开放", "value": f"{state_counts['locked']} 个"},
+            ]
+            if preferred_course_slug:
+                page_shell["entry_hint"] = "当前只显示与你当前课程匹配的入口，以及作业入口。"
+            else:
+                page_shell["entry_hint"] = "当前只保留作业入口；课程入口会按学生主课程方向显示。"
+        return page_shell
+
+    if page_key == "cpp":
+        cpp_level_code = get_student_course_level_code(student, course_slug="cpp")
+        filtered_cards = [
+            card
+            for card in page_shell["portal_cards"]
+            if should_show_cpp_portal_category(card.get("slug", ""), cpp_level_code)
+        ]
+        page_shell["portal_cards"] = filtered_cards
+        page_shell["summary_cards"] = build_portal_state_summary_cards(filtered_cards)
+        if permission_code_allows(cpp_level_code, "C3"):
+            page_shell["entry_hint"] = f"当前按等级 {cpp_level_code or '未分配'} 显示 GESP 与 CSP 入口；机器人编程入口已隐藏。"
+        else:
+            page_shell["entry_hint"] = f"当前按等级 {cpp_level_code or '未分配'} 只显示 GESP 入口；CSP 与机器人编程入口已隐藏。"
+        return page_shell
 
     if page_key == "cpp_gesp":
         gesp2_contents = get_gesp2_knowledge_contents()
@@ -1257,7 +2713,7 @@ def build_student_portal_page(
         return page_shell
 
     if page_key == "cpp_gesp2":
-        knowledge_items = get_gesp2_knowledge_items()
+        knowledge_items = get_gesp2_knowledge_items(student)
         real_count = sum(1 for item in knowledge_items if item["is_real_content"])
         reserved_count = len(knowledge_items) - real_count
         real_titles = [item["title"] for item in knowledge_items if item["is_real_content"]]
@@ -1282,42 +2738,34 @@ def build_student_portal_page(
             {"label": "预留内容", "value": f"{reserved_count} 个"},
         ]
         page_shell["entry_hint"] = (
-            f"{'、'.join(real_titles)} 已作为 GESP2 真实知识点网页接入，"
-            "其它知识点当前先进入统一预留页。"
+            f"{'、'.join(real_titles)} 已作为 GESP2 真实知识点网页接入，其它知识点当前先进入统一预留页。"
+            if knowledge_items
+            else "当前等级下还没有可见的 GESP2 知识点。"
         )
         return page_shell
 
     if page_key != "cpp_gesp4":
         return page_shell
 
-    student = get_student_by_user(portal_user)
     topic_items = get_gesp4_topic_access_items(student)
-    open_count = sum(1 for item in topic_items if item["is_open"])
+    visible_topic_items = [item for item in topic_items if item["is_open"]]
+    open_count = len(visible_topic_items)
     total_count = len(topic_items)
 
     page_shell["portal_cards"] = []
-    for item in topic_items:
+    for item in visible_topic_items:
         card = {
             "slug": item["slug"],
             "title": item["title"],
             "meta": f"{item['order_label']} · {item['content_mode_text']}",
-            "subtitle": (
-                "真实内容已开放"
-                if item["is_open"] and item["is_real_content"]
-                else "内容预留已开放"
-                if item["is_open"]
-                else "真实内容待开放"
-                if item["is_real_content"]
-                else "内容预留待开放"
-            ),
+            "subtitle": "真实内容已开放" if item["is_real_content"] else "内容预留已开放",
             "note": item["student_note"],
             "state": item["state"],
             "status_text": item["status_text"],
             "featured": item["is_real_content"],
         }
-        if item["is_open"]:
-            card["action_label"] = item["action_label"]
-            card["action_href"] = item["action_href"]
+        card["action_label"] = item["action_label"]
+        card["action_href"] = item["action_href"]
         page_shell["portal_cards"].append(card)
 
     page_shell["summary_cards"] = [
@@ -1330,7 +2778,7 @@ def build_student_portal_page(
     elif open_count:
         page_shell["entry_hint"] = f"当前已开放 {open_count} 个 GESP4 专题，可继续进入已开放内容。"
     else:
-        page_shell["entry_hint"] = "GESP4 目录已接入真实读库逻辑，教师开放后即可进入对应专题。"
+        page_shell["entry_hint"] = "当前等级下还没有可见的 GESP4 专题。"
     return page_shell
 
 
@@ -1489,6 +2937,16 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
         page_shell["content_items"] = []
         page_shell["latest_evaluation"] = None
         page_shell["reward_records"] = []
+        page_shell["homework_portal_href"] = ""
+        page_shell["homework_portal_note"] = ""
+        page_shell["weekly_homework_summary"] = {
+            "week_label": "",
+            "total_count": 0,
+            "completed_count": 0,
+            "pending_count": 0,
+            "latest_comment": None,
+            "items": [],
+        }
         page_shell["lesson_hour_summary"] = {
             "balance_text": "0",
             "latest_text": "暂无",
@@ -1504,6 +2962,7 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
     reward_records = list(student.reward_records.select_related("teacher")[:3])
     lesson_hour_records = list(student.lesson_hour_ledgers.select_related("teacher")[:3])
     lesson_hour_summary = build_lesson_hour_summary(student)
+    weekly_homework_summary = build_weekly_homework_summary(student)
     latest_open = max(
         (item for item in open_items if item["granted_at"]),
         key=lambda item: item["granted_at"],
@@ -1551,6 +3010,9 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
     ]
     page_shell["latest_evaluation"] = serialize_evaluation(evaluation_records[0]) if evaluation_records else None
     page_shell["reward_records"] = [serialize_reward(record) for record in reward_records]
+    page_shell["homework_portal_href"] = reverse("parent-homework-list")
+    page_shell["homework_portal_note"] = "进入作业记录页后，可以按 assignment 查看 submission 历史、整份结果、错题页和空白练习卷。"
+    page_shell["weekly_homework_summary"] = weekly_homework_summary
     page_shell["lesson_hour_summary"] = lesson_hour_summary
     page_shell["lesson_hour_records"] = [serialize_lesson_hour(record) for record in lesson_hour_records]
     return page_shell
@@ -1575,6 +3037,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         has_cpp_assignment = any(assignment.course.slug == "cpp" for assignment in student_assignments)
         topic_items = get_gesp4_topic_access_items(student) if has_cpp_assignment else []
         open_items = [item for item in topic_items if item["is_open"]]
+        total_open_records += len(open_items)
         lesson_hour_summary = build_lesson_hour_summary(student)
         total_lesson_balance += lesson_hour_summary["balance"]
         assignment_scope_text = summarize_teacher_assignment_scope(student_assignments)
@@ -1602,18 +3065,6 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
                 "relation_label": "关系管理",
             }
         )
-
-    cpp_student_ids = {
-        student_id
-        for student_id, student_assignments in assignments_by_student.items()
-        if any(assignment.course.slug == "cpp" for assignment in student_assignments)
-    }
-    if cpp_student_ids:
-        total_open_records = StudentContentAccess.objects.filter(
-            student_id__in=cpp_student_ids,
-            content__course__slug="cpp",
-            is_open=True,
-        ).count()
 
     course_rows = []
     course_order_map = {
@@ -2032,12 +3483,66 @@ def build_teacher_course_student_pool_context(
             }
         )
 
+    single_student_permission_level_codes = list(CONTENT_PERMISSION_ORDER) if course.slug == "cpp" else available_level_codes
+    single_student_level_name_options = (
+        [
+            "GESP1",
+            "GESP2",
+            "GESP3",
+            "GESP4",
+            "GESP5",
+            "GESP6",
+            "GESP7",
+            "GESP8",
+            "CSP-J",
+            "CSP-S",
+        ]
+        if course.slug == "cpp"
+        else available_level_codes
+    )
+    default_primary_level_name_map = {
+        "C1": "GESP1",
+        "C2": "GESP5",
+        "C3": "CSP-J",
+        "C4": "CSP-S",
+    }
+    default_permission_level_code = (
+        normalized_level_code
+        if normalized_level_code in single_student_permission_level_codes
+        else (single_student_permission_level_codes[0] if single_student_permission_level_codes else "")
+    )
+    default_primary_level_name = (
+        default_primary_level_name_map.get(default_permission_level_code)
+        if course.slug == "cpp"
+        else (single_student_level_name_options[0] if single_student_level_name_options else "")
+    )
+    if default_primary_level_name not in single_student_level_name_options and single_student_level_name_options:
+        default_primary_level_name = single_student_level_name_options[0]
+
     return {
         "course": course,
         "course_slug": course_slug,
         "course_title": course.title,
         "selected_level_code": normalized_level_code,
         "available_level_codes": available_level_codes,
+        "single_student_permission_level_codes": single_student_permission_level_codes,
+        "single_student_level_name_options": single_student_level_name_options,
+        "single_student_course_options": [
+            {
+                "value": str(course.id),
+                "label": course.title,
+                "selected": True,
+            }
+        ],
+        "single_student_form_values": {
+            "student_name": "",
+            "parent_phone": "",
+            "course_id": str(course.id),
+            "permission_level_code": default_permission_level_code,
+            "primary_level_name": default_primary_level_name,
+        },
+        "single_student_error_message": "",
+        "single_student_modal_should_open": False,
         "page_title": f"{course.title} · 学生池",
         "page_description": "这里集中展示当前不在你这个课程方向下的学生，用来批量加入我名下。学生主档不复制，只写 TeacherStudentAssignment。",
         "breadcrumbs": [
@@ -2067,6 +3572,7 @@ def build_teacher_course_student_pool_context(
             {"title": "查询边界", "description": "只排除当前老师在当前课程方向下已有 active assignment 的学生。"},
             {"title": "保存边界", "description": "保存时只操作 TeacherStudentAssignment，不改学生主档，不改其他老师关系。"},
             {"title": "级别处理", "description": "当前先由页面顶部统一选择一个 level_code，再批量加入，先保证最小可用。"},
+            {"title": "单个新增", "description": "通过弹窗新增单个学生时，会补齐最小主档、家长联系人和当前老师 / 课程 assignment。"},
         ],
     }
 
@@ -2087,18 +3593,35 @@ def build_teacher_course_level_detail_context(
     level = get_teacher_course_level(category, level_code)
     knowledge_contents = list(get_teacher_level_contents(level))
     content_ids = [content.id for content in knowledge_contents]
-    open_count_map = {
-        row["content_id"]: row["open_count"]
-        for row in (
-            StudentContentAccess.objects.filter(
-                student_id__in=scope["student_ids"],
-                content_id__in=content_ids,
-                is_open=True,
-            )
-            .values("content_id")
-            .annotate(open_count=Count("id"))
+    student_level_map = {
+        student_id: pick_highest_permission_code(
+            assignment.level_code for assignment in scope["assignments_by_student"][student_id]
+        )
+        for student_id in scope["student_ids"]
+    }
+    content_permission_map = {
+        content.id: get_content_permission_code(content)
+        for content in knowledge_contents
+    }
+    access_map = {
+        (access.student_id, access.content_id): access
+        for access in StudentContentAccess.objects.select_related("granted_by").filter(
+            student_id__in=scope["student_ids"],
+            content_id__in=content_ids,
         )
     } if content_ids else {}
+    open_count_map = {
+        content.id: sum(
+            1
+            for student_id in scope["student_ids"]
+            if (
+                access_map[(student_id, content.id)].is_open
+                if (student_id, content.id) in access_map
+                else permission_code_allows(student_level_map.get(student_id, ""), content_permission_map.get(content.id, ""))
+            )
+        )
+        for content in knowledge_contents
+    }
 
     knowledge_point_rows = []
     for content in knowledge_contents:
@@ -2190,18 +3713,40 @@ def build_teacher_course_content_access_context(
             content=content,
         )
     }
+    content_permission_code = get_content_permission_code(content)
+    student_level_map = {
+        student_id: pick_highest_permission_code(
+            assignment.level_code for assignment in scope["assignments_by_student"][student_id]
+        )
+        for student_id in scope["student_ids"]
+    }
     all_student_rows = []
     for student in scope["related_students"]:
         access = access_map.get(student.id)
+        course_level_code = student_level_map.get(student.id, "")
+        default_visible = permission_code_allows(course_level_code, content_permission_code)
+        is_open = access.is_open if access else default_visible
+        if access and access.is_open:
+            status_text = "已额外开放"
+            hint = format_datetime(access.granted_at)
+        elif access and not access.is_open:
+            status_text = "已禁用"
+            hint = "当前已写入学生级禁用 override"
+        elif default_visible:
+            status_text = "默认可见"
+            hint = f"当前等级 {course_level_code or '未分配'} 自动覆盖 {content_permission_code or '未配置'}"
+        else:
+            status_text = "默认不可见"
+            hint = f"当前等级 {course_level_code or '未分配'} 不覆盖 {content_permission_code or '未配置'}"
         row = {
             "student_id": student.id,
             "name": student.display_name,
             "grade": student.grade or "待补充",
             "scope_text": summarize_teacher_assignment_scope(scope["assignments_by_student"][student.id]),
-            "is_open": access.is_open if access else False,
-            "selected": access.is_open if access else False,
-            "status_text": "已开通" if access and access.is_open else "未开通",
-            "hint": format_datetime(access.granted_at) if access and access.is_open else "暂无开放记录",
+            "is_open": is_open,
+            "selected": is_open,
+            "status_text": status_text,
+            "hint": hint,
         }
         all_student_rows.append(row)
 
@@ -2241,6 +3786,7 @@ def build_teacher_course_content_access_context(
             {"label": "所属课程方向", "value": course.title},
             {"label": "所属分类", "value": category.title},
             {"label": "所属 Level", "value": level.title},
+            {"label": "权限归属", "value": content_permission_code or "未配置"},
         ],
         "content": content,
         "open_count": open_count,
@@ -2299,7 +3845,16 @@ def build_teacher_course_workflow_placeholder_context(
     }
 
 
-def build_teacher_student_detail_context(portal_user: PortalUser, student_id: int) -> dict:
+def build_teacher_student_detail_context(
+    portal_user: PortalUser,
+    student_id: int,
+    *,
+    homework_form_values: dict[str, object] | None = None,
+    homework_error_message: str = "",
+    homework_success_message: str = "",
+    homework_summary_form_values: dict[str, object] | None = None,
+    homework_summary_error_message: str = "",
+) -> dict:
     student_assignments = list(
         TeacherStudentAssignment.objects.select_related("course", "student", "student__user", "student__parent_user", "student__teacher_user")
         .filter(teacher=portal_user, student_id=student_id, is_active=True)
@@ -2456,6 +4011,16 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
             ],
         },
     ]
+    homework_context = build_teacher_student_homework_context(
+        portal_user,
+        student,
+        homework_form_values=homework_form_values,
+        homework_error_message=homework_error_message,
+        homework_success_message=homework_success_message,
+        homework_summary_form_values=homework_summary_form_values,
+        homework_summary_error_message=homework_summary_error_message,
+    )
+    content_restriction_context = build_teacher_student_content_restriction_context(portal_user, student)
 
     return {
         "student": student,
@@ -2555,6 +4120,8 @@ def build_teacher_student_detail_context(portal_user: PortalUser, student_id: in
             {"title": "教师记录闭环", "description": "评价、奖励和课时变动会同步展示到家长端和校长端。"},
         ],
         "assignment_management_href": reverse("teacher-student-assignments", args=[student.id]),
+        **homework_context,
+        **content_restriction_context,
     }
 
 

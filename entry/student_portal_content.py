@@ -6,7 +6,7 @@ STUDENT_PORTAL_CONTENT = {
         "page_title": "学生课程选择页",
         "page_description": "请选择已开放的学习入口。",
         "summary_cards": [
-            {"label": "已开放", "value": "2 个"},
+            {"label": "已开放", "value": "3 个"},
             {"label": "体验中", "value": "1 个"},
             {"label": "未开放", "value": "5 个"},
         ],
@@ -23,6 +23,17 @@ STUDENT_PORTAL_CONTENT = {
                 "featured": True,
                 "action_label": "进入 C++",
                 "action_href": "/student/cpp",
+            },
+            {
+                "slug": "practice",
+                "title": "练习",
+                "meta": "作业与训练",
+                "subtitle": "已开放练习入口",
+                "note": "先查看老师布置的作业，再进入 OJ 练习占位入口",
+                "state": "open",
+                "status_text": "已开放",
+                "action_label": "进入练习",
+                "action_href": "/student/practice",
             },
             {
                 "slug": "python",

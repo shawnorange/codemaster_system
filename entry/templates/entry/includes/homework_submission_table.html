@@ -1,0 +1,41 @@
+<div class="homework-submission-table">
+    <table>
+        <thead>
+            <tr>
+                <th>提交批次</th>
+                <th>提交时间</th>
+                <th>正确 / 总题</th>
+                <th>分数</th>
+                <th>状态</th>
+                <th>详情</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in submission_rows %}
+                <tr>
+                    <td>
+                        <strong>{{ item.attempt_label }}</strong>
+                        {% if item.is_latest %}
+                            <span class="homework-submission-table__hint">最新一次</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.submitted_at_text }}</td>
+                    <td>{{ item.correct_count }} / {{ item.total_count }}</td>
+                    <td>{{ item.score_text }}</td>
+                    <td>
+                        <span class="state-pill state-pill--{{ item.status_tone }}">{{ item.status_text }}</span>
+                    </td>
+                    <td>
+                        <a href="{{ item.detail_href }}">查看详情</a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="6">
+                        <div class="entry-hint-bar">{{ submission_empty_message }}</div>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

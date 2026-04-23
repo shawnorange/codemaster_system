@@ -1,0 +1,87 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_print.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/homework_summary.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    <div class="homework-summary-page">
+        <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+            {% for item in breadcrumbs %}
+                {% if item.href %}
+                    <a href="{{ item.href }}">{{ item.label }}</a>
+                {% else %}
+                    <span>{{ item.label }}</span>
+                {% endif %}
+                {% if not forloop.last %}
+                    <i></i>
+                {% endif %}
+            {% endfor %}
+        </nav>
+
+        <section class="hero-panel hero-panel--stacked-metrics summary-screen-only">
+            <div class="hero-panel__copy">
+                <p class="eyebrow">Weekly Summary</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ summary.title }}</h2>
+                <p class="role-description">{{ page_description }}</p>
+            </div>
+
+            <div class="hero-panel__metrics">
+                {% for item in summary_overview_cards %}
+                    <article class="metric-card">
+                        <p class="metric-card__label">{{ item.label }}</p>
+                        <strong>{{ item.value }}</strong>
+                        <span>{{ item.hint }}</span>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="surface-panel surface-panel--primary homework-summary-panel">
+            <div class="print-shell homework-summary-sheet">
+                <div class="print-logo">
+                    <img src="{% static 'entry/images/code_master.png' %}" alt="大师码 Logo">
+                </div>
+
+                <div class="summary-print-toolbar">
+                    <div class="summary-print-toolbar__copy">
+                        <p>{{ assignment.title }}</p>
+                        <h1>{{ summary.title }}</h1>
+                        <span>{{ page_description }}</span>
+                    </div>
+                    <div class="summary-print-toolbar__actions summary-screen-only">
+                        <a href="{{ back_href }}" class="system-header__link">返回作业</a>
+                        <button type="button" class="print-button" onclick="window.print()">打印</button>
+                    </div>
+                </div>
+
+                <div class="meta-grid">
+                    {% for item in summary_meta_items %}
+                        <article class="meta-card">
+                            <span>{{ item.label }}</span>
+                            <strong>{{ item.value }}</strong>
+                        </article>
+                    {% endfor %}
+                </div>
+
+                <section class="homework-summary-content">
+                    <div class="section-heading section-heading--compact summary-section-heading">
+                        <p class="section-heading__eyebrow">Summary Content</p>
+                        <h3>本周总结正文</h3>
+                        <p>创建时间：{{ summary.created_at_text }} · 最近更新：{{ summary.updated_at_text }} · 创建人：{{ summary.created_by_name }}</p>
+                    </div>
+
+                    <article class="homework-summary-richtext">
+                        {{ summary.rendered_html }}
+                    </article>
+                </section>
+            </div>
+        </section>
+    </div>
+{% endblock %}

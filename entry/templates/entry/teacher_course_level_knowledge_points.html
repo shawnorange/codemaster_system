@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -51,19 +51,19 @@
                 <div class="entry-hint-bar">{{ success_message }}</div>
             {% endif %}
 
-            <div class="teacher-tabulator-shell">
-                <div class="teacher-tabulator-toolbar">
-                <div class="teacher-tabulator-toolbar__search">
-                    <label for="knowledge-search">Title</label>
-                    <input id="knowledge-search" class="teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="按 Title 模糊查找">
+            <div class="portal-grid-shell teacher-tabulator-shell">
+                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                        <label for="knowledge-search">Title</label>
+                        <input id="knowledge-search" class="portal-grid-search teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="按 Title 模糊查找">
+                    </div>
+                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                        <a class="system-header__link" href="{{ export_href }}">导出当前 Level 结构</a>
+                        <a class="system-header__link" href="{{ add_knowledge_point_href }}">新增知识点</a>
+                        <span class="portal-grid-note teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                    </div>
                 </div>
-                <div class="teacher-tabulator-toolbar__actions">
-                    <a class="system-header__link" href="{{ export_href }}">导出当前 Level 结构</a>
-                    <a class="system-header__link" href="{{ add_knowledge_point_href }}">新增知识点</a>
-                    <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
-                </div>
-            </div>
-                <div id="knowledge-point-grid-table" class="teacher-tabulator-container"></div>
+                <div id="knowledge-point-grid-table" class="portal-grid-container teacher-tabulator-container"></div>
             </div>
         </section>
 

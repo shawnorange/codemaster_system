@@ -1,0 +1,138 @@
+.print-page {
+    margin: 0;
+    padding: 24px;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #172033;
+    background: #f7f9fc;
+}
+
+.print-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 20px;
+    padding: 28px 32px;
+    box-shadow: 0 14px 38px rgba(21, 51, 90, 0.08);
+}
+
+.print-logo {
+    margin-bottom: 18px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.print-logo img {
+    display: block;
+    max-width: 168px;
+    width: 100%;
+    height: auto;
+}
+
+.print-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.print-toolbar__copy p {
+    margin: 0;
+    color: #6a7890;
+}
+
+.print-toolbar__copy h1 {
+    margin: 6px 0 0;
+}
+
+.print-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 999px;
+    background: #0f67b8;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.print-meta-grid,
+.meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.print-meta-card,
+.meta-card {
+    border: 1px solid rgba(15, 103, 184, 0.12);
+    border-radius: 16px;
+    padding: 16px 18px;
+    background: #fff;
+}
+
+.print-meta-card span,
+.meta-card span {
+    display: block;
+    color: #6a7890;
+    font-size: 13px;
+}
+
+.print-meta-card strong,
+.meta-card strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 18px;
+}
+
+@media (max-width: 720px) {
+    .print-page {
+        padding: 16px;
+    }
+
+    .print-shell {
+        padding: 22px;
+    }
+
+    .print-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .print-meta-grid,
+    .meta-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media print {
+    .print-page {
+        padding: 0;
+        background: #fff;
+    }
+
+    .print-shell {
+        box-shadow: none;
+        border-radius: 0;
+        padding: 0;
+    }
+
+    .print-toolbar {
+        display: none;
+    }
+
+    .print-logo {
+        margin-bottom: 14px;
+    }
+
+    .print-meta-card,
+    .meta-card {
+        break-inside: avoid;
+        box-shadow: none;
+    }
+}

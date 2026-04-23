@@ -4,6 +4,8 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
 
+from .content_visibility import CONTENT_PERMISSION_CHOICES
+
 
 class PortalUser(models.Model):
     ROLE_STUDENT = "student"
@@ -147,6 +149,13 @@ class CourseContent(models.Model):
     slug = models.SlugField("内容标识", unique=True)
     title = models.CharField("内容名称", max_length=128)
     phase = models.CharField("所属阶段", max_length=64, blank=True)
+    permission_code = models.CharField(
+        "权限归属",
+        max_length=4,
+        choices=CONTENT_PERMISSION_CHOICES,
+        blank=True,
+        default="",
+    )
     sort_order = models.PositiveIntegerField("排序", default=0)
     route_path = models.CharField("访问路由", max_length=255, unique=True)
     summary = models.TextField("内容说明", blank=True)
@@ -159,6 +168,7 @@ class CourseContent(models.Model):
         verbose_name_plural = "课程内容"
         indexes = [
             models.Index(fields=["level", "is_active", "sort_order"], name="content_level_active_sort_idx"),
+            models.Index(fields=["permission_code", "is_active", "sort_order"], name="content_perm_active_sort_idx"),
         ]
 
     def __str__(self) -> str:
@@ -280,6 +290,13 @@ class HomeworkAssignment(models.Model):
     due_date = models.DateField("截止日期")
     status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_ASSIGNED)
     teacher_comment = models.TextField("教师评语", blank=True)
+    summary = models.ForeignKey(
+        "HomeworkSummary",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assignments",
+    )
     assigned_at = models.DateTimeField("布置时间", default=timezone.now)
     completed_at = models.DateTimeField("完成时间", null=True, blank=True)
     reviewed_at = models.DateTimeField("评阅时间", null=True, blank=True)
@@ -323,6 +340,28 @@ class HomeworkAssignment(models.Model):
             return False
         self.status = self.STATUS_CANCELLED
         return True
+
+
+class HomeworkSummary(models.Model):
+    title = models.CharField("总结标题", max_length=255, blank=True, default="")
+    summary_html = models.TextField("总结 HTML", blank=True, default="")
+    created_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_homework_summaries",
+    )
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        verbose_name = "作业周总结"
+        verbose_name_plural = "作业周总结"
+
+    def __str__(self) -> str:
+        return self.title or f"作业周总结 #{self.pk}"
 
 
 class HomeworkImportJob(models.Model):
@@ -483,12 +522,10 @@ class HomeworkSubmission(models.Model):
         ordering = ["-updated_at", "-id"]
         verbose_name = "作业提交"
         verbose_name_plural = "作业提交"
-        constraints = [
-            models.UniqueConstraint(fields=["assignment", "student"], name="hw_submission_assignment_student_unique"),
-        ]
         indexes = [
             models.Index(fields=["student", "status", "is_active"], name="hw_sub_student_status_idx"),
             models.Index(fields=["assignment", "status", "is_active"], name="hw_sub_assign_status_idx"),
+            models.Index(fields=["assignment", "student", "created_at"], name="hw_sub_assign_student_idx"),
         ]
 
     def __str__(self) -> str:

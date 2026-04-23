@@ -57,7 +57,14 @@ SECRET_KEY = get_env("DJANGO_SECRET_KEY", default="django-insecure-local-dev-onl
 
 DEBUG = get_env_bool("DJANGO_DEBUG", default=True)
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in get_env(
+        "DJANGO_ALLOWED_HOSTS",
+        default="127.0.0.1,localhost,testserver",
+    ).split(",")
+    if host.strip()
+]
 
 
 HOMEWORK_IMPORT_ROUTER_ENABLED = get_env_bool("HOMEWORK_IMPORT_ROUTER_ENABLED", default=False)
@@ -159,7 +166,8 @@ USE_I18N = True
 
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = Path(get_env("DJANGO_STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 

@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/topics/gesp2_enumeration/styles.css' %}?v=20260408f">
+    <link rel="stylesheet" href="{% static 'entry/topics/gesp2_enumeration/styles.css' %}?v=20260411d">
 {% endblock %}
 
 {% block system_content %}
@@ -22,8 +22,447 @@
     </nav>
 
     <div class="entry-hint-bar">{{ topic_note }}</div>
+    {% if manual_override_feedback.status %}
+        <div class="entry-hint-bar{% if manual_override_feedback.status == 'error' %} entry-hint-bar--warning{% endif %}">
+            {{ manual_override_feedback.message }}
+        </div>
+    {% endif %}
 
-    <section class="gesp2-enumeration-topic">
+    {% if topic_view_mode == "student" %}
+        <section class="gesp2-enumeration-topic">
+            <div class="page-shell">
+                <div
+                    class="topic-review-shell"
+                    data-student-review-shell
+                    data-default-section="{{ topic_review_data.default_section_key }}"
+                >
+                    <aside class="review-sidebar">
+                        <div class="review-sidebar-shell">
+                            <div class="review-sidebar-head">
+                                <p class="eyebrow">Review Guide</p>
+                                <h3>枚举法复盘导航</h3>
+                                <p class="panel-description">先看专题导览，再按节复盘。每一节只保留一个主例题，其余题目收进同类练习。</p>
+                            </div>
+
+                            <label class="review-select-label">
+                                <span>移动端切换分节</span>
+                                <select class="review-select" data-review-select aria-label="切换枚举法复盘分节">
+                                    {% for item in topic_review_data.navigation %}
+                                        <option value="{{ item.key }}">{{ item.title }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+
+                            <nav class="review-nav" aria-label="枚举法分节导航">
+                                {% for item in topic_review_data.navigation %}
+                                    <button
+                                        type="button"
+                                        class="review-nav-button{% if item.key == topic_review_data.default_section_key %} is-active{% endif %}"
+                                        data-review-target="{{ item.key }}"
+                                        aria-current="{% if item.key == topic_review_data.default_section_key %}page{% else %}false{% endif %}"
+                                    >
+                                        <span class="review-nav-button__badge">{{ item.badge }}</span>
+                                        <strong>{{ item.title }}</strong>
+                                        <small>{{ item.subtitle|truncatechars:36 }}</small>
+                                    </button>
+                                {% endfor %}
+                            </nav>
+                        </div>
+                    </aside>
+
+                    <main class="review-main" data-review-main>
+                        <article
+                            id="review-overview"
+                            class="review-panel review-panel--overview is-active"
+                            data-review-panel="overview"
+                        >
+                            <section class="review-hero">
+                                <div class="review-hero__copy">
+                                    <p class="eyebrow">GESP2 / Student Review</p>
+                                    <span class="role-badge">当前角色：{{ role_label }}</span>
+                                    <h2>{{ topic_review_data.overview.title }}</h2>
+                                    <p class="hero-subtitle">{{ topic_review_data.overview.definition }}</p>
+                                    <p class="topic-summary">{{ topic_review_data.overview.summary }}</p>
+                                </div>
+
+                                <div class="review-hero__actions">
+                                    {% if topic_review_data.overview.first_section_key %}
+                                        <button
+                                            type="button"
+                                            class="review-primary-action"
+                                            data-review-target="{{ topic_review_data.overview.first_section_key }}"
+                                        >
+                                            开始学习
+                                        </button>
+                                    {% endif %}
+                                    <p class="review-video-note">{{ topic_review_data.overview.video_note }}</p>
+                                </div>
+                            </section>
+
+                            <section class="review-overview-grid">
+                                <article class="review-stat-card">
+                                    <span>专题标题</span>
+                                    <strong>{{ topic_review_data.topic_title }}</strong>
+                                    <p>这一页只聚焦学生回家复盘，不再把整套教师演示台放在第一屏。</p>
+                                </article>
+                                <article class="review-stat-card">
+                                    <span>本节学什么</span>
+                                    <strong>{{ topic_review_data.overview.section_count }} 个分节</strong>
+                                    <p>从单层枚举，到按位处理、双层枚举、图形输出，再到 break 与边界。</p>
+                                </article>
+                                <article class="review-stat-card">
+                                    <span>建议复盘时长</span>
+                                    <strong>{{ topic_review_data.overview.estimated_minutes }} 分钟</strong>
+                                    <p>先快速过一遍导览，再顺着分节往下看，最后挑练习题补空缺。</p>
+                                </article>
+                                <article class="review-stat-card">
+                                    <span>本页题量</span>
+                                    <strong>{{ topic_review_data.overview.question_count }} 题</strong>
+                                    <p>所有题目均来自当前 `public.questions` 中的 `enumeration-method` 记录。</p>
+                                </article>
+                            </section>
+
+                            <section class="review-section-block">
+                                <div class="section-heading">
+                                    <p class="section-heading__eyebrow">What To Learn</p>
+                                    <h3>这次复盘先抓住这三件事</h3>
+                                </div>
+                                <div class="review-insight-grid">
+                                    {% for item in topic_review_data.overview.learning_targets %}
+                                        <article class="review-insight-card">
+                                            <strong>重点 {{ forloop.counter }}</strong>
+                                            <p>{{ item }}</p>
+                                        </article>
+                                    {% endfor %}
+                                </div>
+                            </section>
+
+                            <section class="review-section-block">
+                                <div class="section-heading">
+                                    <p class="section-heading__eyebrow">Study Order</p>
+                                    <h3>建议复盘顺序</h3>
+                                </div>
+                                <div class="review-order-list">
+                                    {% for section in topic_review_data.sections %}
+                                        <article class="review-order-item">
+                                            <span>{{ section.section_label }}</span>
+                                            <strong>{{ section.title }}</strong>
+                                            <p>{{ section.summary }}</p>
+                                        </article>
+                                    {% endfor %}
+                                </div>
+                            </section>
+
+                            <div class="review-pagination">
+                                <button type="button" class="review-page-button" disabled>上一节</button>
+                                {% if topic_review_data.overview.next_section_key %}
+                                    <button
+                                        type="button"
+                                        class="review-page-button review-page-button--primary"
+                                        data-review-target="{{ topic_review_data.overview.next_section_key }}"
+                                    >
+                                        下一节：{{ topic_review_data.overview.next_section_title }}
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </article>
+
+                        {% for section in topic_review_data.sections %}
+                            <article
+                                id="review-{{ section.key }}"
+                                class="review-panel"
+                                data-review-panel="{{ section.key }}"
+                                hidden
+                            >
+                                <section class="review-section-hero">
+                                    <div>
+                                        <p class="section-heading__eyebrow">{{ section.section_label }} / 共 {{ topic_review_data.overview.section_count }} 节</p>
+                                        <h3>{{ section.title }}</h3>
+                                        <p>{{ section.summary }}</p>
+                                    </div>
+                                    <div class="review-section-goal">
+                                        <span>学习目标</span>
+                                        <strong>{{ section.study_goal }}</strong>
+                                    </div>
+                                </section>
+
+                                <section class="review-insight-grid">
+                                    <article class="review-insight-card">
+                                        <strong>看思路</strong>
+                                        <p>{{ section.summary }}</p>
+                                    </article>
+                                    <article class="review-insight-card">
+                                        <strong>看关键规律</strong>
+                                        <p>{{ section.pattern_statement }}</p>
+                                    </article>
+                                    <article class="review-insight-card review-insight-card--warning">
+                                        <strong>看常见错误</strong>
+                                        <p>{{ section.demo_question.pitfall|default:"先检查边界、变量是否被用坏，以及题意是否允许提前退出。" }}</p>
+                                    </article>
+                                </section>
+
+                                <section class="review-section-block">
+                                    <div class="section-heading">
+                                        <p class="section-heading__eyebrow">Main Example</p>
+                                        <h3>主例题</h3>
+                                        <p>这一节只突出一个主例题，先把核心规律看懂，再做同类题。</p>
+                                    </div>
+
+                                    <article class="review-question-card review-question-card--spotlight">
+                                        <div class="question-card__meta">
+                                            <span>{{ section.demo_question.source }}</span>
+                                            <span>{{ section.demo_question.question_type }}</span>
+                                            <span>{{ section.demo_question.question_no }}</span>
+                                        </div>
+
+                                        <div class="tag-row">
+                                            {% if section.demo_question.ability_point %}
+                                                <span class="tag tag--secondary">{{ section.demo_question.ability_point }}</span>
+                                            {% endif %}
+                                            {% if section.demo_question.template_ref %}
+                                                <span class="tag">{{ section.demo_question.template_ref }}</span>
+                                            {% endif %}
+                                        </div>
+
+                                        <h4>{{ section.demo_question.title }}</h4>
+
+                                        <div class="review-question-summary-grid">
+                                            <article class="review-mini-card">
+                                                <strong>题目要求</strong>
+                                                <p>{{ section.demo_question.prompt|default:section.demo_question.statement.0 }}</p>
+                                            </article>
+                                            <article class="review-mini-card">
+                                                <strong>本题重点</strong>
+                                                <p>{{ section.focus_statement }}</p>
+                                            </article>
+                                            <article class="review-mini-card review-mini-card--warning">
+                                                <strong>易错提醒</strong>
+                                                <p>{{ section.demo_question.pitfall|default:"先把循环边界和退出条件检查一遍。" }}</p>
+                                            </article>
+                                        </div>
+
+                                        <div class="question-statement">
+                                            <strong>主例题题面</strong>
+                                            {% for line in section.demo_question.statement %}
+                                                <p class="question-card__prompt">{{ line }}</p>
+                                            {% endfor %}
+
+                                            {% if section.demo_question.manual_override.has_any_image %}
+                                                <div class="student-manual-preview">
+                                                    <strong>人工修正截图</strong>
+                                                    <div class="student-manual-preview__grid">
+                                                        {% if section.demo_question.manual_override.question_image_url %}
+                                                            <article class="manual-preview-card">
+                                                                <strong>整题截图</strong>
+                                                                <img src="{{ section.demo_question.manual_override.question_image_url }}" alt="{{ section.demo_question.title }} 整题截图">
+                                                            </article>
+                                                        {% endif %}
+                                                        {% if section.demo_question.manual_override.code_image_url %}
+                                                            <article class="manual-preview-card">
+                                                                <strong>代码截图</strong>
+                                                                <img src="{{ section.demo_question.manual_override.code_image_url }}" alt="{{ section.demo_question.title }} 代码截图">
+                                                            </article>
+                                                        {% endif %}
+                                                        {% if section.demo_question.manual_override.options_image_url %}
+                                                            <article class="manual-preview-card">
+                                                                <strong>选项截图</strong>
+                                                                <img src="{{ section.demo_question.manual_override.options_image_url }}" alt="{{ section.demo_question.title }} 选项截图">
+                                                            </article>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
+                                            {% if section.demo_question.code %}
+                                                <div class="question-inline-code">
+                                                    <pre><code>{{ section.demo_question.code }}</code></pre>
+                                                </div>
+                                            {% endif %}
+
+                                            {% if section.demo_question.options %}
+                                                <ol class="question-option-list" type="A">
+                                                    {% for item in section.demo_question.options %}
+                                                        <li>{{ item|slice:"3:" }}</li>
+                                                    {% endfor %}
+                                                </ol>
+                                            {% endif %}
+
+                                            {% if section.demo_question.input_format or section.demo_question.output_format or section.demo_question.sample_input or section.demo_question.sample_output %}
+                                                <div class="question-io-grid">
+                                                    {% if section.demo_question.input_format %}
+                                                        <div class="question-io-card">
+                                                            <strong>输入格式</strong>
+                                                            <p>{{ section.demo_question.input_format }}</p>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if section.demo_question.output_format %}
+                                                        <div class="question-io-card">
+                                                            <strong>输出格式</strong>
+                                                            <p>{{ section.demo_question.output_format }}</p>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if section.demo_question.sample_input %}
+                                                        <div class="question-io-card">
+                                                            <strong>样例输入</strong>
+                                                            <pre><code>{{ section.demo_question.sample_input }}</code></pre>
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if section.demo_question.sample_output %}
+                                                        <div class="question-io-card">
+                                                            <strong>样例输出</strong>
+                                                            <pre><code>{{ section.demo_question.sample_output }}</code></pre>
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+
+                                        <div class="question-answer-box">
+                                            <button
+                                                type="button"
+                                                class="question-answer-toggle"
+                                                data-answer-toggle
+                                                aria-expanded="false"
+                                            >
+                                                显示主例题答案
+                                            </button>
+                                            <div class="question-answer-panel" data-answer-panel hidden>
+                                                <strong>参考答案</strong>
+                                                <p class="question-answer-label">{{ section.demo_question.answer_label }}</p>
+                                                {% if section.demo_question.answer %}
+                                                    <p>{{ section.demo_question.answer }}</p>
+                                                {% endif %}
+                                                {% for item in section.demo_question.answer_analysis %}
+                                                    <p>{{ item }}</p>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </article>
+                                </section>
+
+                                <section class="review-section-block">
+                                    <div class="section-heading">
+                                        <p class="section-heading__eyebrow">Practice</p>
+                                        <h3>同类练习</h3>
+                                        <p>{{ section.practice_hint }}</p>
+                                    </div>
+
+                                    <details class="practice-cluster"{% if not section.practice_questions %} open{% endif %}>
+                                        <summary>
+                                            继续练习 / 同类题
+                                            <span>{{ section.practice_count }} 题</span>
+                                        </summary>
+
+                                        {% if section.practice_questions %}
+                                            <div class="practice-list">
+                                                {% for question in section.practice_questions %}
+                                                    <article class="review-question-card">
+                                                        <div class="question-card__meta">
+                                                            <span>{{ question.source }}</span>
+                                                            <span>{{ question.question_type }}</span>
+                                                            <span>{{ question.question_no }}</span>
+                                                        </div>
+
+                                                        <div class="tag-row">
+                                                            {% if question.ability_point %}
+                                                                <span class="tag tag--secondary">{{ question.ability_point }}</span>
+                                                            {% endif %}
+                                                            {% if question.template_ref %}
+                                                                <span class="tag">{{ question.template_ref }}</span>
+                                                            {% endif %}
+                                                        </div>
+
+                                                        <h4>{{ question.title }}</h4>
+                                                        <p class="review-question-brief">{{ question.prompt|default:question.statement.0 }}</p>
+
+                                                        {% if question.manual_override.has_any_image %}
+                                                            <div class="student-manual-preview">
+                                                                <strong>人工修正截图</strong>
+                                                                <div class="student-manual-preview__grid">
+                                                                    {% if question.manual_override.question_image_url %}
+                                                                        <article class="manual-preview-card">
+                                                                            <strong>整题截图</strong>
+                                                                            <img src="{{ question.manual_override.question_image_url }}" alt="{{ question.title }} 整题截图">
+                                                                        </article>
+                                                                    {% endif %}
+                                                                    {% if question.manual_override.code_image_url %}
+                                                                        <article class="manual-preview-card">
+                                                                            <strong>代码截图</strong>
+                                                                            <img src="{{ question.manual_override.code_image_url }}" alt="{{ question.title }} 代码截图">
+                                                                        </article>
+                                                                    {% endif %}
+                                                                    {% if question.manual_override.options_image_url %}
+                                                                        <article class="manual-preview-card">
+                                                                            <strong>选项截图</strong>
+                                                                            <img src="{{ question.manual_override.options_image_url }}" alt="{{ question.title }} 选项截图">
+                                                                        </article>
+                                                                    {% endif %}
+                                                                </div>
+                                                            </div>
+                                                        {% endif %}
+
+                                                        <div class="question-answer-box">
+                                                            <button
+                                                                type="button"
+                                                                class="question-answer-toggle"
+                                                                data-answer-toggle
+                                                                aria-expanded="false"
+                                                            >
+                                                                显示答案
+                                                            </button>
+                                                            <div class="question-answer-panel" data-answer-panel hidden>
+                                                                <strong>参考答案</strong>
+                                                                <p class="question-answer-label">{{ question.answer_label }}</p>
+                                                                {% if question.answer %}
+                                                                    <p>{{ question.answer }}</p>
+                                                                {% endif %}
+                                                                {% for item in question.answer_analysis %}
+                                                                    <p>{{ item }}</p>
+                                                                {% endfor %}
+                                                            </div>
+                                                        </div>
+                                                    </article>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <p class="practice-empty">这一节暂时没有单独练习题，先把主例题和易错点复述一遍。</p>
+                                        {% endif %}
+                                    </details>
+                                </section>
+
+                                <div class="review-pagination">
+                                    {% if section.prev_section_key %}
+                                        <button
+                                            type="button"
+                                            class="review-page-button"
+                                            data-review-target="{{ section.prev_section_key }}"
+                                        >
+                                            上一节：{{ section.prev_section_title }}
+                                        </button>
+                                    {% else %}
+                                        <button type="button" class="review-page-button" disabled>上一节</button>
+                                    {% endif %}
+
+                                    {% if section.next_section_key %}
+                                        <button
+                                            type="button"
+                                            class="review-page-button review-page-button--primary"
+                                            data-review-target="{{ section.next_section_key }}"
+                                        >
+                                            下一节：{{ section.next_section_title }}
+                                        </button>
+                                    {% else %}
+                                        <button type="button" class="review-page-button" disabled>已到最后一节</button>
+                                    {% endif %}
+                                </div>
+                            </article>
+                        {% endfor %}
+                    </main>
+                </div>
+            </div>
+        </section>
+    {% else %}
+        <section class="gesp2-enumeration-topic">
         <div class="page-shell">
             <div class="topic-workspace" data-topic-workspace>
                 <aside class="topic-sidebar">
@@ -203,7 +642,10 @@
 
                                     <div class="question-grid">
                                         {% for question in group.questions %}
-                                            <article class="question-card">
+                                            <article
+                                                id="question-card-{{ question.id|default:question.question_id }}"
+                                                class="question-card{% if manual_override_focus_question_id == question.id %} question-card--focus{% endif %}"
+                                            >
                                                 <div class="question-card__meta">
                                                     <span>{{ question.source }}</span>
                                                     <span>{{ question.question_type }}</span>
@@ -307,6 +749,102 @@
                                                         {% endfor %}
                                                     </div>
                                                 </div>
+
+                                                {% if show_teacher_support_sections %}
+                                                    <section class="manual-override-panel">
+                                                        <div class="manual-override-panel__head">
+                                                            <div>
+                                                                <p class="section-heading__eyebrow">Manual Override</p>
+                                                                <h6>人工修正截图</h6>
+                                                                <p>上传后的图片会保存到 `media/question_assets/manual_overrides/...`，数据库只写相对 `MEDIA_ROOT` 的路径。</p>
+                                                            </div>
+                                                            {% if question.manual_override.updated_at %}
+                                                                <span class="manual-override-panel__stamp">最近更新：{{ question.manual_override.updated_at }}</span>
+                                                            {% endif %}
+                                                        </div>
+
+                                                        {% if manual_override_focus_question_id == question.id and manual_override_feedback.status %}
+                                                            <div class="manual-override-feedback{% if manual_override_feedback.status == 'error' %} is-error{% endif %}">
+                                                                {{ manual_override_feedback.message }}
+                                                            </div>
+                                                        {% endif %}
+
+                                                        {% if question.id %}
+                                                            <form
+                                                                class="manual-override-form"
+                                                                method="post"
+                                                                action="{% url 'teacher-question-manual-override' question.id %}"
+                                                                enctype="multipart/form-data"
+                                                            >
+                                                                {% csrf_token %}
+                                                                <input type="hidden" name="next" value="{{ request.path }}">
+                                                                <input type="hidden" name="return_anchor" value="question-card-{{ question.id }}">
+
+                                                                <div class="manual-override-grid">
+                                                                    <label class="manual-override-field">
+                                                                        <span>上传整题截图</span>
+                                                                        <input type="file" name="question_image" accept="image/*">
+                                                                    </label>
+                                                                    <label class="manual-override-field">
+                                                                        <span>上传代码截图</span>
+                                                                        <input type="file" name="code_image" accept="image/*">
+                                                                    </label>
+                                                                    <label class="manual-override-field">
+                                                                        <span>上传选项截图</span>
+                                                                        <input type="file" name="options_image" accept="image/*">
+                                                                    </label>
+                                                                </div>
+
+                                                                <label class="manual-override-note">
+                                                                    <span>Review Note</span>
+                                                                    <textarea name="review_note" rows="3" placeholder="例如：已补整题截图，代码截图仍待补。">{{ question.manual_override.review_note }}</textarea>
+                                                                </label>
+
+                                                                <label class="manual-override-check">
+                                                                    <input type="checkbox" name="is_reviewed" {% if question.manual_override.is_reviewed %}checked{% endif %}>
+                                                                    <span>已人工复核</span>
+                                                                </label>
+
+                                                                <div class="manual-override-preview-grid">
+                                                                    <article class="manual-preview-card">
+                                                                        <strong>整题截图</strong>
+                                                                        {% if question.manual_override.question_image_url %}
+                                                                            <img src="{{ question.manual_override.question_image_url }}" alt="{{ question.title }} 整题截图">
+                                                                            <code>{{ question.manual_override.question_image }}</code>
+                                                                        {% else %}
+                                                                            <p>尚未上传</p>
+                                                                        {% endif %}
+                                                                    </article>
+                                                                    <article class="manual-preview-card">
+                                                                        <strong>代码截图</strong>
+                                                                        {% if question.manual_override.code_image_url %}
+                                                                            <img src="{{ question.manual_override.code_image_url }}" alt="{{ question.title }} 代码截图">
+                                                                            <code>{{ question.manual_override.code_image }}</code>
+                                                                        {% else %}
+                                                                            <p>尚未上传</p>
+                                                                        {% endif %}
+                                                                    </article>
+                                                                    <article class="manual-preview-card">
+                                                                        <strong>选项截图</strong>
+                                                                        {% if question.manual_override.options_image_url %}
+                                                                            <img src="{{ question.manual_override.options_image_url }}" alt="{{ question.title }} 选项截图">
+                                                                            <code>{{ question.manual_override.options_image }}</code>
+                                                                        {% else %}
+                                                                            <p>尚未上传</p>
+                                                                        {% endif %}
+                                                                    </article>
+                                                                </div>
+
+                                                                <div class="manual-override-actions">
+                                                                    <button type="submit" class="question-answer-toggle">保存人工修正</button>
+                                                                    <p>同类型截图重传时会覆盖旧图，并更新 `payload.manual_override` 中对应路径。</p>
+                                                                </div>
+                                                            </form>
+                                                        {% else %}
+                                                            <p class="manual-override-empty">当前题目仍为静态兜底数据，尚未关联数据库主键，暂不可上传人工修正截图。</p>
+                                                        {% endif %}
+                                                    </section>
+                                                {% endif %}
                                             </article>
                                         {% endfor %}
                                     </div>
@@ -457,11 +995,12 @@
                 </main>
             </div>
         </div>
-    </section>
+        </section>
 
-    {{ topic_site_data|json_script:"gesp2-enumeration-site-data" }}
+        {{ topic_site_data|json_script:"gesp2-enumeration-site-data" }}
+    {% endif %}
 {% endblock %}
 
 {% block extra_body_end %}
-    <script src="{% static 'entry/topics/gesp2_enumeration/app.js' %}?v=20260408f" type="module"></script>
+    <script src="{% static 'entry/topics/gesp2_enumeration/app.js' %}?v=20260411b" type="module"></script>
 {% endblock %}

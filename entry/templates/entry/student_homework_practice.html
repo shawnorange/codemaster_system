@@ -1,0 +1,96 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    <div class="student-homework-detail">
+        <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+            {% for item in breadcrumbs %}
+                {% if item.href %}
+                    <a href="{{ item.href }}">{{ item.label }}</a>
+                {% else %}
+                    <span>{{ item.label }}</span>
+                {% endif %}
+                {% if not forloop.last %}
+                    <i></i>
+                {% endif %}
+            {% endfor %}
+        </nav>
+
+        <section class="hero-panel hero-panel--stacked-metrics">
+            <div class="hero-panel__copy">
+                <p class="eyebrow">Homework Practice</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ assignment.title }}</h2>
+                <p class="role-description">{{ page_description }}</p>
+            </div>
+
+            <div class="hero-panel__metrics">
+                <article class="metric-card">
+                    <p class="metric-card__label">提交历史</p>
+                    <strong>{{ submission_count }}</strong>
+                    <span>历史 submission 不会被覆盖</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">所属知识点</p>
+                    <strong>{{ assignment.content_title }}</strong>
+                    <span>{{ assignment.content_level_label }}</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">截止日期</p>
+                    <strong>{{ assignment.due_date_text }}</strong>
+                    <span>本次提交仍归属于当前 assignment</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">返回入口</p>
+                    <strong><a class="portal-metric-link homework-metric-link" href="{{ back_href }}">作业记录页</a></strong>
+                    <span>先回 assignment，再看 submission 列表</span>
+                </article>
+            </div>
+        </section>
+
+        <div class="system-content-grid portal-content-grid--single">
+            <section class="surface-panel surface-panel--primary">
+                <div class="section-heading">
+                    <p class="section-heading__eyebrow">New Attempt</p>
+                    <h3>开始新的练习</h3>
+                </div>
+
+                {% if error_message %}
+                    <div class="entry-hint-bar">
+                        <strong>提交提示</strong>
+                        <span>{{ error_message }}</span>
+                    </div>
+                {% endif %}
+
+                {% if assignment.is_cancelled %}
+                    <div class="entry-hint-bar">
+                        <strong>当前状态</strong>
+                        <span>这份作业已取消，不能再提交新的练习结果。</span>
+                    </div>
+                {% endif %}
+
+                <form method="post" class="record-form">
+                    {% csrf_token %}
+
+                    <div class="homework-question-list">
+                        {% for question in online_question_rows %}
+                            {% include "entry/includes/homework_questions/question_card_base.html" with question=question %}
+                        {% endfor %}
+                    </div>
+
+                    <div class="portal-action-row">
+                        <button type="submit" class="login-button" {% if assignment.is_cancelled %}disabled{% endif %}>提交本次练习并自动判分</button>
+                        <a class="system-header__link" href="{{ back_href }}">先返回提交记录</a>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+{% endblock %}

@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -47,7 +47,7 @@
                 <p>这一步只改当前老师自己的 assignment。学生主档不复制，跨老师关系也不在这里处理。</p>
             </div>
 
-            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            <div class="portal-topic-card__meta topic-work-card__meta portal-topic-card__meta--spaced topic-work-card__meta--spaced">
                 {% for item in identity_items %}
                     <article class="topic-work-card__meta-item">
                         <span>{{ item.label }}</span>
@@ -60,7 +60,7 @@
                 <div class="entry-hint-bar">{{ error_message }}</div>
             {% endif %}
 
-            <form method="post" class="login-form" style="max-width: none;">
+            <form method="post" class="login-form portal-form--wide">
                 {% csrf_token %}
                 <input id="assignment-student-input" type="hidden" name="student_id" value="{{ form_values.student_id }}">
                 <input id="assignment-scope-input" type="hidden" name="scope_key" value="{{ form_values.scope_key }}">
@@ -68,31 +68,31 @@
                 <div class="form-group">
                     <label>学生</label>
                     {% if lock_student %}
-                        <div class="entry-hint-bar" style="margin-bottom: 12px;">当前学生已锁定，只允许调整课程 / 级别范围。</div>
+                        <div class="entry-hint-bar portal-note--compact">当前学生已锁定，只允许调整课程 / 级别范围。</div>
                     {% endif %}
-                    <div class="teacher-tabulator-shell">
+                    <div class="portal-grid-shell teacher-tabulator-shell">
                         {% if not lock_student %}
-                            <div class="teacher-tabulator-toolbar">
-                                <div class="teacher-tabulator-toolbar__search">
+                            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                                     <label for="assignment-student-search">按姓名 / 手机 / 当前范围查找</label>
-                                    <input id="assignment-student-search" class="teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或当前范围">
+                                    <input id="assignment-student-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或当前范围">
                                 </div>
                             </div>
                         {% endif %}
-                        <div id="assignment-student-table" class="teacher-tabulator-container"></div>
+                        <div id="assignment-student-table" class="portal-grid-container teacher-tabulator-container"></div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>课程 / 级别范围</label>
-                    <div class="teacher-tabulator-shell">
-                        <div class="teacher-tabulator-toolbar">
-                            <div class="teacher-tabulator-toolbar__search">
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                                 <label for="assignment-scope-search">按课程或级别查找</label>
-                                <input id="assignment-scope-search" class="teacher-tabulator-search" type="text" placeholder="输入课程方向或级别">
+                                <input id="assignment-scope-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入课程方向或级别">
                             </div>
                         </div>
-                        <div id="assignment-scope-table" class="teacher-tabulator-container"></div>
+                        <div id="assignment-scope-table" class="portal-grid-container teacher-tabulator-container"></div>
                     </div>
                 </div>
 

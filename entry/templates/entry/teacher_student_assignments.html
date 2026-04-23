@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -47,7 +47,7 @@
                 <p>这里只展示当前老师与该学生之间的 assignment。移除是软移除，新增会优先恢复历史 inactive assignment。</p>
             </div>
 
-            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            <div class="portal-topic-card__meta topic-work-card__meta portal-topic-card__meta--spaced topic-work-card__meta--spaced">
                 {% for item in student_identity_items %}
                     <article class="topic-work-card__meta-item">
                         <span>{{ item.label }}</span>
@@ -60,7 +60,7 @@
                 <div class="entry-hint-bar">{{ success_message }}</div>
             {% endif %}
 
-            <div class="topic-access-modal__footer topic-access-modal__footer--course" style="justify-content: flex-start; margin-bottom: 16px;">
+            <div class="topic-access-modal__footer topic-access-modal__footer--course portal-action-row portal-action-row--leading portal-stack-spacing-sm">
                 <a class="login-button" href="{{ new_assignment_href }}">新增 assignment</a>
                 {% if student_detail_href %}
                     <a class="system-header__link" href="{{ student_detail_href }}">返回学生工作台</a>
@@ -68,17 +68,17 @@
                 <a class="system-header__link" href="{{ back_href }}">返回教师学生列表</a>
             </div>
 
-            <div class="teacher-tabulator-shell">
-                <div class="teacher-tabulator-toolbar">
-                    <div class="teacher-tabulator-toolbar__search">
+            <div class="portal-grid-shell teacher-tabulator-shell">
+                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                         <label for="student-assignment-search">按课程 / 级别 / 状态查找</label>
-                        <input id="student-assignment-search" class="teacher-tabulator-search" type="text" placeholder="输入课程方向、级别或状态">
+                        <input id="student-assignment-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入课程方向、级别或状态">
                     </div>
-                    <div class="teacher-tabulator-toolbar__actions">
-                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                        <span class="portal-grid-note teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
                     </div>
                 </div>
-                <div id="student-assignment-table" class="teacher-tabulator-container"></div>
+                <div id="student-assignment-table" class="portal-grid-container teacher-tabulator-container"></div>
             </div>
         </section>
 

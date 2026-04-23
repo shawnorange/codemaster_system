@@ -1,0 +1,290 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">My Homework</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary homework-list-panel">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Homework Assignments</p>
+            <h3>按 assignment 查看作业</h3>
+            <p>先看任务要求，再进入 assignment 详情页查看 submission 记录或继续练习。</p>
+        </div>
+
+        <div class="portal-grid-shell homework-tabulator-shell">
+            <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="homework-assignment-search">
+                    <span class="portal-filter-label portal-grid-filter-label">搜索作业</span>
+                    <input
+                        id="homework-assignment-search"
+                        class="portal-filter-control portal-grid-filter-control"
+                        type="search"
+                        placeholder="按专题名称搜索"
+                    >
+                </label>
+
+                <label class="portal-filter-unit portal-grid-filter-unit" for="homework-status-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">完成状态</span>
+                    <select id="homework-status-filter" class="portal-filter-control portal-grid-filter-control">
+                        <option value="">全部</option>
+                        <option value="completed">已完成</option>
+                        <option value="pending">未完成</option>
+                    </select>
+                </label>
+
+                <label class="portal-filter-unit portal-grid-filter-unit" for="homework-published-date-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">发布日期</span>
+                    <input id="homework-published-date-filter" class="portal-filter-control portal-grid-filter-control" type="date">
+                </label>
+            </div>
+
+            <div class="portal-meta-row portal-grid-meta-row homework-tabulator-meta-row">
+                <span class="portal-grid-meta__pill">当前记录<strong>{{ homework_table_rows|length }}</strong></span>
+                <span class="portal-grid-note">列表保留原有查看详情入口。</span>
+            </div>
+
+            <div hidden>
+                {% for item in homework_table_rows %}
+                    <span>{{ item.display_title }} {{ item.knowledge_point }} {{ item.topic_subtitle }} {{ item.published_at_display }} {{ item.teacher_name }} {{ item.status_text }}</span>
+                {% endfor %}
+            </div>
+
+            {{ homework_table_rows|json_script:"homework-assignments-data" }}
+
+            <div class="portal-grid-container homework-tabulator-container">
+                <div id="homework-assignments-table"></div>
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'vendor/tabulator/6.3.1/tabulator.min.js' %}"></script>
+    <script>
+        (function () {
+            const dataElement = document.getElementById("homework-assignments-data");
+            const tableElement = document.getElementById("homework-assignments-table");
+            const searchInput = document.getElementById("homework-assignment-search");
+            const statusFilter = document.getElementById("homework-status-filter");
+            const publishedDateFilter = document.getElementById("homework-published-date-filter");
+
+            if (!dataElement || !tableElement || typeof Tabulator === "undefined") {
+                return;
+            }
+
+            function normalizeText(value) {
+                return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+            }
+
+            const rows = JSON.parse(dataElement.textContent || "[]").map(function (row) {
+                return {
+                    id: row.id,
+                    assignment_title: normalizeText(row.assignment_title),
+                    topic_title: normalizeText(row.topic_title),
+                    display_title: normalizeText(row.display_title || row.assignment_title || row.topic_title),
+                    knowledge_point: normalizeText(row.knowledge_point),
+                    topic_subtitle: normalizeText(row.topic_subtitle),
+                    published_at_display: normalizeText(row.published_at_display),
+                    published_at_value: normalizeText(row.published_at_value),
+                    teacher_name: normalizeText(row.teacher_name),
+                    status_text: normalizeText(row.status_text),
+                    status_label: normalizeText(row.status_label || row.status_text),
+                    status_tone: normalizeText(row.status_tone) || "future",
+                    completion_status: normalizeText(row.completion_status),
+                    completion_status_label: normalizeText(row.completion_status_label),
+                    has_summary: Boolean(row.has_summary),
+                    summary_label: normalizeText(row.summary_label || "未生成"),
+                    summary_title: normalizeText(row.summary_title),
+                    summary_href: String(row.summary_href == null ? "" : row.summary_href).trim(),
+                    detail_label: normalizeText(row.detail_label || "查看详情"),
+                    detail_href: String(row.detail_href == null ? "" : row.detail_href).trim(),
+                };
+            });
+
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/\"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+
+            function buildTopicCell(data) {
+                const displayTitle = normalizeText(data.display_title || data.topic_title);
+                const knowledgePoint = normalizeText(data.knowledge_point || data.topic_title || data.topic_subtitle);
+                return '<div class="homework-topic-cell"><strong class="homework-topic-cell__title">' + escapeHtml(displayTitle) + '</strong><span class="homework-topic-cell__subtitle">' + escapeHtml(knowledgePoint) + "</span></div>";
+            }
+
+            function buildStatusCell(data) {
+                const statusText = normalizeText(data.status_label || data.status_text);
+                return '<span class="state-pill state-pill--' + escapeHtml(normalizeText(data.status_tone) || "future") + '">' + escapeHtml(statusText) + "</span>";
+            }
+
+            const table = new Tabulator(tableElement, {
+                data: rows,
+                layout: "fitColumns",
+                responsiveLayout: false,
+                placeholder: "{{ empty_message|escapejs }}",
+                columnDefaults: {
+                    headerHozAlign: "left",
+                    vertAlign: "middle",
+                    resizable: false,
+                },
+                pagination: true,
+                paginationMode: "local",
+                paginationSize: 10,
+                paginationSizeSelector: [10, 15, 50, 100],
+                paginationCounter: "rows",
+                columns: [
+                    {
+                        title: "专题名称",
+                        field: "display_title",
+                        minWidth: 260,
+                        widthGrow: 2.8,
+                        widthShrink: 1,
+                        headerSort: false,
+                        formatter: function (cell) {
+                            return buildTopicCell(cell.getRow().getData());
+                        },
+                    },
+                    {
+                        title: "发布日期",
+                        field: "published_at_display",
+                        minWidth: 150,
+                        widthGrow: 1.25,
+                        widthShrink: 1,
+                        formatter: function (cell) {
+                            return '<span class="homework-table-text">' + escapeHtml(normalizeText(cell.getValue())) + "</span>";
+                        },
+                    },
+                    {
+                        title: "老师",
+                        field: "teacher_name",
+                        minWidth: 120,
+                        widthGrow: 1,
+                        widthShrink: 1,
+                        formatter: function (cell) {
+                            return '<span class="homework-table-text">' + escapeHtml(normalizeText(cell.getValue())) + "</span>";
+                        },
+                    },
+                    {
+                        title: "完成状态",
+                        field: "status_label",
+                        minWidth: 126,
+                        widthGrow: 1,
+                        widthShrink: 1,
+                        headerSort: false,
+                        hozAlign: "center",
+                        formatter: function (cell) {
+                            return buildStatusCell(cell.getRow().getData());
+                        },
+                    },
+                    {
+                        title: "本周总结",
+                        field: "summary_href",
+                        hozAlign: "center",
+                        minWidth: 132,
+                        widthGrow: 1.05,
+                        widthShrink: 1,
+                        headerSort: false,
+                        formatter: function (cell) {
+                            const row = cell.getRow().getData();
+                            if (!row.summary_href) {
+                                return '<span class="homework-table-text">—</span>';
+                            }
+                            return '<a class="cm-tabulator-btn" href="' + escapeHtml(String(row.summary_href || "#").trim()) + '" title="' + escapeHtml(normalizeText(row.summary_title || "")) + '">' + escapeHtml(normalizeText(row.summary_label || "查看总结")) + "</a>";
+                        },
+                    },
+                    {
+                        title: "查看详情",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        minWidth: 126,
+                        widthGrow: 1.05,
+                        widthShrink: 1,
+                        headerSort: false,
+                        formatter: function (cell) {
+                            const row = cell.getRow().getData();
+                            return '<a class="cm-tabulator-btn cm-tabulator-btn--primary" href="' + escapeHtml(String(row.detail_href || "#").trim()) + '">' + escapeHtml(normalizeText(row.detail_label || "查看详情")) + "</a>";
+                        },
+                    },
+                ],
+            });
+
+            function applyFilters() {
+                const keyword = normalizeText(searchInput ? searchInput.value : "").toLowerCase();
+                const completionValue = normalizeText(statusFilter ? statusFilter.value : "");
+                const publishedDateValue = normalizeText(publishedDateFilter ? publishedDateFilter.value : "");
+
+                if (!keyword && !completionValue && !publishedDateValue) {
+                    table.clearFilter(true);
+                    return;
+                }
+
+                table.setFilter(function (rowData) {
+                    const matchesKeyword = !keyword || [
+                        rowData.display_title,
+                        rowData.knowledge_point,
+                        rowData.topic_subtitle,
+                        rowData.teacher_name,
+                        rowData.status_label,
+                        rowData.completion_status_label,
+                    ].some(function (value) {
+                        return normalizeText(value).toLowerCase().indexOf(keyword) > -1;
+                    });
+                    const matchesCompletion = !completionValue || normalizeText(rowData.completion_status) === completionValue;
+                    const matchesPublishedDate = !publishedDateValue || normalizeText(rowData.published_at_value) === publishedDateValue;
+                    return matchesKeyword && matchesCompletion && matchesPublishedDate;
+                });
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener("input", applyFilters);
+            }
+            if (statusFilter) {
+                statusFilter.addEventListener("change", applyFilters);
+            }
+            if (publishedDateFilter) {
+                publishedDateFilter.addEventListener("change", applyFilters);
+            }
+        })();
+    </script>
+{% endblock %}

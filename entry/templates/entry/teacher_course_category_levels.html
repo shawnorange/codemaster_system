@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -47,19 +47,19 @@
                 <p>当前先把 Level 作为独立数据层立起来。表格交互改成 Tabulator，避免继续手写 table + CSS。</p>
             </div>
 
-            <div class="teacher-tabulator-shell">
-                <div class="teacher-tabulator-toolbar">
-                <div class="teacher-tabulator-toolbar__search">
-                    <label for="level-grid-search">过滤</label>
-                    <input id="level-grid-search" class="teacher-tabulator-search" type="text" placeholder="按 Level 名称或说明过滤">
+            <div class="portal-grid-shell teacher-tabulator-shell">
+                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                        <label for="level-grid-search">过滤</label>
+                        <input id="level-grid-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按 Level 名称或说明过滤">
+                    </div>
+                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                        <a class="system-header__link" href="{{ export_href }}">导出当前分类结构</a>
+                        <span class="portal-grid-note teacher-tabulator-note">分页和每页条数由 Tabulator 统一提供</span>
+                        <a class="system-header__link" href="{% url 'teacher-course-detail' course_slug %}">返回分类页</a>
+                    </div>
                 </div>
-                <div class="teacher-tabulator-toolbar__actions">
-                    <a class="system-header__link" href="{{ export_href }}">导出当前分类结构</a>
-                    <span class="teacher-tabulator-note">分页和每页条数由 Tabulator 统一提供</span>
-                    <a class="system-header__link" href="{% url 'teacher-course-detail' course_slug %}">返回分类页</a>
-                </div>
-            </div>
-                <div id="course-level-grid-table" class="teacher-tabulator-container"></div>
+                <div id="course-level-grid-table" class="portal-grid-container teacher-tabulator-container"></div>
             </div>
         </section>
 

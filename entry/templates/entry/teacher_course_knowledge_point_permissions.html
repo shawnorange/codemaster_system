@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -44,10 +44,10 @@
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Student Content Access</p>
                 <h3>{{ content_title }} · 学生权限管理</h3>
-                <p>当前页面直接写入 `StudentContentAccess`。这轮先把筛选、批量选择和保存反馈补到可日常使用。</p>
+                <p>默认按 `permission_code + level_code` 计算可见性；当前页只把偏离默认规则的结果写入 `StudentContentAccess`。</p>
             </div>
 
-            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            <div class="portal-topic-card__meta topic-work-card__meta portal-topic-card__meta--spaced topic-work-card__meta--spaced">
                 {% for item in identity_items %}
                     <article class="topic-work-card__meta-item">
                         <span>{{ item.label }}</span>
@@ -64,37 +64,37 @@
                 {% csrf_token %}
                 <div id="knowledge-point-access-hidden-inputs"></div>
 
-                <div class="teacher-tabulator-shell">
-                    <div class="teacher-tabulator-toolbar">
-                        <div class="teacher-tabulator-toolbar__search">
+                <div class="portal-grid-shell teacher-tabulator-shell">
+                    <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                        <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                             <label for="student-access-search">学生检索</label>
-                            <input id="student-access-search" class="teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="搜索学生姓名 / 年级 / 负责范围">
+                            <input id="student-access-search" class="portal-grid-search teacher-tabulator-search" type="text" value="{{ search_query }}" placeholder="搜索学生姓名 / 年级 / 负责范围">
                         </div>
-                        <div class="teacher-tabulator-toolbar__actions">
-                            <div class="teacher-tabulator-meta">
-                                <span class="teacher-tabulator-meta__pill">知识点<strong>{{ content_title }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">总学生<strong id="student-access-total-count">{{ student_rows|length }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">已开通<strong id="student-access-open-count">{{ open_student_rows|length }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">未开通<strong id="student-access-locked-count">{{ locked_student_rows|length }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">当前选择<strong id="student-access-selected-count">{{ open_student_rows|length }}</strong></span>
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                            <div class="portal-grid-meta teacher-tabulator-meta">
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">知识点<strong>{{ content_title }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">总学生<strong id="student-access-total-count">{{ student_rows|length }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">已开通<strong id="student-access-open-count">{{ open_student_rows|length }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">未开通<strong id="student-access-locked-count">{{ locked_student_rows|length }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">当前选择<strong id="student-access-selected-count">{{ open_student_rows|length }}</strong></span>
                             </div>
                             <a class="system-header__link" href="{{ back_href }}">返回 Knowledge Grid</a>
                         </div>
                     </div>
 
-                    <div class="teacher-tabulator-toolbar">
-                        <div class="teacher-tabulator-toolbar__actions">
+                    <div class="portal-grid-toolbar teacher-tabulator-toolbar portal-grid-toolbar--secondary teacher-tabulator-toolbar--secondary">
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
                             <button id="student-access-filter-all" class="cm-tabulator-btn cm-tabulator-btn--primary" type="button">全部</button>
                             <button id="student-access-filter-open" class="cm-tabulator-btn" type="button">已开通</button>
                             <button id="student-access-filter-locked" class="cm-tabulator-btn" type="button">未开通</button>
                         </div>
-                        <div class="teacher-tabulator-toolbar__actions">
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
                             <button id="student-access-select-all" class="cm-tabulator-btn" type="button">全选当前结果</button>
                             <button id="student-access-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
                         </div>
                     </div>
 
-                    <div id="knowledge-point-access-table" class="teacher-tabulator-container"></div>
+                    <div id="knowledge-point-access-table" class="portal-grid-container teacher-tabulator-container"></div>
                 </div>
 
                 {% if student_rows %}

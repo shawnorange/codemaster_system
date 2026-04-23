@@ -1,16 +1,20 @@
 import logging
 import json
+from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.db import transaction
 from django.db.models import Max
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.files.uploadedfile import UploadedFile
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .account_identity import build_student_default_username, ensure_unique_username, normalize_phone
 from .auth import (
     ROLE_CONFIG,
     authenticate_credentials,
@@ -20,6 +24,8 @@ from .auth import (
     role_required,
     set_auth_cookie,
 )
+from .content_visibility import infer_content_permission_code
+from .course_identity import normalize_assignment_level
 from .gesp2_catalog import ASCII_CHAR_ENCODING_CONTENT_SLUG, ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .gesp4_catalog import BINARY_SEARCH_CONTENT_SLUG, SORTING_CONTENT_SLUG, STRINGS_CONTENT_SLUG
@@ -29,15 +35,19 @@ from .homework_online import (
     confirm_homework_import_job,
     detect_homework_source_type,
     extract_import_job_user_facing_message,
+    grade_homework_submission,
     parse_homework_import_job,
 )
+from .manual_overrides import update_question_manual_override
 from .models import (
     Course,
     CourseContent,
     HomeworkAssignment,
     HomeworkImportJob,
+    HomeworkSummary,
     LessonHourLedger,
     PortalUser,
+    Question,
     RewardRecord,
     Student,
     TeacherEvaluation,
@@ -46,6 +56,17 @@ from .models import (
 from .portal_context import (
     build_gesp2_reserved_topic_page,
     build_gesp4_reserved_topic_page,
+    build_parent_homework_detail_context,
+    build_parent_homework_list_context,
+    build_parent_homework_print_context,
+    build_parent_homework_summary_detail_context,
+    build_parent_homework_submission_detail_context,
+    build_student_homework_detail_context,
+    build_student_homework_list_context,
+    build_student_homework_practice_context,
+    build_student_homework_submission_detail_context,
+    build_student_homework_summary_detail_context,
+    build_student_practice_page_shell,
     build_teacher_assignment_form_context,
     build_teacher_assignment_remove_context,
     build_teacher_course_category_detail_context,
@@ -56,6 +77,7 @@ from .portal_context import (
     build_parent_page_shell,
     build_principal_page_shell,
     build_student_portal_page,
+    build_student_homework_print_context,
     build_teacher_course_detail_context,
     build_teacher_course_level_detail_context,
     build_teacher_course_workflow_placeholder_context,
@@ -63,7 +85,11 @@ from .portal_context import (
     build_teacher_page_shell,
     build_teacher_student_assignment_list_context,
     build_teacher_student_detail_context,
+    build_default_homework_summary_title,
+    ensure_homework_content_access,
+    filter_homework_assignments_by_assigned_date,
     get_gesp2_knowledge_content,
+    get_teacher_student_homework_queryset,
     get_teacher_course_category,
     get_teacher_course_content,
     get_teacher_course_level,
@@ -74,16 +100,23 @@ from .portal_context import (
     normalize_grid_page,
     normalize_grid_page_size,
     get_student_by_user,
-    get_student_content_access,
+    set_student_content_visibility,
+    student_has_content_access,
+    get_teacher_student_homework_contents,
 )
 from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
 from .topic_content.gesp2_ascii_char_encoding.context import (
     get_topic_page_context as get_gesp2_ascii_char_encoding_page_context,
 )
-from .topic_content.gesp4_array_2d.context import get_topic_page_context
+from .topic_content.gesp4_array_2d.context import (
+    get_student_topic_page_context as get_gesp4_array_2d_student_page_context,
+)
+from .topic_content.gesp4_array_2d.context import get_topic_page_context as get_gesp4_array_2d_page_context
 from .topic_content.gesp4_shared.context import get_topic_page_context as get_generic_gesp4_topic_page_context
 
 logger = logging.getLogger(__name__)
+
+SINGLE_STUDENT_DEFAULT_PASSWORD = "123456"
 
 
 def build_shell_identity_context(request: HttpRequest) -> dict[str, str]:
@@ -93,6 +126,18 @@ def build_shell_identity_context(request: HttpRequest) -> dict[str, str]:
         "viewer_username": user["username"],
         "account_settings_href": reverse("student-account-settings") if user["role"] == "student" else "",
     }
+
+
+def render_shell_page(request: HttpRequest, role_key: str, template_name: str, context: dict) -> HttpResponse:
+    return render(
+        request,
+        template_name,
+        {
+            "role_label": ROLE_CONFIG[role_key]["label"],
+            **build_shell_identity_context(request),
+            **context,
+        },
+    )
 
 
 def login_page(request: HttpRequest) -> HttpResponse:
@@ -144,6 +189,29 @@ def normalize_positive_int(value: object, *, default: int = 0, minimum: int = 0)
     return normalized if normalized >= minimum else default
 
 
+def parse_iso_date(value: object) -> date | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def decode_uploaded_summary_html(uploaded_file: UploadedFile) -> str:
+    filename = str(getattr(uploaded_file, "name", "") or "").lower()
+    if not filename.endswith((".html", ".htm")):
+        raise ValidationError("当前只支持上传 html / htm 文件。")
+    payload = uploaded_file.read()
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return payload.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValidationError("当前无法识别这个 HTML 文件的编码，请改用 UTF-8 或 GB18030。")
+
+
 def parse_assignment_scope_key(scope_key: object) -> tuple[int, str]:
     raw = str(scope_key or "").strip()
     if ":" not in raw:
@@ -156,6 +224,42 @@ def parse_assignment_scope_key(scope_key: object) -> tuple[int, str]:
     return course_id, level_code.strip()
 
 
+def build_teacher_course_student_pool_single_student_form_values(
+    context: dict,
+    form_data: dict[str, object] | None = None,
+) -> dict[str, str]:
+    defaults = dict(context.get("single_student_form_values") or {})
+    data = form_data or {}
+    return {
+        "student_name": str(data.get("student_name") or defaults.get("student_name") or "").strip(),
+        "parent_phone": str(data.get("parent_phone") or defaults.get("parent_phone") or "").strip(),
+        "course_id": str(data.get("course_id") or defaults.get("course_id") or "").strip(),
+        "permission_level_code": str(
+            data.get("permission_level_code") or defaults.get("permission_level_code") or ""
+        ).strip().upper(),
+        "primary_level_name": str(
+            data.get("primary_level_name") or defaults.get("primary_level_name") or ""
+        ).strip().upper(),
+    }
+
+
+def find_existing_student_by_name_and_parent_phone(*, student_name: str, parent_phone: str) -> Student | None:
+    queryset = Student.objects.select_related("user", "parent_user").filter(display_name=student_name)
+    if parent_phone:
+        queryset = queryset.filter(parent_user__phone=parent_phone)
+    return queryset.order_by("id").first()
+
+
+def infer_student_primary_track_name(*, course: Course, primary_level_name: str) -> str:
+    normalized_primary_level_name = str(primary_level_name or "").strip().upper()
+    if course.slug == "cpp":
+        if normalized_primary_level_name.startswith("GESP"):
+            return "GESP"
+        if normalized_primary_level_name.startswith("CSP"):
+            return "CSP"
+    return ""
+
+
 def build_json_download_response(*, payload: dict, filename: str) -> HttpResponse:
     response = HttpResponse(
         json.dumps(payload, ensure_ascii=False, indent=2),
@@ -163,6 +267,20 @@ def build_json_download_response(*, payload: dict, filename: str) -> HttpRespons
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def build_manual_override_feedback(request: HttpRequest) -> dict[str, object]:
+    status = (request.GET.get("manual_override_status") or "").strip()
+    question_id = normalize_positive_int(request.GET.get("manual_override_question"), default=0, minimum=0)
+    message = (request.GET.get("manual_override_message") or "").strip()
+    if not status or not question_id:
+        return {"status": "", "message": "", "question_id": 0}
+    default_message = "截图人工修正已保存。" if status == "saved" else "截图人工修正保存失败。"
+    return {
+        "status": status,
+        "message": message or default_message,
+        "question_id": question_id,
+    }
 
 
 def build_redirect_with_query(base_path: str, *, params: dict[str, object], anchor: str = "") -> str:
@@ -176,6 +294,17 @@ def build_redirect_with_query(base_path: str, *, params: dict[str, object], anch
     query = urlencode(current_query)
     fragment = anchor.lstrip("#")
     return urlunsplit((split_result.scheme, split_result.netloc, split_result.path, query, fragment))
+
+
+def get_safe_next_path(request: HttpRequest, fallback_url_name: str) -> str:
+    next_path = (request.POST.get("next") or "").strip()
+    if next_path and url_has_allowed_host_and_scheme(
+        next_path,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return next_path
+    return reverse(fallback_url_name)
 
 
 def build_knowledge_point_form_context(
@@ -355,6 +484,24 @@ def student_courses(request: HttpRequest) -> HttpResponse:
 
 
 @role_required("student")
+def student_practice(request: HttpRequest) -> HttpResponse:
+    role_config = ROLE_CONFIG["student"]
+    portal_user = get_portal_user_from_request(request)
+    page_shell = build_student_practice_page_shell(portal_user)
+    return render(
+        request,
+        "entry/student_portal_page.html",
+        {
+            "role_label": role_config["label"],
+            "page_title": page_shell["page_title"],
+            "page_description": page_shell["page_description"],
+            "page_shell": page_shell,
+            **build_shell_identity_context(request),
+        },
+    )
+
+
+@role_required("student")
 def student_cpp(request: HttpRequest) -> HttpResponse:
     return render_student_portal_page(request, "cpp")
 
@@ -372,6 +519,162 @@ def student_cpp_gesp2(request: HttpRequest) -> HttpResponse:
 @role_required("student")
 def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
     return render_student_portal_page(request, "cpp_gesp4")
+
+
+@role_required("student")
+def student_homework_list(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    context = build_student_homework_list_context(portal_user)
+    return render_shell_page(request, "student", "entry/student_homework_list.html", context)
+
+
+@role_required("student")
+def student_homework_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+
+    def render_detail(*, error_message: str = "") -> HttpResponse:
+        try:
+            detail_context = build_student_homework_detail_context(portal_user, assignment_id)
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该作业") from exc
+        if request.GET.get("op") == "completed":
+            detail_context["success_message"] = "作业已标记完成，可以等待老师填写评语。"
+        if error_message:
+            detail_context["error_message"] = error_message
+        return render_shell_page(request, "student", "entry/student_homework_detail.html", detail_context)
+
+    if request.method == "POST":
+        action = request.POST.get("form_action", "").strip()
+        if action == "mark_completed":
+            student = get_student_by_user(portal_user)
+            assignment = (
+                HomeworkAssignment.objects.select_related("student")
+                .filter(id=assignment_id, student=student, is_active=True)
+                .first()
+            )
+            if not assignment:
+                raise Http404("未找到该作业")
+            if assignment.questions.filter(is_active=True).exists():
+                return render_detail(error_message="这份作业已经切到在线选择题模式，请提交整份作业完成。")
+            if assignment.mark_completed():
+                assignment.save(update_fields=["status", "completed_at", "updated_at"])
+            return redirect(build_redirect_with_query(reverse("student-homework-detail", args=[assignment_id]), params={"op": "completed"}))
+
+    return render_detail()
+
+
+@role_required("student")
+def student_homework_practice(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+
+    def render_practice(*, error_message: str = "") -> HttpResponse:
+        try:
+            context = build_student_homework_practice_context(portal_user, assignment_id)
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该在线作业") from exc
+        if error_message:
+            context["error_message"] = error_message
+        return render_shell_page(request, "student", "entry/student_homework_practice.html", context)
+
+    if request.method == "POST":
+        student = get_student_by_user(portal_user)
+        assignment = (
+            HomeworkAssignment.objects.select_related("student")
+            .filter(id=assignment_id, student=student, is_active=True)
+            .first()
+        )
+        if not assignment:
+            raise Http404("未找到该作业")
+        selected_answers = {}
+        for key, value in request.POST.items():
+            if not key.startswith("question_"):
+                continue
+            question_id = normalize_positive_int(key.split("_", 1)[1], default=0, minimum=1)
+            if question_id:
+                selected_answers[question_id] = str(value).strip().upper()
+        try:
+            submission = grade_homework_submission(
+                assignment,
+                student,
+                selected_answers=selected_answers,
+            )
+        except HomeworkImportParseError as exc:
+            return render_practice(error_message=str(exc))
+        return redirect(
+            build_redirect_with_query(
+                reverse("student-homework-submission-detail", args=[assignment.id, submission.id]),
+                params={"op": "submitted"},
+            )
+        )
+
+    return render_practice()
+
+
+@role_required("student")
+def student_homework_submission_detail(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_student_homework_submission_detail_context(portal_user, assignment_id, submission_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该提交记录") from exc
+    if request.GET.get("op") == "submitted":
+        context["success_message"] = "本次练习已提交并自动判分，历史记录已保留。"
+    return render_shell_page(request, "student", "entry/homework_submission_detail.html", context)
+
+
+@role_required("student")
+def student_homework_summary_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_student_homework_summary_detail_context(portal_user, assignment_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该本周总结") from exc
+    return render_shell_page(request, "student", "entry/homework_summary_detail.html", context)
+
+
+@role_required("student")
+def student_homework_print(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_student_homework_print_context(
+            portal_user,
+            assignment_id,
+            submission_id=submission_id,
+            wrong_only=False,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该打印结果") from exc
+    return render(request, "entry/student_homework_print.html", context)
+
+
+@role_required("student")
+def student_homework_print_wrong(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_student_homework_print_context(
+            portal_user,
+            assignment_id,
+            submission_id=submission_id,
+            wrong_only=True,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该错题打印页") from exc
+    return render(request, "entry/student_homework_print.html", context)
+
+
+@role_required("student")
+def student_homework_print_blank(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_student_homework_print_context(
+            portal_user,
+            assignment_id,
+            wrong_only=False,
+            blank_only=True,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该空白练习卷") from exc
+    return render(request, "entry/student_homework_print.html", context)
 
 
 @role_required("student")
@@ -427,10 +730,15 @@ def student_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
 
 def _render_gesp2_topic_page(request: HttpRequest, topic_slug: str) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
     try:
         content = get_gesp2_knowledge_content(topic_slug)
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该知识点") from exc
+
+    if not student_has_content_access(student, content.slug):
+        return redirect("/student/cpp/gesp/gesp2")
 
     if topic_slug == ENUMERATION_METHOD_CONTENT_SLUG:
         topic_context = get_gesp2_enumeration_page_context(view_mode="student")
@@ -473,6 +781,8 @@ def _render_gesp2_topic_page(request: HttpRequest, topic_slug: str) -> HttpRespo
 @role_required("teacher")
 def teacher_cpp_gesp2_enumeration(request: HttpRequest) -> HttpResponse:
     topic_context = get_gesp2_enumeration_page_context(view_mode="teacher")
+    topic_context["manual_override_feedback"] = build_manual_override_feedback(request)
+    topic_context["manual_override_focus_question_id"] = topic_context["manual_override_feedback"]["question_id"]
     return render(
         request,
         "entry/topics/gesp2_enumeration_page.html",
@@ -482,6 +792,40 @@ def teacher_cpp_gesp2_enumeration(request: HttpRequest) -> HttpResponse:
             **topic_context,
         },
     )
+
+
+@role_required("teacher")
+def teacher_question_manual_override(request: HttpRequest, question_id: int) -> HttpResponse:
+    if request.method != "POST":
+        raise Http404("仅支持 POST 上传。")
+
+    next_path = get_safe_next_path(request, "teacher-cpp-gesp2-enumeration")
+    return_anchor = (request.POST.get("return_anchor") or "").strip()
+    redirect_params = {
+        "manual_override_question": question_id,
+    }
+
+    try:
+        question = update_question_manual_override(
+            question_id=question_id,
+            files_by_field={
+                "question_image": request.FILES.get("question_image"),
+                "code_image": request.FILES.get("code_image"),
+                "options_image": request.FILES.get("options_image"),
+            },
+            review_note=request.POST.get("review_note", ""),
+            is_reviewed=request.POST.get("is_reviewed") == "on",
+        )
+    except Question.DoesNotExist as exc:
+        raise Http404("未找到该题目。") from exc
+    except ValidationError as exc:
+        redirect_params["manual_override_status"] = "error"
+        redirect_params["manual_override_message"] = "；".join(exc.messages)
+        return redirect(build_redirect_with_query(next_path, params=redirect_params, anchor=return_anchor))
+
+    redirect_params["manual_override_status"] = "saved"
+    redirect_params["manual_override_message"] = f"已保存题目「{question.title}」的人工修正截图。"
+    return redirect(build_redirect_with_query(next_path, params=redirect_params, anchor=return_anchor))
 
 
 @role_required("teacher")
@@ -500,7 +844,7 @@ def teacher_cpp_gesp2_ascii_char_encoding(request: HttpRequest) -> HttpResponse:
 
 @role_required("teacher")
 def teacher_cpp_gesp4_array_2d(request: HttpRequest) -> HttpResponse:
-    topic_context = get_topic_page_context(request.GET.get("lecture"))
+    topic_context = get_gesp4_array_2d_page_context(request.GET.get("lecture"))
     topic_context["topic_note"] = "当前教师页直连 GESP4 二维数组真实教学页，题目数据采用数据库优先、静态兜底。"
     topic_context["breadcrumb_items"] = [
         {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
@@ -568,15 +912,14 @@ def _render_gesp4_topic_page(request: HttpRequest, topic_slug: str) -> HttpRespo
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该专题") from exc
 
-    access = get_student_content_access(student, content)
-    if not access.is_open:
+    if not student_has_content_access(student, content.slug):
         return redirect(f"/student/cpp/gesp/gesp4?locked_content={topic_slug}")
 
     if topic_slug == ARRAY_2D_CONTENT_SLUG:
-        topic_context = get_topic_page_context(request.GET.get("lecture"))
+        topic_context = get_gesp4_array_2d_student_page_context()
         return render(
             request,
-            "entry/topics/gesp4_array_2d_page.html",
+            "entry/topics/gesp4_array_2d_student_page.html",
             {
                 "role_label": role_config["label"],
                 **build_shell_identity_context(request),
@@ -611,6 +954,88 @@ def student_cpp_gesp2_topic(request: HttpRequest, topic_slug: str) -> HttpRespon
 @role_required("parent")
 def parent_student_profile(request: HttpRequest) -> HttpResponse:
     return render_role_page(request, "parent", build_parent_page_shell(get_portal_user_from_request(request)))
+
+
+@role_required("parent")
+def parent_homework_list(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    context = build_parent_homework_list_context(portal_user)
+    return render_shell_page(request, "parent", "entry/student_homework_list.html", context)
+
+
+@role_required("parent")
+def parent_homework_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_detail_context(portal_user, assignment_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该作业记录") from exc
+    return render_shell_page(request, "parent", "entry/student_homework_detail.html", context)
+
+
+@role_required("parent")
+def parent_homework_summary_detail(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_summary_detail_context(portal_user, assignment_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该本周总结") from exc
+    return render_shell_page(request, "parent", "entry/homework_summary_detail.html", context)
+
+
+@role_required("parent")
+def parent_homework_submission_detail(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_submission_detail_context(portal_user, assignment_id, submission_id)
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该提交记录") from exc
+    return render_shell_page(request, "parent", "entry/homework_submission_detail.html", context)
+
+
+@role_required("parent")
+def parent_homework_print(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_print_context(
+            portal_user,
+            assignment_id,
+            submission_id=submission_id,
+            wrong_only=False,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该打印结果") from exc
+    return render(request, "entry/student_homework_print.html", context)
+
+
+@role_required("parent")
+def parent_homework_print_wrong(request: HttpRequest, assignment_id: int, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_print_context(
+            portal_user,
+            assignment_id,
+            submission_id=submission_id,
+            wrong_only=True,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该错题打印页") from exc
+    return render(request, "entry/student_homework_print.html", context)
+
+
+@role_required("parent")
+def parent_homework_print_blank(request: HttpRequest, assignment_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    try:
+        context = build_parent_homework_print_context(
+            portal_user,
+            assignment_id,
+            wrong_only=False,
+            blank_only=True,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该空白练习卷") from exc
+    return render(request, "entry/student_homework_print.html", context)
 
 
 @role_required("teacher")
@@ -937,61 +1362,205 @@ def teacher_course_student_pool(request: HttpRequest, course_slug: str) -> HttpR
         context["success_message"] = (
             f"学生池保存完成：新增 {created_count} 人，恢复 {restored_count} 人，跳过 {skipped_count} 人。"
         )
+    elif request.GET.get("single_student_saved") == "1":
+        context["success_message"] = "单个学生添加成功，已加入当前课程。"
 
     if request.method == "POST":
-        selected_student_ids = {int(value) for value in request.POST.getlist("student_ids") if value.isdigit()}
-        pool_student_ids = context["pool_student_ids"]
-        level_code = selected_level_code
+        form_action = (request.POST.get("form_action") or "bulk_add_students").strip()
+        course = context["course"]
 
-        if not context["available_level_codes"]:
-            context["error_message"] = "当前课程方向还没有可用级别，暂时不能从学生池批量加入。"
-        elif level_code not in context["available_level_codes"]:
-            context["error_message"] = "请选择有效的级别后再保存。"
-        else:
-            created_count = 0
-            restored_count = 0
-            skipped_count = 0
-            valid_student_ids = sorted(selected_student_ids & pool_student_ids)
-            course = context["course"]
+        if form_action == "create_single_student":
+            form_values = build_teacher_course_student_pool_single_student_form_values(
+                context,
+                {
+                    "student_name": request.POST.get("new_student_name"),
+                    "parent_phone": request.POST.get("new_parent_phone"),
+                    "course_id": request.POST.get("new_course_id"),
+                    "permission_level_code": request.POST.get("new_permission_level_code"),
+                    "primary_level_name": request.POST.get("new_primary_level_name"),
+                },
+            )
+            context["single_student_form_values"] = form_values
+            context["single_student_modal_should_open"] = True
 
-            for student_id in valid_student_ids:
-                assignment = (
-                    TeacherStudentAssignment.objects.filter(
-                        teacher=portal_user,
-                        student_id=student_id,
-                        course_id=course.id,
-                        level_code=level_code,
-                    )
-                    .order_by("id")
-                    .first()
-                )
-                if assignment:
-                    if assignment.is_active:
-                        skipped_count += 1
+            student_name = form_values["student_name"]
+            parent_phone = normalize_phone(form_values["parent_phone"])
+            selected_course_id = normalize_positive_int(form_values["course_id"], default=0, minimum=1)
+            normalized_permission_level_code = (
+                normalize_assignment_level(course.slug, form_values["permission_level_code"]) or ""
+            )
+            primary_level_name = form_values["primary_level_name"]
+            context["single_student_form_values"]["parent_phone"] = parent_phone or form_values["parent_phone"]
+            context["single_student_form_values"]["permission_level_code"] = (
+                normalized_permission_level_code or form_values["permission_level_code"]
+            )
+            context["single_student_form_values"]["primary_level_name"] = primary_level_name
+
+            if not student_name or not parent_phone or not selected_course_id or not normalized_permission_level_code or not primary_level_name:
+                context["single_student_error_message"] = "请完整填写学生姓名、家长电话、当前课程、权限等级和等级名称。"
+            elif selected_course_id != course.id:
+                context["single_student_error_message"] = "请选择当前页面对应的课程后再提交。"
+            elif normalized_permission_level_code not in context["single_student_permission_level_codes"]:
+                context["single_student_error_message"] = "请选择有效的权限等级后再提交。"
+            elif primary_level_name not in context["single_student_level_name_options"]:
+                context["single_student_error_message"] = "请选择有效的等级名称后再提交。"
+            elif find_existing_student_by_name_and_parent_phone(
+                student_name=student_name,
+                parent_phone=parent_phone,
+            ):
+                context["single_student_error_message"] = "该学生已经在数据库中，添加失败"
+            else:
+                with transaction.atomic():
+                    parent_username = f"parent_{parent_phone}"
+                    parent_account_conflict = None
+                    existing_parent_user = PortalUser.objects.filter(
+                        role=PortalUser.ROLE_PARENT,
+                        phone=parent_phone,
+                    ).order_by("id").first()
+                    if existing_parent_user is None:
+                        username_owner = PortalUser.objects.filter(username=parent_username).order_by("id").first()
+                        if username_owner and username_owner.role != PortalUser.ROLE_PARENT:
+                            parent_account_conflict = "家长默认账号已被其他角色占用，当前无法新增该学生。"
+                        elif username_owner and username_owner.phone and username_owner.phone != parent_phone:
+                            parent_account_conflict = "家长默认账号与当前手机号不一致，当前无法新增该学生。"
+                        elif username_owner:
+                            existing_parent_user = username_owner
+
+                    if parent_account_conflict:
+                        context["single_student_error_message"] = parent_account_conflict
+                        context["error_message"] = parent_account_conflict
+                        return render(
+                            request,
+                            "entry/teacher_course_student_pool.html",
+                            {
+                                "role_label": ROLE_CONFIG["teacher"]["label"],
+                                **build_shell_identity_context(request),
+                                **context,
+                            },
+                        )
+
+                    if existing_parent_user:
+                        changed_fields: list[str] = []
+                        if not existing_parent_user.full_name:
+                            existing_parent_user.full_name = f"{student_name}家长"
+                            changed_fields.append("full_name")
+                        if not existing_parent_user.phone and parent_phone:
+                            existing_parent_user.phone = parent_phone
+                            changed_fields.append("phone")
+                        if not existing_parent_user.is_active:
+                            existing_parent_user.is_active = True
+                            changed_fields.append("is_active")
+                        if changed_fields:
+                            existing_parent_user.save(update_fields=changed_fields + ["updated_at"])
+                        parent_user = existing_parent_user
                     else:
-                        assignment.is_active = True
-                        assignment.save(update_fields=["is_active", "updated_at"])
-                        restored_count += 1
-                else:
-                    TeacherStudentAssignment.objects.create(
-                        teacher=portal_user,
-                        student_id=student_id,
-                        course=course,
-                        level_code=level_code,
+                        parent_user = PortalUser(
+                            username=parent_username,
+                            role=PortalUser.ROLE_PARENT,
+                            full_name=f"{student_name}家长",
+                            phone=parent_phone,
+                            is_active=True,
+                        )
+                        parent_user.set_password(SINGLE_STUDENT_DEFAULT_PASSWORD)
+                        parent_user.save()
+
+                    used_usernames = set(PortalUser.objects.values_list("username", flat=True))
+                    student_user = PortalUser(
+                        username=ensure_unique_username(
+                            build_student_default_username(student_name, parent_phone),
+                            used_usernames,
+                        ),
+                        role=PortalUser.ROLE_STUDENT,
+                        full_name=student_name,
                         is_active=True,
                     )
-                    created_count += 1
+                    student_user.set_password(SINGLE_STUDENT_DEFAULT_PASSWORD)
+                    student_user.save()
+                    student = Student.objects.create(
+                        user=student_user,
+                        parent_user=parent_user,
+                        teacher_user=portal_user,
+                        display_name=student_name,
+                        grade="",
+                        campus="",
+                        primary_course_name=course.title,
+                        primary_track_name=infer_student_primary_track_name(
+                            course=course,
+                            primary_level_name=primary_level_name,
+                        ),
+                        primary_level_name=primary_level_name,
+                    )
+                    TeacherStudentAssignment.objects.create(
+                        teacher=portal_user,
+                        student=student,
+                        course=course,
+                        level_code=normalized_permission_level_code,
+                        is_active=True,
+                    )
 
-            query = urlencode(
-                {
-                    "saved": 1,
-                    "level_code": level_code,
-                    "created": created_count,
-                    "restored": restored_count,
-                    "skipped": skipped_count,
-                }
-            )
-            return redirect(f"{reverse('teacher-course-student-pool', args=[course_slug])}?{query}")
+                redirect_url = build_redirect_with_query(
+                    reverse("teacher-course-student-pool", args=[course_slug]),
+                    params={
+                        "level_code": context["selected_level_code"],
+                        "single_student_saved": 1,
+                    },
+                )
+                return redirect(redirect_url)
+
+            context["error_message"] = context["single_student_error_message"]
+        else:
+            selected_student_ids = {int(value) for value in request.POST.getlist("student_ids") if value.isdigit()}
+            pool_student_ids = context["pool_student_ids"]
+            level_code = selected_level_code
+
+            if not context["available_level_codes"]:
+                context["error_message"] = "当前课程方向还没有可用级别，暂时不能从学生池批量加入。"
+            elif level_code not in context["available_level_codes"]:
+                context["error_message"] = "请选择有效的级别后再保存。"
+            else:
+                created_count = 0
+                restored_count = 0
+                skipped_count = 0
+                valid_student_ids = sorted(selected_student_ids & pool_student_ids)
+
+                for student_id in valid_student_ids:
+                    assignment = (
+                        TeacherStudentAssignment.objects.filter(
+                            teacher=portal_user,
+                            student_id=student_id,
+                            course_id=course.id,
+                            level_code=level_code,
+                        )
+                        .order_by("id")
+                        .first()
+                    )
+                    if assignment:
+                        if assignment.is_active:
+                            skipped_count += 1
+                        else:
+                            assignment.is_active = True
+                            assignment.save(update_fields=["is_active", "updated_at"])
+                            restored_count += 1
+                    else:
+                        TeacherStudentAssignment.objects.create(
+                            teacher=portal_user,
+                            student_id=student_id,
+                            course=course,
+                            level_code=level_code,
+                            is_active=True,
+                        )
+                        created_count += 1
+
+                query = urlencode(
+                    {
+                        "saved": 1,
+                        "level_code": level_code,
+                        "created": created_count,
+                        "restored": restored_count,
+                        "skipped": skipped_count,
+                    }
+                )
+                return redirect(f"{reverse('teacher-course-student-pool', args=[course_slug])}?{query}")
 
     return render(
         request,
@@ -1091,11 +1660,13 @@ def teacher_course_knowledge_point_permissions(
         managed_student_ids = {row["student_id"] for row in context["student_rows"]}
         content = context["content"]
         for student_id in managed_student_ids:
-            access = get_student_content_access(context["student_map"][student_id], content)
             next_state = student_id in selected_student_ids
-            if access.is_open != next_state:
-                access.set_open_state(is_open=next_state, granted_by=portal_user if next_state else None)
-                access.save(update_fields=["is_open", "granted_by", "granted_at", "updated_at"])
+            set_student_content_visibility(
+                context["student_map"][student_id],
+                content,
+                is_visible=next_state,
+                granted_by=portal_user,
+            )
         query_string = urlencode({"saved": 1, "q": search_query}) if search_query else "saved=1"
         return redirect(f"{reverse('teacher-course-knowledge-point-permissions', args=[course_slug, category_slug, level_code, content_slug])}?{query_string}")
 
@@ -1231,6 +1802,11 @@ def teacher_course_knowledge_point_new(request: HttpRequest, course_slug: str, c
                 slug=slug,
                 title=title,
                 phase=selected_level.code,
+                permission_code=infer_content_permission_code(
+                    context["course"].slug,
+                    level_code=selected_level.code,
+                    phase=selected_level.code,
+                ),
                 sort_order=next_sort_order,
                 route_path=route_path,
                 summary=str(form_data["summary"]),
@@ -1322,8 +1898,25 @@ def teacher_course_knowledge_point_edit(
             content.has_real_content = bool(form_data["has_real_content"])
             content.phase = selected_level.code
             content.level = selected_level
+            content.permission_code = infer_content_permission_code(
+                context["course"].slug,
+                level_code=selected_level.code,
+                phase=selected_level.code,
+            )
             content.sort_order = sort_order
-            content.save(update_fields=["title", "slug", "route_path", "summary", "has_real_content", "phase", "level", "sort_order"])
+            content.save(
+                update_fields=[
+                    "title",
+                    "slug",
+                    "route_path",
+                    "summary",
+                    "has_real_content",
+                    "phase",
+                    "level",
+                    "permission_code",
+                    "sort_order",
+                ]
+            )
             return redirect(f"{reverse('teacher-course-level-detail', args=[course_slug, category_slug, selected_level.code])}?op=updated")
         context["form_values"]["route_path"] = route_path
 
@@ -1372,12 +1965,60 @@ def teacher_course_knowledge_point_delete(
 @role_required("teacher")
 def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
-    try:
-        context = build_teacher_student_detail_context(portal_user, student_id)
-    except ObjectDoesNotExist as exc:
-        raise Http404("未找到该学生") from exc
+
+    homework_success_map = {
+        "created": "作业已布置，学生端现在可以在“我的作业”里看到，并已同步补开对应知识点权限。",
+        "reviewed": "评语已保存，学生端会同步显示最新内容。",
+        "cancelled": "作业已取消，记录会继续保留在当前列表里。",
+        "summary_created": "本周总结已创建，并已绑定到选定日期范围内的作业。",
+    }
+
+    def render_detail(
+        *,
+        homework_form_values: dict[str, object] | None = None,
+        homework_error_message: str = "",
+        homework_summary_form_values: dict[str, object] | None = None,
+        homework_summary_error_message: str = "",
+    ) -> HttpResponse:
+        success_message = homework_success_map.get((request.GET.get("homework_op") or "").strip(), "")
+        if (request.GET.get("homework_op") or "").strip() == "summary_created":
+            bound_count = normalize_positive_int(request.GET.get("summary_bound"), default=0, minimum=0)
+            if bound_count:
+                success_message = f"本周总结已创建，并绑定 {bound_count} 条当周作业。"
+        content_restriction_success_message = ""
+        try:
+            detail_context = build_teacher_student_detail_context(
+                portal_user,
+                student_id,
+                homework_form_values=homework_form_values,
+                homework_error_message=homework_error_message,
+                homework_success_message=success_message,
+                homework_summary_form_values=homework_summary_form_values,
+                homework_summary_error_message=homework_summary_error_message,
+            )
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该学生") from exc
+        if request.GET.get("content_restriction_saved") == "1":
+            content_restriction_success_message = (
+                f"当前已限制 {detail_context['content_restriction_restricted_count']} / "
+                f"{detail_context['content_restriction_total_count']} 个默认可见内容。"
+            )
+        return render(
+            request,
+            "entry/teacher_student_detail.html",
+            {
+                "role_label": ROLE_CONFIG["teacher"]["label"],
+                "content_restriction_success_message": content_restriction_success_message,
+                **build_shell_identity_context(request),
+                **detail_context,
+            },
+        )
 
     if request.method == "POST":
+        try:
+            context = build_teacher_student_detail_context(portal_user, student_id)
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该学生") from exc
         action = request.POST.get("form_action", "").strip()
         student = context["student"]
 
@@ -1388,11 +2029,35 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
                     content = get_gesp4_topic_content(item["slug"])
                 except ObjectDoesNotExist as exc:
                     raise Http404("未找到该专题") from exc
-                access = get_student_content_access(student, content)
                 next_state = item["slug"] in selected_slugs
-                if access.is_open != next_state:
-                    access.set_open_state(is_open=next_state, granted_by=portal_user if next_state else None)
-                    access.save(update_fields=["is_open", "granted_by", "granted_at", "updated_at"])
+                set_student_content_visibility(
+                    student,
+                    content,
+                    is_visible=next_state,
+                    granted_by=portal_user,
+                )
+
+        elif action == "save_content_restrictions":
+            restricted_content_ids = {int(value) for value in request.POST.getlist("restricted_content_ids") if value.isdigit()}
+            managed_content_ids = {item["id"] for item in context["content_restriction_items"]}
+            managed_contents = {
+                content.id: content
+                for content in CourseContent.objects.select_related("course", "level").filter(id__in=managed_content_ids)
+            }
+            for content_id, content in managed_contents.items():
+                set_student_content_visibility(
+                    student,
+                    content,
+                    is_visible=content_id not in restricted_content_ids,
+                    granted_by=portal_user,
+                )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-student-detail", args=[student_id]),
+                    params={"content_restriction_saved": 1},
+                    anchor="content-restrictions",
+                )
+            )
 
         elif action == "add_evaluation":
             evaluation_text = request.POST.get("evaluation_text", "").strip()
@@ -1428,17 +2093,190 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
                     note=note,
                 )
 
+        elif action == "create_homework":
+            available_contents = get_teacher_student_homework_contents(portal_user, student)
+            content_map = {content.id: content for content in available_contents}
+            selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
+            title = request.POST.get("title", "").strip()
+            description = request.POST.get("description", "").strip()
+            due_date_raw = request.POST.get("due_date", "").strip()
+            form_values = {
+                "content_id": selected_content_id,
+                "title": title,
+                "description": description,
+                "due_date": due_date_raw,
+            }
+            content = content_map.get(selected_content_id)
+            if not content:
+                return render_detail(
+                    homework_form_values=form_values,
+                    homework_error_message="请选择当前教师负责范围内的知识点作为作业目标。",
+                )
+            try:
+                due_date_value = date.fromisoformat(due_date_raw)
+            except ValueError:
+                return render_detail(
+                    homework_form_values=form_values,
+                    homework_error_message="请选择有效的截止日期。",
+                )
+            final_title = title or content.title
+            ensure_homework_content_access(student, content, portal_user)
+            HomeworkAssignment.objects.create(
+                teacher=portal_user,
+                student=student,
+                content=content,
+                title=final_title,
+                description=description,
+                due_date=due_date_value,
+                status=HomeworkAssignment.STATUS_ASSIGNED,
+                assigned_at=timezone.now(),
+                is_active=True,
+            )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-student-detail", args=[student_id]),
+                    params={"homework_op": "created"},
+                    anchor="homework-panel",
+                )
+            )
+
+        elif action == "create_homework_summary":
+            title = request.POST.get("summary_title", "").strip()
+            start_date_raw = request.POST.get("summary_start_date", "").strip()
+            end_date_raw = request.POST.get("summary_end_date", "").strip()
+            summary_html_input = request.POST.get("summary_html", "").strip()
+            form_values = {
+                "title": title,
+                "start_date": start_date_raw,
+                "end_date": end_date_raw,
+                "summary_html": summary_html_input,
+            }
+            start_date_value = parse_iso_date(start_date_raw)
+            end_date_value = parse_iso_date(end_date_raw)
+            if not start_date_value or not end_date_value:
+                return render_detail(
+                    homework_summary_form_values=form_values,
+                    homework_summary_error_message="请选择有效的起止日期范围。",
+                )
+            if start_date_value > end_date_value:
+                return render_detail(
+                    homework_summary_form_values=form_values,
+                    homework_summary_error_message="开始日期不能晚于结束日期。",
+                )
+            uploaded_html_file = request.FILES.get("summary_html_file")
+            try:
+                summary_html = (
+                    decode_uploaded_summary_html(uploaded_html_file)
+                    if uploaded_html_file
+                    else summary_html_input
+                ).strip()
+            except ValidationError as exc:
+                return render_detail(
+                    homework_summary_form_values=form_values,
+                    homework_summary_error_message=str(exc),
+                )
+            if not summary_html:
+                return render_detail(
+                    homework_summary_form_values=form_values,
+                    homework_summary_error_message="请上传 HTML 文件，或直接填写总结 HTML 正文。",
+                )
+            matched_assignments = list(
+                filter_homework_assignments_by_assigned_date(
+                    list(get_teacher_student_homework_queryset(portal_user, student)),
+                    start_date=start_date_value,
+                    end_date=end_date_value,
+                )
+            )
+            if not matched_assignments:
+                return render_detail(
+                    homework_summary_form_values=form_values,
+                    homework_summary_error_message="当前日期范围内没有可绑定的作业，请调整日期范围后重试。",
+                )
+            final_title = title or build_default_homework_summary_title(
+                student,
+                start_date=start_date_value,
+                end_date=end_date_value,
+            )
+            summary = HomeworkSummary.objects.create(
+                title=final_title,
+                summary_html=summary_html,
+                created_by=portal_user,
+            )
+            HomeworkAssignment.objects.filter(
+                id__in=[assignment.id for assignment in matched_assignments]
+            ).update(summary=summary, updated_at=timezone.now())
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-student-detail", args=[student_id]),
+                    params={"homework_op": "summary_created", "summary_bound": len(matched_assignments)},
+                    anchor="homework-panel",
+                )
+            )
+
+        elif action == "review_homework":
+            homework_id = normalize_positive_int(request.POST.get("homework_id"), default=0, minimum=1)
+            teacher_comment = request.POST.get("teacher_comment", "").strip()
+            assignment = (
+                HomeworkAssignment.objects.filter(
+                    id=homework_id,
+                    teacher=portal_user,
+                    student=student,
+                    is_active=True,
+                )
+                .select_related("student")
+                .first()
+            )
+            if not assignment:
+                raise Http404("未找到该作业")
+            previous_status = assignment.status
+            previous_comment = assignment.teacher_comment
+            previous_reviewed_at = assignment.reviewed_at
+            assignment.mark_reviewed(teacher_comment=teacher_comment)
+            update_fields = []
+            if assignment.teacher_comment != previous_comment:
+                update_fields.append("teacher_comment")
+            if assignment.status != previous_status:
+                update_fields.append("status")
+            if assignment.reviewed_at != previous_reviewed_at:
+                update_fields.append("reviewed_at")
+            if update_fields:
+                update_fields.append("updated_at")
+                assignment.save(update_fields=update_fields)
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-student-detail", args=[student_id]),
+                    params={"homework_op": "reviewed"},
+                    anchor=f"homework-{assignment.id}",
+                )
+            )
+
+        elif action == "cancel_homework":
+            homework_id = normalize_positive_int(request.POST.get("homework_id"), default=0, minimum=1)
+            assignment = (
+                HomeworkAssignment.objects.filter(
+                    id=homework_id,
+                    teacher=portal_user,
+                    student=student,
+                    is_active=True,
+                )
+                .select_related("student")
+                .first()
+            )
+            if not assignment:
+                raise Http404("未找到该作业")
+            if assignment.cancel():
+                assignment.save(update_fields=["status", "updated_at"])
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-student-detail", args=[student_id]),
+                    params={"homework_op": "cancelled"},
+                    anchor=f"homework-{assignment.id}",
+                )
+            )
+
         return redirect("teacher-student-detail", student_id=student_id)
 
-    return render(
-        request,
-        "entry/teacher_student_detail.html",
-        {
-            "role_label": ROLE_CONFIG["teacher"]["label"],
-            **build_shell_identity_context(request),
-            **context,
-        },
-    )
+    return render_detail()
 
 
 @role_required("teacher")
@@ -1482,7 +2320,7 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
 
     def get_assignment() -> HomeworkAssignment:
         assignment = (
-            HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level")
+            HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
             .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
             .first()
         )
@@ -1547,7 +2385,10 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
 
         if action == "confirm_import_job":
             import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
-            import_job = assignment.import_jobs.filter(id=import_job_id, teacher=portal_user, is_active=True).first()
+            import_job = (
+                assignment.import_jobs.filter(id=import_job_id, teacher=portal_user, is_active=True)
+                .first()
+            )
             if not import_job:
                 raise Http404("未找到该导入任务")
             candidate_count = normalize_positive_int(request.POST.get("candidate_count"), default=0, minimum=0)

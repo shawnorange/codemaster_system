@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -44,10 +44,10 @@
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Course Student Pool</p>
                 <h3>{{ course_title }} · 从学生池加入我名下</h3>
-                <p>这里只显示当前不在你这个课程方向下的学生。保存时只写 TeacherStudentAssignment，不改学生主档，不影响其他老师关系。</p>
+                <p>学生池表格只显示当前不在你这个课程方向下的学生。表格批量保存时只写 TeacherStudentAssignment；单个新增通过弹窗补齐最小学生主档。</p>
             </div>
 
-            <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+            <div class="portal-topic-card__meta topic-work-card__meta portal-topic-card__meta--spaced topic-work-card__meta--spaced">
                 {% for item in identity_items %}
                     <article class="topic-work-card__meta-item">
                         <span>{{ item.label }}</span>
@@ -65,41 +65,45 @@
 
             <form id="course-student-pool-form" method="post" action="{{ save_action }}" class="course-topic-assignment">
                 {% csrf_token %}
+                <input type="hidden" name="form_action" value="bulk_add_students">
                 <div id="course-student-pool-hidden-inputs"></div>
 
-                <div class="teacher-tabulator-shell">
-                    <div class="teacher-tabulator-toolbar">
-                        <div class="teacher-tabulator-toolbar__search">
+                <div class="portal-grid-shell teacher-tabulator-shell">
+                    <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                        <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                             <label for="course-student-pool-search">姓名</label>
-                            <input id="course-student-pool-search" class="teacher-tabulator-search" type="text" placeholder="按学生姓名模糊查找">
+                            <input id="course-student-pool-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按学生姓名模糊查找">
                         </div>
-                        <div class="teacher-tabulator-toolbar__actions">
-                            <div class="teacher-tabulator-meta">
-                                <span class="teacher-tabulator-meta__pill">当前课程<strong>{{ course_title }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">当前级别<strong id="course-student-pool-level-pill">{{ selected_level_code|default:'待选' }}</strong></span>
-                                <span class="teacher-tabulator-meta__pill">已勾选<strong id="course-student-pool-selected-count">0</strong></span>
-                                <span class="teacher-tabulator-meta__pill">学生池<strong id="course-student-pool-total-count">{{ pool_rows|length }}</strong></span>
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                            <div class="portal-grid-meta teacher-tabulator-meta">
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">当前课程<strong>{{ course_title }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">当前级别<strong id="course-student-pool-level-pill">{{ selected_level_code|default:'待选' }}</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">已勾选<strong id="course-student-pool-selected-count">0</strong></span>
+                                <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">学生池<strong id="course-student-pool-total-count">{{ pool_rows|length }}</strong></span>
                             </div>
                             <a class="system-header__link" href="{{ back_href }}">返回课程学生页</a>
                         </div>
                     </div>
 
-                    <div class="teacher-tabulator-toolbar">
-                        <div class="teacher-tabulator-toolbar__actions">
-                            <label for="course-student-pool-level" style="font-size: 13px; color: #5f5d6b;">加入到级别</label>
-                            <select id="course-student-pool-level" name="level_code" style="min-width: 140px;">
-                                {% for level_code in available_level_codes %}
-                                    <option value="{{ level_code }}" {% if level_code == selected_level_code %}selected{% endif %}>{{ level_code }}</option>
-                                {% endfor %}
-                            </select>
+                    <div class="portal-grid-toolbar portal-grid-toolbar--secondary teacher-tabulator-toolbar teacher-tabulator-toolbar--secondary">
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                            <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                <label for="course-student-pool-level">加入到级别</label>
+                                <select id="course-student-pool-level" name="level_code" class="portal-grid-filter-control teacher-tabulator-filter-control">
+                                    {% for level_code in available_level_codes %}
+                                        <option value="{{ level_code }}" {% if level_code == selected_level_code %}selected{% endif %}>{{ level_code }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
-                        <div class="teacher-tabulator-toolbar__actions">
+                        <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                            <button id="open-single-student-modal" class="cm-tabulator-btn" type="button">添加单个学生</button>
                             <button id="course-student-pool-select-all" class="cm-tabulator-btn" type="button">全选当前结果</button>
                             <button id="course-student-pool-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
                         </div>
                     </div>
 
-                    <div id="course-student-pool-table" class="teacher-tabulator-container"></div>
+                    <div id="course-student-pool-table" class="portal-grid-container teacher-tabulator-container"></div>
                 </div>
 
                 {% if pool_rows and available_level_codes %}
@@ -129,6 +133,66 @@
             </section>
         </aside>
     </div>
+
+    <dialog class="topic-access-modal" id="single-student-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_single_student">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Create Student</p>
+                    <h3>添加单个学生</h3>
+                    <p>权限等级会写入当前老师 assignment；等级名称只写学生主档展示字段。当前只补最小必要数据，不扩展到完整账号发放流程。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-single-student-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            {% if single_student_error_message %}
+                <div class="entry-hint-bar">{{ single_student_error_message }}</div>
+            {% endif %}
+
+            <div class="record-form">
+                <input
+                    type="text"
+                    name="new_student_name"
+                    value="{{ single_student_form_values.student_name }}"
+                    placeholder="学生姓名"
+                    required
+                >
+                <input
+                    type="text"
+                    name="new_parent_phone"
+                    value="{{ single_student_form_values.parent_phone }}"
+                    placeholder="家长电话"
+                    inputmode="tel"
+                    required
+                >
+                <select name="new_course_id" required>
+                    {% for option in single_student_course_options %}
+                        <option value="{{ option.value }}" {% if option.value == single_student_form_values.course_id %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+                <select name="new_permission_level_code" required>
+                    <option value="">权限等级（C1/C2/C3/C4）</option>
+                    {% for level_code in single_student_permission_level_codes %}
+                        <option value="{{ level_code }}" {% if level_code == single_student_form_values.permission_level_code %}selected{% endif %}>{{ level_code }}</option>
+                    {% endfor %}
+                </select>
+                <select name="new_primary_level_name" required>
+                    <option value="">等级名称（GESP / CSP）</option>
+                    {% for level_name in single_student_level_name_options %}
+                        <option value="{{ level_name }}" {% if level_name == single_student_form_values.primary_level_name %}selected{% endif %}>{{ level_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-single-student-modal">取消</button>
+                <button type="submit" class="login-button" {% if not single_student_permission_level_codes or not single_student_level_name_options %}disabled{% endif %}>确认新增</button>
+            </div>
+        </form>
+    </dialog>
 {% endblock %}
 
 {% block extra_body_end %}
@@ -148,5 +212,55 @@
             selectAllButtonId: "course-student-pool-select-all",
             clearSelectionButtonId: "course-student-pool-clear-selection"
         });
+
+        (function () {
+            const singleStudentDialog = document.getElementById("single-student-modal");
+            const singleStudentOpenButton = document.getElementById("open-single-student-modal");
+            const singleStudentCloseButton = document.getElementById("close-single-student-modal");
+            const singleStudentCancelButton = document.getElementById("cancel-single-student-modal");
+            const singleStudentShouldOpen = {{ single_student_modal_should_open|yesno:"true,false" }};
+
+            const showDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+            };
+
+            const hideDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            };
+
+            if (singleStudentOpenButton) {
+                singleStudentOpenButton.addEventListener("click", () => showDialog(singleStudentDialog));
+            }
+            if (singleStudentCloseButton) {
+                singleStudentCloseButton.addEventListener("click", () => hideDialog(singleStudentDialog));
+            }
+            if (singleStudentCancelButton) {
+                singleStudentCancelButton.addEventListener("click", () => hideDialog(singleStudentDialog));
+            }
+            if (singleStudentDialog) {
+                singleStudentDialog.addEventListener("click", (event) => {
+                    if (event.target === singleStudentDialog) {
+                        hideDialog(singleStudentDialog);
+                    }
+                });
+            }
+            if (singleStudentShouldOpen) {
+                showDialog(singleStudentDialog);
+            }
+        })();
     </script>
 {% endblock %}

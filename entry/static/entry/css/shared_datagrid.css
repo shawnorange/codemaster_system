@@ -1,0 +1,442 @@
+/* Grid shell and controls:
+   portal primary, teacher/homework legacy compatibility. */
+.portal-grid-shell,
+.teacher-tabulator-shell {
+    display: grid;
+    gap: 16px;
+}
+
+.portal-grid-shell--spacious,
+.homework-tabulator-shell {
+    display: grid;
+    gap: 18px;
+}
+
+.portal-grid-toolbar,
+.teacher-tabulator-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.portal-grid-toolbar--secondary,
+.teacher-tabulator-toolbar--secondary {
+    padding-top: 4px;
+    border-top: 1px solid #edf1f6;
+}
+
+.portal-grid-toolbar__search,
+.teacher-tabulator-toolbar__search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1 1 360px;
+    flex-wrap: wrap;
+}
+
+.portal-grid-toolbar__actions,
+.teacher-tabulator-toolbar__actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.portal-grid-toolbar__search label,
+.teacher-tabulator-toolbar__search label {
+    color: #6f7c8f;
+    font-size: 0.86rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.portal-grid-filter-field,
+.teacher-tabulator-filter-field {
+    display: grid;
+    gap: 6px;
+    min-width: 160px;
+}
+
+.portal-grid-filter-field label,
+.teacher-tabulator-filter-field label {
+    color: #6f7c8f;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.portal-grid-search,
+.teacher-tabulator-search {
+    min-height: 40px;
+    min-width: 260px;
+    padding: 0 14px;
+    border-radius: 12px;
+    border: 1px solid #d9e0ea;
+    background: #ffffff;
+    color: #223047;
+    font-size: 0.92rem;
+    flex: 1 1 auto;
+}
+
+.portal-grid-filter-control,
+.teacher-tabulator-filter-control {
+    min-height: 40px;
+    min-width: 140px;
+    padding: 0 12px;
+    border-radius: 12px;
+    border: 1px solid #d9e0ea;
+    background: #ffffff;
+    color: #223047;
+    font-size: 0.92rem;
+}
+
+.portal-grid-note,
+.teacher-tabulator-note {
+    color: #6f7c8f;
+    font-size: 0.88rem;
+}
+
+.portal-grid-meta,
+.teacher-tabulator-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.portal-grid-meta__pill,
+.teacher-tabulator-meta__pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: #f4f7fb;
+    border: 1px solid #dde6f2;
+    color: #32445d;
+    font-size: 0.84rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.portal-grid-meta__pill strong,
+.teacher-tabulator-meta__pill strong {
+    margin-left: 6px;
+    color: #0f67b8;
+}
+
+/* Homework filters already share the same datagrid toolbar language.
+   Keep homework-* as compatibility selectors for staged template cleanup. */
+.portal-filters,
+.portal-grid-filters,
+.homework-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: end;
+}
+
+.portal-filter-unit,
+.portal-grid-filter-unit,
+.homework-filter-unit {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.portal-filter-label,
+.portal-grid-filter-label,
+.homework-filter-label {
+    color: #6f7c8f;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.portal-filter-control,
+.portal-grid-filter-control,
+.homework-filter-control {
+    width: 100%;
+    min-height: 40px;
+    border-radius: 12px;
+    border: 1px solid #d9e0ea;
+    background: #ffffff;
+    color: #223047;
+    font-size: 0.92rem;
+    padding: 0 12px;
+}
+
+.portal-meta-row,
+.portal-grid-meta-row,
+.homework-tabulator-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.portal-grid-container,
+.teacher-tabulator-container,
+.homework-tabulator-container {
+    width: 100%;
+}
+
+.portal-grid-container .tabulator,
+.teacher-tabulator-container .tabulator,
+.homework-tabulator-container .tabulator {
+    width: 100%;
+    border: 1px solid #dfe5ee;
+    border-radius: 22px;
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 12px 30px rgba(15, 103, 184, 0.05);
+    font-size: 0.93rem;
+}
+
+.portal-grid-container .tabulator-header,
+.teacher-tabulator-container .tabulator-header,
+.homework-tabulator-container .tabulator-header {
+    border-bottom: 1px solid #e6ebf1;
+    background: #f4f6fa;
+}
+
+.portal-grid-container .tabulator-col,
+.portal-grid-container .tabulator-row .tabulator-cell,
+.teacher-tabulator-container .tabulator-col,
+.teacher-tabulator-container .tabulator-row .tabulator-cell,
+.homework-tabulator-container .tabulator-col,
+.homework-tabulator-container .tabulator-row .tabulator-cell {
+    border-right: 1px solid #edf1f6;
+}
+
+.portal-grid-container .tabulator-col:last-child,
+.portal-grid-container .tabulator-row .tabulator-cell:last-child,
+.teacher-tabulator-container .tabulator-col:last-child,
+.teacher-tabulator-container .tabulator-row .tabulator-cell:last-child,
+.homework-tabulator-container .tabulator-col:last-child,
+.homework-tabulator-container .tabulator-row .tabulator-cell:last-child {
+    border-right: 0;
+}
+
+.portal-grid-container .tabulator-header .tabulator-col.tabulator-col-group,
+.teacher-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group,
+.homework-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group {
+    background: #fbfcfe;
+    border-bottom: 1px solid #e6ebf1;
+}
+
+.portal-grid-container .tabulator-header .tabulator-col.tabulator-col-group > .tabulator-col-content,
+.teacher-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group > .tabulator-col-content,
+.homework-tabulator-container .tabulator-header .tabulator-col.tabulator-col-group > .tabulator-col-content {
+    min-height: 54px;
+    color: #727f92;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.portal-grid-container .tabulator-header .tabulator-col:not(.tabulator-col-group),
+.teacher-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group),
+.homework-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group) {
+    min-height: 56px;
+    background: #f4f6fa;
+}
+
+.portal-grid-container .tabulator-header .tabulator-col:not(.tabulator-col-group) .tabulator-col-content,
+.teacher-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group) .tabulator-col-content,
+.homework-tabulator-container .tabulator-header .tabulator-col:not(.tabulator-col-group) .tabulator-col-content {
+    color: #39485f;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.portal-grid-container .tabulator-col-content,
+.teacher-tabulator-container .tabulator-col-content,
+.homework-tabulator-container .tabulator-col-content {
+    padding: 0 16px;
+}
+
+.portal-grid-container .tabulator-cell,
+.teacher-tabulator-container .tabulator-cell,
+.homework-tabulator-container .tabulator-cell {
+    min-height: 56px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #25334a;
+}
+
+.portal-grid-container .tabulator-row,
+.teacher-tabulator-container .tabulator-row,
+.homework-tabulator-container .tabulator-row {
+    background: #ffffff;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.portal-grid-container .tabulator-row:nth-child(even),
+.teacher-tabulator-container .tabulator-row:nth-child(even),
+.homework-tabulator-container .tabulator-row:nth-child(even) {
+    background: #fcfdff;
+}
+
+.portal-grid-container .tabulator-row:hover,
+.teacher-tabulator-container .tabulator-row:hover,
+.homework-tabulator-container .tabulator-row:hover {
+    background: #f7fbff;
+}
+
+.portal-grid-container .tabulator-row.tabulator-selected,
+.teacher-tabulator-container .tabulator-row.tabulator-selected,
+.homework-tabulator-container .tabulator-row.tabulator-selected {
+    background: #eef6ff;
+}
+
+.portal-grid-container .tabulator-footer,
+.teacher-tabulator-container .tabulator-footer,
+.homework-tabulator-container .tabulator-footer {
+    padding: 12px 16px;
+    border-top: 1px solid #e6ebf1;
+    background: #fbfcfe;
+}
+
+.portal-grid-container .tabulator-footer .tabulator-page-size,
+.teacher-tabulator-container .tabulator-footer .tabulator-page-size,
+.homework-tabulator-container .tabulator-footer .tabulator-page-size {
+    min-height: 34px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ef;
+    padding: 0 10px;
+    background: #ffffff;
+}
+
+.portal-grid-container .tabulator-footer .tabulator-paginator,
+.teacher-tabulator-container .tabulator-footer .tabulator-paginator,
+.homework-tabulator-container .tabulator-footer .tabulator-paginator {
+    gap: 8px;
+}
+
+.portal-grid-container .tabulator-footer .tabulator-page,
+.teacher-tabulator-container .tabulator-footer .tabulator-page,
+.homework-tabulator-container .tabulator-footer .tabulator-page {
+    min-height: 34px;
+    min-width: 34px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ef;
+    background: #ffffff;
+    color: #26415d;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.portal-grid-container .tabulator-footer .tabulator-page.active,
+.teacher-tabulator-container .tabulator-footer .tabulator-page.active,
+.homework-tabulator-container .tabulator-footer .tabulator-page.active {
+    background: #eef4fb;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
+.portal-grid-button,
+.cm-tabulator-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: #f3f6fb;
+    border: 1px solid #dbe3ef;
+    color: #23415f;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.portal-grid-button:hover,
+.cm-tabulator-btn:hover {
+    background: #eaf2fb;
+}
+
+.portal-grid-toolbar__actions .portal-link-button,
+.portal-grid-toolbar__actions .system-header__link,
+.teacher-tabulator-toolbar__actions .portal-link-button,
+.teacher-tabulator-toolbar__actions .system-header__link,
+.portal-grid-toolbar__actions .portal-grid-button,
+.teacher-tabulator-toolbar__actions .cm-tabulator-btn {
+    min-height: 40px;
+}
+
+.portal-grid-button--primary,
+.cm-tabulator-btn--primary {
+    background: #ebf3ff;
+    color: #0f67b8;
+    border-color: #cfe0fb;
+}
+
+.portal-grid-pill,
+.cm-tabulator-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.portal-grid-pill--open,
+.cm-tabulator-pill--open {
+    background: rgba(15, 103, 184, 0.12);
+    color: #0f67b8;
+}
+
+.portal-grid-pill--locked,
+.cm-tabulator-pill--locked {
+    background: #f1f4f8;
+    color: #6f7c8f;
+}
+
+.portal-grid-pill--success,
+.cm-tabulator-pill--success {
+    background: rgba(34, 139, 34, 0.12);
+    color: #2c7b2f;
+}
+
+.portal-grid-pill--muted,
+.cm-tabulator-pill--muted {
+    background: #f1f4f8;
+    color: #6f7c8f;
+}
+
+@media (max-width: 960px) {
+    .portal-grid-toolbar,
+    .teacher-tabulator-toolbar {
+        align-items: stretch;
+    }
+
+    .portal-grid-toolbar__search,
+    .portal-grid-toolbar__actions,
+    .teacher-tabulator-toolbar__search,
+    .teacher-tabulator-toolbar__actions {
+        width: 100%;
+    }
+
+    .portal-grid-filter-field,
+    .teacher-tabulator-filter-field {
+        width: 100%;
+    }
+
+    .portal-grid-filters,
+    .portal-filters,
+    .homework-filters {
+        grid-template-columns: 1fr;
+    }
+}

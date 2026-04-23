@@ -1,0 +1,22 @@
+<div class="question-statement">
+    <strong>{{ heading }}</strong>
+    {% if question.should_render_prompt %}
+        {% for line in question.theme_stem_lines|default:question.statement %}
+            <p class="question-card__prompt">{{ line }}</p>
+        {% endfor %}
+    {% endif %}
+
+    {% if question.inline_code %}
+        <div class="question-inline-code">
+            <pre><code>{{ question.inline_code }}</code></pre>
+        </div>
+    {% endif %}
+
+    {% if question.option_lines %}
+        <ol class="question-option-list" type="A">
+            {% for option in question.option_lines %}
+                <li>{{ option }}</li>
+            {% endfor %}
+        </ol>
+    {% endif %}
+</div>

@@ -156,9 +156,7 @@
                                     <p class="content-access-card__description">{{ item.description }}</p>
                                     <div class="content-access-card__footer">
                                         <span>{{ item.hint }}</span>
-                                        {% if item.route_path %}
-                                            <a href="{{ item.route_path }}">进入内容</a>
-                                        {% endif %}
+                                        <span class="state-pill state-pill--locked">仅学生账号可进入</span>
                                     </div>
                                 </article>
                             {% endfor %}
@@ -166,6 +164,57 @@
                     {% endif %}
 
                     <div class="parent-record-grid">
+                        <section class="record-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Weekly Homework</p>
+                                <h3>本周作业摘要</h3>
+                                <p>{{ page_shell.weekly_homework_summary.week_label|default:"本周暂无作业" }}</p>
+                            </div>
+
+                            {% if page_shell.homework_portal_href %}
+                                <div class="portal-action-row parent-homework-entry">
+                                    <span>{{ page_shell.homework_portal_note }}</span>
+                                    <a class="system-header__link" href="{{ page_shell.homework_portal_href }}">查看全部作业记录</a>
+                                </div>
+                            {% endif %}
+
+                            <div class="profile-grid">
+                                <article class="profile-item">
+                                    <span>本周作业总数</span>
+                                    <strong>{{ page_shell.weekly_homework_summary.total_count }}</strong>
+                                </article>
+                                <article class="profile-item">
+                                    <span>已完成数</span>
+                                    <strong>{{ page_shell.weekly_homework_summary.completed_count }}</strong>
+                                </article>
+                                <article class="profile-item">
+                                    <span>未完成数</span>
+                                    <strong>{{ page_shell.weekly_homework_summary.pending_count }}</strong>
+                                </article>
+                            </div>
+
+                            {% if page_shell.weekly_homework_summary.latest_comment %}
+                                <article class="record-list-item">
+                                    <strong>{{ page_shell.weekly_homework_summary.latest_comment.text }}</strong>
+                                    <span>{{ page_shell.weekly_homework_summary.latest_comment.teacher_name }} · {{ page_shell.weekly_homework_summary.latest_comment.updated_at_text }}</span>
+                                </article>
+                            {% else %}
+                                <div class="entry-hint-bar">本周还没有老师评语。</div>
+                            {% endif %}
+
+                            <div class="record-list">
+                                {% for item in page_shell.weekly_homework_summary.items %}
+                                    <article class="record-list-item">
+                                        <strong>{{ item.title }}</strong>
+                                        <span>{{ item.content_title }} · 截止 {{ item.due_date_text }}</span>
+                                        <span>{{ item.status_text }}</span>
+                                    </article>
+                                {% empty %}
+                                    <div class="entry-hint-bar">本周还没有挂到孩子名下的作业。</div>
+                                {% endfor %}
+                            </div>
+                        </section>
+
                         <section class="record-panel">
                             <div class="section-heading section-heading--compact">
                                 <p class="section-heading__eyebrow">Latest Evaluation</p>
@@ -228,61 +277,61 @@
                     </div>
                 </div>
             {% elif role_key == "teacher" %}
-                <div class="teacher-workspace-shell">
-                    <nav class="teacher-tab-bar" aria-label="教师工作台标签页">
+                <div class="portal-workspace-shell teacher-workspace-shell">
+                    <nav class="portal-tab-bar teacher-tab-bar" aria-label="教师工作台标签页">
                         {% for tab in page_shell.tabs %}
-                            <a class="teacher-tab {{ tab.is_active|yesno:'teacher-tab--active,' }}" href="{{ tab.href }}">{{ tab.label }}</a>
+                            <a class="portal-tab teacher-tab {{ tab.is_active|yesno:'portal-tab--active teacher-tab--active,' }}" href="{{ tab.href }}">{{ tab.label }}</a>
                         {% endfor %}
                     </nav>
 
                     {% if page_shell.active_tab == "students" %}
-                        <div class="teacher-tab-panel">
+                        <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
                             <div class="section-heading section-heading--compact">
                                 <p class="section-heading__eyebrow">Students</p>
                                 <h3>当前负责学生</h3>
                                 <p>以表格快速查看学生状态，并进入单个学生工作台继续做专题开放、评价、奖励和课时操作。</p>
                             </div>
 
-                            <div class="topic-access-modal__footer topic-access-modal__footer--course" style="justify-content: flex-start; margin-bottom: 16px;">
+                            <div class="topic-access-modal__footer topic-access-modal__footer--course portal-action-row portal-action-row--leading portal-stack-spacing-sm">
                                 {% for item in page_shell.student_pool_links %}
                                     <a class="system-header__link" href="{{ item.href }}">{{ item.label }}</a>
                                 {% endfor %}
                             </div>
 
-                            <div class="teacher-tabulator-shell">
-                                <div class="teacher-tabulator-toolbar">
-                                    <div class="teacher-tabulator-toolbar__search">
+                            <div class="portal-grid-shell teacher-tabulator-shell">
+                                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                                         <label for="teacher-workbench-student-search">按姓名 / 手机 / 范围查找</label>
-                                        <input id="teacher-workbench-student-search" class="teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或负责范围">
+                                        <input id="teacher-workbench-student-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入学生姓名、家长手机或负责范围">
                                     </div>
-                                    <div class="teacher-tabulator-toolbar__actions">
-                                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                        <span class="portal-grid-note teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
                                     </div>
                                 </div>
-                                <div id="teacher-workbench-students-table" class="teacher-tabulator-container"></div>
+                                <div id="teacher-workbench-students-table" class="portal-grid-container teacher-tabulator-container"></div>
                             </div>
-                        </div>
+                        </section>
                     {% else %}
-                        <div class="teacher-tab-panel">
+                        <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
                             <div class="section-heading section-heading--compact">
                                 <p class="section-heading__eyebrow">Courses</p>
                                 <h3>当前负责课程</h3>
                                 <p>先从课程入口查看老师当前承接的方向，再进入课程分类页承接 GESP、CSP、机器人编程等入口结构。</p>
                             </div>
 
-                            <div class="teacher-tabulator-shell">
-                                <div class="teacher-tabulator-toolbar">
-                                    <div class="teacher-tabulator-toolbar__search">
+                            <div class="portal-grid-shell teacher-tabulator-shell">
+                                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                                         <label for="teacher-workbench-course-search">按课程 / 级别查找</label>
-                                        <input id="teacher-workbench-course-search" class="teacher-tabulator-search" type="text" placeholder="输入课程名、级别或说明">
+                                        <input id="teacher-workbench-course-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入课程名、级别或说明">
                                     </div>
-                                    <div class="teacher-tabulator-toolbar__actions">
-                                        <span class="teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
+                                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                        <span class="portal-grid-note teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
                                     </div>
                                 </div>
-                                <div id="teacher-workbench-courses-table" class="teacher-tabulator-container"></div>
+                                <div id="teacher-workbench-courses-table" class="portal-grid-container teacher-tabulator-container"></div>
                             </div>
-                        </div>
+                        </section>
                     {% endif %}
                 </div>
             {% elif role_key == "principal" %}

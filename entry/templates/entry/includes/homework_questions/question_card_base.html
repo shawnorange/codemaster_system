@@ -1,0 +1,20 @@
+<article
+    id="{{ question.dom_id }}"
+    class="homework-question homework-question--{{ question.state }} homework-question--{{ question.renderer_key }} homework-question--{{ question.feedback_tone }}"
+>
+    <header class="homework-question__header">
+        <div class="homework-question__heading">
+            <span class="homework-question__eyebrow">第 {{ question.question_no }} 题</span>
+            <h5 class="homework-question__title">{{ question.stem }}</h5>
+        </div>
+        <span class="homework-question__badge homework-question__badge--{{ question.badge_tone }}">{{ question.badge_text }}</span>
+    </header>
+
+    <div class="homework-question__body">
+        {% include "entry/includes/homework_questions/question_dispatch.html" with question=question %}
+    </div>
+
+    {% if question.show_feedback %}
+        {% include "entry/includes/homework_questions/question_state_feedback.html" with question=question %}
+    {% endif %}
+</article>

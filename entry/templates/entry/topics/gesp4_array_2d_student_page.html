@@ -1,0 +1,368 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/topics/gesp2_enumeration/styles.css' %}?v=20260411d">
+{% endblock %}
+
+{% block system_content %}
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumb_items %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="gesp2-enumeration-topic gesp4-array-topic-review">
+        <div class="page-shell">
+            <div
+                class="topic-review-shell"
+                data-student-review-shell
+                data-default-section="{{ topic_review_data.default_section_key }}"
+            >
+                <aside class="review-sidebar">
+                    <div class="review-sidebar-shell">
+                        <div class="review-sidebar-head">
+                            <p class="eyebrow">Review Guide</p>
+                            <h3>二维数组知识点导航</h3>
+                            <p class="panel-description">左侧按知识点组切换，中间看当前分组的主例题和同类练习，底部可顺序翻页。</p>
+                        </div>
+
+                        <label class="review-select-label">
+                            <span>移动端切换知识点组</span>
+                            <select class="review-select" data-review-select aria-label="切换二维数组知识点组">
+                                {% for item in topic_review_data.navigation %}
+                                    <option value="{{ item.key }}">{{ item.title }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+
+                        <nav class="review-nav" aria-label="二维数组知识点导航">
+                            {% for item in topic_review_data.navigation %}
+                                <button
+                                    type="button"
+                                    class="review-nav-button{% if item.key == topic_review_data.default_section_key %} is-active{% endif %}"
+                                    data-review-target="{{ item.key }}"
+                                    aria-current="{% if item.key == topic_review_data.default_section_key %}page{% else %}false{% endif %}"
+                                >
+                                    <span class="review-nav-button__badge">{{ item.badge }}</span>
+                                    <strong>{{ item.title }}</strong>
+                                    <small>{{ item.subtitle|truncatechars:36 }}</small>
+                                </button>
+                            {% endfor %}
+                        </nav>
+                    </div>
+                </aside>
+
+                <main class="review-main" data-review-main>
+                    <article
+                        id="review-overview"
+                        class="review-panel review-panel--overview is-active"
+                        data-review-panel="overview"
+                    >
+                        <section class="review-hero">
+                            <div class="review-hero__copy">
+                                <p class="eyebrow">GESP4 / Student Review</p>
+                                <span class="role-badge">当前角色：{{ role_label }}</span>
+                                <h2>{{ topic_review_data.overview.title }}</h2>
+                                <p class="hero-subtitle">{{ topic_review_data.overview.definition }}</p>
+                                <p class="topic-summary">{{ topic_review_data.overview.summary }}</p>
+                            </div>
+
+                            <div class="review-hero__actions">
+                                {% if topic_review_data.overview.first_section_key %}
+                                    <button
+                                        type="button"
+                                        class="review-primary-action"
+                                        data-review-target="{{ topic_review_data.overview.first_section_key }}"
+                                    >
+                                        开始复盘
+                                    </button>
+                                {% endif %}
+                                <p class="review-video-note">知识点组基于 `questions` 题库记录的 `payload` 进行归类，不直接把题目标题当导航。</p>
+                            </div>
+                        </section>
+
+                        <section class="review-overview-grid">
+                            <article class="review-stat-card">
+                                <span>本页题量</span>
+                                <strong>{{ topic_review_data.overview.question_count }} 题</strong>
+                                <p>页面主结构按知识点组组织，不按题型平铺，也不按题目标题硬拆导航。</p>
+                            </article>
+                        </section>
+
+                        <section class="review-section-block">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">What To Learn</p>
+                                <h3>这次复盘先抓住三条主线</h3>
+                            </div>
+                            <div class="review-insight-grid">
+                                {% for item in topic_review_data.overview.learning_targets %}
+                                    <article class="review-insight-card">
+                                        <strong>重点 {{ forloop.counter }}</strong>
+                                        <p>{{ item }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+
+                        <section class="review-section-block">
+                            <div class="section-heading">
+                                <p class="section-heading__eyebrow">Study Order</p>
+                                <h3>建议复盘顺序</h3>
+                            </div>
+                            <div class="review-order-list">
+                                {% for section in topic_review_data.sections %}
+                                    <article class="review-order-item">
+                                        <span>{{ section.section_label }}</span>
+                                        <strong>{{ section.title }}</strong>
+                                        <p>{{ section.summary }}</p>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </section>
+
+                        <div class="review-pagination">
+                            <button type="button" class="review-page-button" disabled>上一组</button>
+                            {% if topic_review_data.overview.next_section_key %}
+                                <button
+                                    type="button"
+                                    class="review-page-button review-page-button--primary"
+                                    data-review-target="{{ topic_review_data.overview.next_section_key }}"
+                                >
+                                    下一组：{{ topic_review_data.overview.next_section_title }}
+                                </button>
+                            {% endif %}
+                        </div>
+                    </article>
+
+                    {% for section in topic_review_data.sections %}
+                        <article
+                            id="review-{{ section.key }}"
+                            class="review-panel"
+                            data-review-panel="{{ section.key }}"
+                            hidden
+                        >
+                            <section class="review-section-hero">
+                                <div>
+                                    <p class="section-heading__eyebrow">{{ section.section_label }} / 共 {{ topic_review_data.overview.section_count }} 组</p>
+                                    <h3>{{ section.title }}</h3>
+                                    <p>{{ section.summary }}</p>
+                                </div>
+                                <div class="review-section-goal">
+                                    <span>学习目标</span>
+                                    <strong>{{ section.study_goal }}</strong>
+                                    <p>{{ section.question_types }}</p>
+                                </div>
+                            </section>
+
+                            <section class="review-insight-grid">
+                                <article class="review-insight-card">
+                                    <strong>看知识点</strong>
+                                    <p>{{ section.focus_statement }}</p>
+                                </article>
+                                <article class="review-insight-card">
+                                    <strong>看题型规律</strong>
+                                    <p>{{ section.pattern_statement }}</p>
+                                </article>
+                                <article class="review-insight-card review-insight-card--warning">
+                                    <strong>看常见错误</strong>
+                                    <p>{{ section.lead_question.pitfall|default:"先检查行列是否写反、边界是否稳定、局部变量是否正确重置。" }}</p>
+                                </article>
+                            </section>
+
+                            <section class="review-section-block">
+                                <div class="section-heading">
+                                    <p class="section-heading__eyebrow">Main Example</p>
+                                    <h3>主例题</h3>
+                                    <p>每组先放一个更适合讲核心思路的题，再把其余相近题收进同类练习。</p>
+                                </div>
+
+                                <article class="review-question-card review-question-card--spotlight">
+                                    <div class="question-card__meta">
+                                        <span>{{ section.lead_question.source }}</span>
+                                        <span>{{ section.lead_question.question_type_label }}</span>
+                                        <span>{{ section.lead_question.question_no }}</span>
+                                    </div>
+
+                                    <div class="tag-row">
+                                        <span class="tag">{{ section.lead_question.level_code }}</span>
+                                        <span class="tag tag--secondary">{{ section.lead_question.content_slug }}</span>
+                                    </div>
+
+                                    <h4>{{ section.lead_question.title }}</h4>
+
+                                    <div class="review-question-summary-grid">
+                                        <article class="review-mini-card">
+                                            <strong>题目摘要</strong>
+                                            <p>{{ section.lead_question.summary }}</p>
+                                        </article>
+                                    </div>
+
+                                    {% include "entry/topics/includes/gesp4_array_2d_question_statement.html" with question=section.lead_question heading="主例题题面" only %}
+
+                                    {% if section.lead_question.study_guide_items %}
+                                        <div class="review-question-summary-grid">
+                                            {% for item in section.lead_question.study_guide_items %}
+                                                <article class="review-mini-card">
+                                                    <strong>{{ item.label }}</strong>
+                                                    <p>{{ item.text }}</p>
+                                                </article>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+
+                                    <div class="question-answer-box">
+                                        <button
+                                            type="button"
+                                            class="question-answer-toggle"
+                                            data-visibility-toggle
+                                            data-panel-id="answer-panel-{{ section.lead_question.dom_id }}"
+                                            data-label-show="显示主例题答案"
+                                            data-label-hide="隐藏主例题答案"
+                                            aria-controls="answer-panel-{{ section.lead_question.dom_id }}"
+                                            aria-expanded="false"
+                                        >
+                                            显示主例题答案
+                                        </button>
+                                        <div
+                                            id="answer-panel-{{ section.lead_question.dom_id }}"
+                                            class="question-answer-panel"
+                                            data-visibility-panel
+                                            hidden
+                                        >
+                                            <strong>参考答案</strong>
+                                            <p>{{ section.lead_question.answer_text }}</p>
+                                            <strong>易错提醒</strong>
+                                            <p>{{ section.lead_question.pitfall|default:"先检查边界和坐标，再看局部逻辑是否完整。" }}</p>
+                                            <strong>题目解析</strong>
+                                            {% if section.lead_question.analysis_lines %}
+                                                {% for item in section.lead_question.analysis_lines %}
+                                                    <p>{{ item }}</p>
+                                                {% endfor %}
+                                            {% else %}
+                                                <p>题库暂未补充解析，可先根据题面和本组知识点复盘。</p>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </article>
+                            </section>
+
+                            <section class="review-section-block">
+                                <div class="section-heading">
+                                    <p class="section-heading__eyebrow">Practice</p>
+                                    <h3>同类练习</h3>
+                                    <p>{{ section.practice_hint }}</p>
+                                </div>
+
+                                <details class="practice-cluster"{% if not section.practice_questions %} open{% endif %}>
+                                    <summary>
+                                        继续练习 / 同类题
+                                        <span>{{ section.practice_count }} 题</span>
+                                    </summary>
+
+                                    {% if section.practice_questions %}
+                                        <div class="practice-list">
+                                            {% for question in section.practice_questions %}
+                                                <article class="review-question-card">
+                                                    <div class="question-card__meta">
+                                                        <span>{{ question.source }}</span>
+                                                        <span>{{ question.question_type_label }}</span>
+                                                        <span>{{ question.question_no }}</span>
+                                                    </div>
+
+                                                    <div class="tag-row">
+                                                        <span class="tag">{{ question.level_code }}</span>
+                                                        <span class="tag tag--secondary">{{ question.content_slug }}</span>
+                                                    </div>
+
+                                                    <h4>{{ question.title }}</h4>
+
+                                                    {% include "entry/topics/includes/gesp4_array_2d_question_statement.html" with question=question heading="同类题主题干" only %}
+
+                                                    <div class="question-answer-box">
+                                                        <button
+                                                            type="button"
+                                                            class="question-answer-toggle"
+                                                            data-visibility-toggle
+                                                            data-panel-id="answer-panel-{{ question.dom_id }}"
+                                                            data-label-show="显示答案"
+                                                            data-label-hide="隐藏答案"
+                                                            aria-controls="answer-panel-{{ question.dom_id }}"
+                                                            aria-expanded="false"
+                                                        >
+                                                            显示答案
+                                                        </button>
+                                                        <div
+                                                            id="answer-panel-{{ question.dom_id }}"
+                                                            class="question-answer-panel"
+                                                            data-visibility-panel
+                                                            hidden
+                                                        >
+                                                            <strong>参考答案</strong>
+                                                            <p>{{ question.answer_text }}</p>
+                                                            <strong>易错提醒</strong>
+                                                            <p>{{ question.pitfall|default:"先把坐标、边界和局部判断顺序写清楚。" }}</p>
+                                                            <strong>题目解析</strong>
+                                                            {% if question.analysis_lines %}
+                                                                {% for item in question.analysis_lines %}
+                                                                    <p>{{ item }}</p>
+                                                                {% endfor %}
+                                                            {% else %}
+                                                                <p>题库暂未补充解析，可先根据题面和本组知识点复盘。</p>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <p class="practice-empty">这一组当前没有额外练习题，先把主例题的规律和易错点复述清楚。</p>
+                                    {% endif %}
+                                </details>
+                            </section>
+
+                            <div class="review-pagination">
+                                {% if section.prev_section_key %}
+                                    <button
+                                        type="button"
+                                        class="review-page-button"
+                                        data-review-target="{{ section.prev_section_key }}"
+                                    >
+                                        上一组：{{ section.prev_section_title }}
+                                    </button>
+                                {% else %}
+                                    <button type="button" class="review-page-button" disabled>上一组</button>
+                                {% endif %}
+
+                                {% if section.next_section_key %}
+                                    <button
+                                        type="button"
+                                        class="review-page-button review-page-button--primary"
+                                        data-review-target="{{ section.next_section_key }}"
+                                    >
+                                        下一组：{{ section.next_section_title }}
+                                    </button>
+                                {% else %}
+                                    <button type="button" class="review-page-button" disabled>已到最后一组</button>
+                                {% endif %}
+                            </div>
+                        </article>
+                    {% endfor %}
+                </main>
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'entry/topics/gesp4_array_2d/student_review.js' %}?v=20260414a" type="module"></script>
+{% endblock %}

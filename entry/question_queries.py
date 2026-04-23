@@ -6,6 +6,7 @@ from django.db.utils import OperationalError, ProgrammingError
 
 from .gesp2_catalog import ASCII_CHAR_ENCODING_CONTENT_SLUG, ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
+from .manual_overrides import build_manual_override_view_data
 from .models import Question
 
 
@@ -40,6 +41,7 @@ def serialize_question(question: Question) -> dict[str, Any]:
         "is_active": question.is_active,
         "is_demo": question.is_demo,
         "payload": payload,
+        "manual_override": build_manual_override_view_data(payload.get("manual_override")),
     }
     for key in QUESTION_PAYLOAD_KEYS:
         serialized[key] = payload.get(key)

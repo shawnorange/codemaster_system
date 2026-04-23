@@ -4,6 +4,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from .manual_overrides import build_manual_override_view_data
+
 from .gesp2_catalog import ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 
@@ -461,6 +463,11 @@ def _enumeration_record_to_page_question(
 
     question.update(
         {
+            "id": record.get("id"),
+            "code": record.get("code") or question.get("code"),
+            "content_slug": record.get("content_slug") or question.get("content_slug"),
+            "sort_order": record.get("sort_order", question.get("sort_order", 0)),
+            "is_demo": bool(record.get("is_demo")),
             "source": payload.get("source") or question.get("source") or _format_source_label(
                 record.get("source_year"),
                 record.get("source_month"),
@@ -482,7 +489,7 @@ def _enumeration_record_to_page_question(
             "answer": payload.get("answer") or question.get("answer"),
             "statement": _normalize_string_list(payload.get("statement") or question.get("statement") or question.get("prompt")),
             "options": _normalize_string_list(payload.get("options") or question.get("options")),
-            "code": payload.get("code") if payload.get("code") is not None else question.get("code"),
+            "code": payload.get("code") if payload.get("code") is not None else record.get("code") or question.get("code"),
             "answer_label": payload.get("answer_label") or question.get("answer_label"),
             "answer_analysis": _normalize_string_list(payload.get("answer_analysis") or question.get("answer_analysis")),
             "input_format": payload.get("input_format") or question.get("input_format"),
@@ -491,6 +498,7 @@ def _enumeration_record_to_page_question(
             "sample_output": payload.get("sample_output") or question.get("sample_output"),
             "question_id": question_id,
             "question_ref": payload.get("question_ref") or question.get("question_ref"),
+            "manual_override": build_manual_override_view_data(payload.get("manual_override")),
         }
     )
 

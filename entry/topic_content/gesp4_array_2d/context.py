@@ -7,6 +7,7 @@ from typing import Any
 from entry.question_fallbacks import build_array_2d_db_site_data
 from entry.question_queries import list_array_2d_questions
 
+from .student_review import build_student_review_data
 
 TOPIC_DIR = Path(__file__).resolve().parent
 SITE_DATA_PATH = TOPIC_DIR / "site-data.json"
@@ -61,4 +62,29 @@ def get_topic_page_context(lecture_id: str | None = None) -> dict[str, Any]:
         "topic_slug": "array-2d",
         "topic_site_data_script_id": "gesp4-array-2d-site-data",
         "topic_badge_text": "GESP4 / 二维数组专题",
+    }
+
+
+def get_student_topic_page_context() -> dict[str, Any]:
+    site_data = load_site_data()
+    db_questions = list_array_2d_questions()
+    topic_review_data, topic_main_question_source = build_student_review_data(site_data, db_questions)
+    meta = site_data.get("meta", {})
+
+    return {
+        "page_title": meta.get("title") or "GESP4 二维数组专题",
+        "page_description": meta.get("subtitle") or "二维数组专题学生复盘页",
+        "breadcrumb_items": [
+            {"label": "学生课程页", "href": "/student/courses"},
+            {"label": "C++", "href": "/student/cpp"},
+            {"label": "GESP", "href": "/student/cpp/gesp"},
+            {"label": "GESP4", "href": "/student/cpp/gesp/gesp4"},
+            {"label": "二维数组专题"},
+        ],
+        "topic_slug": "array-2d",
+        "topic_note": (
+            "当前页面已切到学生复盘版：主区优先读取 questions 表中 `level_code=GESP4` + `content_slug=array-2d` 的题目，再按知识点组归类展示；数据库为空时才退回静态题库。"
+        ),
+        "topic_review_data": topic_review_data,
+        "topic_main_question_source": topic_main_question_source,
     }

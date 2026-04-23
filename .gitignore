@@ -18,6 +18,7 @@ test.sqlite3
 .tmp_quicklook/
 project_inputs/
 media/
+staticfiles/
 logs/
 *.log
 *.out

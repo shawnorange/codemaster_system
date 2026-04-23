@@ -1,3 +1,9 @@
+.entry-hint-bar.entry-hint-bar--warning {
+    border-color: rgba(181, 120, 24, 0.28);
+    background: rgba(255, 247, 231, 0.95);
+    color: #8a5a19;
+}
+
 .gesp2-enumeration-topic {
     --bg: #f8f5ec;
     --bg-accent: #eef7ff;
@@ -523,6 +529,18 @@
     gap: 10px;
 }
 
+.gesp2-enumeration-topic .student-manual-preview {
+    display: grid;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.gesp2-enumeration-topic .student-manual-preview__grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .gesp2-enumeration-topic .question-answer-toggle {
     display: inline-flex;
     align-items: center;
@@ -562,6 +580,10 @@
     border: 1px solid rgba(181, 120, 24, 0.22);
 }
 
+.gesp2-enumeration-topic .question-answer-panel[hidden] {
+    display: none !important;
+}
+
 .gesp2-enumeration-topic .question-answer-panel p {
     margin: 0;
     color: var(--ink-soft);
@@ -569,6 +591,152 @@
 
 .gesp2-enumeration-topic .question-answer-label {
     font-weight: 700;
+}
+
+.gesp2-enumeration-topic .question-card--focus {
+    border-color: rgba(15, 103, 184, 0.38);
+    box-shadow: 0 24px 54px rgba(15, 103, 184, 0.18);
+}
+
+.gesp2-enumeration-topic .manual-override-panel {
+    display: grid;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 20px;
+    border: 1px dashed rgba(15, 103, 184, 0.28);
+    background: rgba(242, 248, 255, 0.9);
+}
+
+.gesp2-enumeration-topic .manual-override-panel__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.gesp2-enumeration-topic .manual-override-panel__head h6 {
+    margin: 0;
+    color: var(--accent-strong);
+    font-size: 1rem;
+}
+
+.gesp2-enumeration-topic .manual-override-panel__head p,
+.gesp2-enumeration-topic .manual-override-actions p,
+.gesp2-enumeration-topic .manual-preview-card p,
+.gesp2-enumeration-topic .manual-override-empty,
+.gesp2-enumeration-topic .manual-override-field span,
+.gesp2-enumeration-topic .manual-override-note span {
+    margin: 0;
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .manual-override-panel__stamp {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 0.26rem 0.72rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .manual-override-feedback {
+    padding: 0.8rem 0.95rem;
+    border-radius: 16px;
+    background: rgba(28, 125, 102, 0.1);
+    border: 1px solid rgba(28, 125, 102, 0.2);
+    color: var(--success);
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .manual-override-feedback.is-error {
+    background: rgba(181, 120, 24, 0.12);
+    border-color: rgba(181, 120, 24, 0.24);
+    color: #8a5a19;
+}
+
+.gesp2-enumeration-topic .manual-override-form,
+.gesp2-enumeration-topic .manual-override-note,
+.gesp2-enumeration-topic .manual-override-field,
+.gesp2-enumeration-topic .manual-preview-card {
+    display: grid;
+    gap: 8px;
+}
+
+.gesp2-enumeration-topic .manual-override-grid,
+.gesp2-enumeration-topic .manual-override-preview-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .manual-override-field,
+.gesp2-enumeration-topic .manual-preview-card {
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(15, 103, 184, 0.14);
+}
+
+.gesp2-enumeration-topic .manual-override-field input[type="file"],
+.gesp2-enumeration-topic .manual-override-note textarea {
+    width: 100%;
+    border: 1px solid rgba(15, 103, 184, 0.18);
+    border-radius: 14px;
+    background: #fff;
+    color: var(--ink);
+}
+
+.gesp2-enumeration-topic .manual-override-field input[type="file"] {
+    padding: 0.72rem 0.75rem;
+}
+
+.gesp2-enumeration-topic .manual-override-note textarea {
+    resize: vertical;
+    min-height: 84px;
+    padding: 0.82rem 0.9rem;
+    font: inherit;
+    line-height: 1.6;
+}
+
+.gesp2-enumeration-topic .manual-override-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--accent-strong);
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .manual-preview-card strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .manual-preview-card img {
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid rgba(15, 103, 184, 0.12);
+    background: #fff;
+    object-fit: contain;
+}
+
+.gesp2-enumeration-topic .manual-preview-card code {
+    display: block;
+    padding: 0.72rem 0.8rem;
+    border-radius: 14px;
+    background: rgba(15, 37, 63, 0.06);
+    color: var(--ink-soft);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.gesp2-enumeration-topic .manual-override-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
 }
 
 .gesp2-enumeration-topic .template-card__warning {
@@ -1032,6 +1200,311 @@
     word-break: break-word;
 }
 
+.gesp2-enumeration-topic .topic-review-shell {
+    display: grid;
+    grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+}
+
+.gesp2-enumeration-topic .review-sidebar {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+}
+
+.gesp2-enumeration-topic .review-sidebar-shell,
+.gesp2-enumeration-topic .review-panel,
+.gesp2-enumeration-topic .review-stat-card,
+.gesp2-enumeration-topic .review-insight-card,
+.gesp2-enumeration-topic .review-order-item,
+.gesp2-enumeration-topic .review-section-goal,
+.gesp2-enumeration-topic .review-question-card,
+.gesp2-enumeration-topic .review-mini-card,
+.gesp2-enumeration-topic .practice-cluster {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+}
+
+.gesp2-enumeration-topic .review-sidebar-shell {
+    display: grid;
+    gap: 18px;
+    padding: 20px 18px;
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+}
+
+.gesp2-enumeration-topic .review-sidebar-head {
+    display: grid;
+    gap: 8px;
+}
+
+.gesp2-enumeration-topic .review-sidebar-head h3,
+.gesp2-enumeration-topic .review-panel h2,
+.gesp2-enumeration-topic .review-panel h3,
+.gesp2-enumeration-topic .review-panel h4 {
+    margin: 0;
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .review-select-label {
+    display: none;
+}
+
+.gesp2-enumeration-topic .review-select-label,
+.gesp2-enumeration-topic .review-main,
+.gesp2-enumeration-topic .review-panel,
+.gesp2-enumeration-topic .review-hero__copy,
+.gesp2-enumeration-topic .review-hero__actions,
+.gesp2-enumeration-topic .review-section-block,
+.gesp2-enumeration-topic .review-section-goal,
+.gesp2-enumeration-topic .review-stat-card,
+.gesp2-enumeration-topic .review-insight-card,
+.gesp2-enumeration-topic .review-order-item,
+.gesp2-enumeration-topic .review-question-card,
+.gesp2-enumeration-topic .review-mini-card,
+.gesp2-enumeration-topic .practice-list {
+    display: grid;
+    gap: 12px;
+}
+
+.gesp2-enumeration-topic .review-select-label span {
+    color: var(--ink-soft);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .review-select {
+    width: 100%;
+    padding: 0.8rem 0.95rem;
+    border-radius: 16px;
+    border: 1px solid rgba(15, 103, 184, 0.16);
+    background: rgba(247, 251, 255, 0.95);
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .review-nav {
+    display: grid;
+    gap: 10px;
+}
+
+.gesp2-enumeration-topic .review-nav-button {
+    display: grid;
+    gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(247, 251, 255, 0.94);
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .review-nav-button:hover,
+.gesp2-enumeration-topic .review-nav-button.is-active {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.34);
+    background: rgba(225, 240, 255, 0.95);
+}
+
+.gesp2-enumeration-topic .review-nav-button strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .review-nav-button small,
+.gesp2-enumeration-topic .review-video-note,
+.gesp2-enumeration-topic .review-question-brief,
+.gesp2-enumeration-topic .practice-empty {
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .review-nav-button__badge {
+    display: inline-flex;
+    width: fit-content;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .review-panel {
+    padding: 24px clamp(18px, 2.4vw, 28px);
+}
+
+.gesp2-enumeration-topic .review-panel[hidden] {
+    display: none !important;
+}
+
+.gesp2-enumeration-topic .review-hero,
+.gesp2-enumeration-topic .review-section-hero,
+.gesp2-enumeration-topic .review-pagination {
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.gesp2-enumeration-topic .review-hero {
+    padding-bottom: 8px;
+}
+
+.gesp2-enumeration-topic .review-hero__actions {
+    min-width: 15rem;
+}
+
+.gesp2-enumeration-topic .review-primary-action,
+.gesp2-enumeration-topic .review-page-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    padding: 0.72rem 1.08rem;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 103, 184, 0.18);
+    background: rgba(238, 247, 255, 0.85);
+    color: var(--accent-strong);
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.gesp2-enumeration-topic .review-primary-action:hover,
+.gesp2-enumeration-topic .review-page-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(15, 103, 184, 0.34);
+}
+
+.gesp2-enumeration-topic .review-page-button--primary,
+.gesp2-enumeration-topic .review-primary-action {
+    background: linear-gradient(135deg, rgba(15, 103, 184, 0.14), rgba(255, 255, 255, 0.96));
+}
+
+.gesp2-enumeration-topic .review-page-button:disabled {
+    cursor: default;
+    opacity: 0.56;
+}
+
+.gesp2-enumeration-topic .review-overview-grid,
+.gesp2-enumeration-topic .review-insight-grid,
+.gesp2-enumeration-topic .review-order-list,
+.gesp2-enumeration-topic .review-question-summary-grid {
+    display: grid;
+    gap: 14px;
+}
+
+.gesp2-enumeration-topic .review-overview-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .review-insight-grid,
+.gesp2-enumeration-topic .review-question-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .review-order-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gesp2-enumeration-topic .review-stat-card,
+.gesp2-enumeration-topic .review-insight-card,
+.gesp2-enumeration-topic .review-order-item,
+.gesp2-enumeration-topic .review-mini-card {
+    padding: 18px;
+}
+
+.gesp2-enumeration-topic .review-stat-card span,
+.gesp2-enumeration-topic .review-order-item span,
+.gesp2-enumeration-topic .review-section-goal span {
+    color: var(--ink-soft);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gesp2-enumeration-topic .review-stat-card strong,
+.gesp2-enumeration-topic .review-insight-card strong,
+.gesp2-enumeration-topic .review-order-item strong,
+.gesp2-enumeration-topic .review-mini-card strong,
+.gesp2-enumeration-topic .review-section-goal strong {
+    color: var(--accent-strong);
+}
+
+.gesp2-enumeration-topic .review-stat-card p,
+.gesp2-enumeration-topic .review-insight-card p,
+.gesp2-enumeration-topic .review-order-item p,
+.gesp2-enumeration-topic .review-mini-card p,
+.gesp2-enumeration-topic .review-section-goal p {
+    margin: 0;
+    color: var(--ink-soft);
+}
+
+.gesp2-enumeration-topic .review-insight-card--warning,
+.gesp2-enumeration-topic .review-mini-card--warning {
+    background: linear-gradient(180deg, rgba(255, 251, 239, 0.98), rgba(255, 255, 255, 0.92));
+    border-color: rgba(181, 120, 24, 0.22);
+}
+
+.gesp2-enumeration-topic .review-section-goal {
+    min-width: 15rem;
+    padding: 16px 18px;
+    background: rgba(244, 248, 253, 0.95);
+}
+
+.gesp2-enumeration-topic .review-question-card {
+    padding: 18px;
+}
+
+.gesp2-enumeration-topic .review-question-card--spotlight {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 253, 0.96));
+}
+
+.gesp2-enumeration-topic .review-question-card h4 {
+    margin: 0;
+    font-size: 1.24rem;
+}
+
+.gesp2-enumeration-topic .practice-cluster {
+    padding: 16px 18px;
+}
+
+.gesp2-enumeration-topic .practice-cluster summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    cursor: pointer;
+    color: var(--accent-strong);
+    font-weight: 700;
+    list-style: none;
+}
+
+.gesp2-enumeration-topic .practice-cluster summary::-webkit-details-marker {
+    display: none;
+}
+
+.gesp2-enumeration-topic .practice-cluster summary span {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(15, 103, 184, 0.12);
+    color: var(--accent);
+    font-size: 0.8rem;
+}
+
+.gesp2-enumeration-topic .practice-cluster[open] summary {
+    margin-bottom: 14px;
+}
+
+.gesp2-enumeration-topic .practice-list {
+    grid-template-columns: 1fr;
+}
+
 @media (max-width: 1360px) {
     .gesp2-enumeration-topic .hero-metrics {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1050,6 +1523,10 @@
     .gesp2-enumeration-topic .question-io-grid,
     .gesp2-enumeration-topic .question-grid--demo {
         grid-template-columns: 1fr;
+    }
+
+    .gesp2-enumeration-topic .review-overview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -1084,21 +1561,58 @@
             "debug"
             "code";
     }
+
+    .gesp2-enumeration-topic .topic-review-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .gesp2-enumeration-topic .review-sidebar {
+        position: static;
+    }
+
+    .gesp2-enumeration-topic .review-sidebar-shell {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .gesp2-enumeration-topic .review-overview-grid,
+    .gesp2-enumeration-topic .review-insight-grid,
+    .gesp2-enumeration-topic .review-order-list,
+    .gesp2-enumeration-topic .review-question-summary-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 960px) {
     .gesp2-enumeration-topic .group-card__head,
     .gesp2-enumeration-topic .enum-player-head,
-    .gesp2-enumeration-topic .source-panel__head {
+    .gesp2-enumeration-topic .source-panel__head,
+    .gesp2-enumeration-topic .review-hero,
+    .gesp2-enumeration-topic .review-section-hero,
+    .gesp2-enumeration-topic .review-pagination {
         flex-direction: column;
     }
 
     .gesp2-enumeration-topic .group-meta,
-    .gesp2-enumeration-topic .enum-player-summary {
+    .gesp2-enumeration-topic .enum-player-summary,
+    .gesp2-enumeration-topic .review-hero__actions,
+    .gesp2-enumeration-topic .review-section-goal {
         min-width: 0;
         width: 100%;
     }
 
+    .gesp2-enumeration-topic .review-select-label {
+        display: grid;
+    }
+
+    .gesp2-enumeration-topic .review-nav {
+        display: none;
+    }
+
+    .gesp2-enumeration-topic .manual-override-grid,
+    .gesp2-enumeration-topic .manual-override-preview-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 768px) {
@@ -1123,5 +1637,16 @@
     .gesp2-enumeration-topic .enum-code-line {
         grid-template-columns: 42px minmax(0, 1fr);
         padding-inline: 0.85rem;
+    }
+
+    .gesp2-enumeration-topic .review-sidebar-shell,
+    .gesp2-enumeration-topic .review-panel {
+        padding-inline: 16px;
+    }
+
+    .gesp2-enumeration-topic .manual-override-panel__head,
+    .gesp2-enumeration-topic .manual-override-actions {
+        display: grid;
+        grid-template-columns: 1fr;
     }
 }

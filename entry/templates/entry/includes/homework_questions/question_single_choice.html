@@ -1,0 +1,37 @@
+<div class="homework-question__option-list">
+    {% for option in question.options %}
+        {% if question.show_selector %}
+            <label class="homework-question__option homework-question__option--interactive homework-question__option--{{ option.style_tone }}{% if option.is_code_like %} homework-question__option--code{% endif %}">
+                <input
+                    class="homework-question__selector"
+                    type="radio"
+                    name="{{ question.input_name }}"
+                    value="{{ option.key }}"
+                    {% if option.is_selected %}checked{% endif %}
+                >
+                <span class="homework-question__option-key">{{ option.key }}</span>
+                <div class="homework-question__option-copy">
+                    {% if option.is_code_like %}
+                        <pre class="homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
+                    {% else %}
+                        <span class="homework-question__option-text">{{ option.rendered_text }}</span>
+                    {% endif %}
+                </div>
+            </label>
+        {% else %}
+            <article class="homework-question__option homework-question__option--static homework-question__option--{{ option.style_tone }}{% if option.is_code_like %} homework-question__option--code{% endif %}">
+                <span class="homework-question__option-key">{{ option.key }}</span>
+                <div class="homework-question__option-copy">
+                    {% if option.is_code_like %}
+                        <pre class="homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
+                    {% else %}
+                        <span class="homework-question__option-text">{{ option.rendered_text }}</span>
+                    {% endif %}
+                    {% if option.status_label %}
+                        <span class="homework-question__option-status homework-question__option-status--{{ option.status_tone }}">{{ option.status_label }}</span>
+                    {% endif %}
+                </div>
+            </article>
+        {% endif %}
+    {% endfor %}
+</div>

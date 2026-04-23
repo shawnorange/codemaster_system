@@ -1,0 +1,10 @@
+<section class="homework-question__feedback homework-question__feedback--{{ question.feedback_tone }}">
+    <div class="homework-question__feedback-grid">
+        {% for item in question.feedback_items %}
+            <article class="homework-question__feedback-item">
+                <span class="homework-question__feedback-label">{{ item.label }}</span>
+                <strong class="homework-question__feedback-value">{{ item.value }}</strong>
+            </article>
+        {% endfor %}
+    </div>
+</section>

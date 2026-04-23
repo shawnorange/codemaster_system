@@ -1891,37 +1891,28 @@ def grade_homework_submission(
         raise HomeworkImportParseError("当前作业还没有正式题目，暂时不能在线提交。")
 
     with transaction.atomic():
-        submission, _ = HomeworkSubmission.objects.get_or_create(
+        submission = HomeworkSubmission.objects.create(
             assignment=assignment,
             student=student,
-            defaults={
-                "status": HomeworkSubmission.STATUS_IN_PROGRESS,
-                "started_at": timezone.now(),
-                "is_active": True,
-            },
+            status=HomeworkSubmission.STATUS_IN_PROGRESS,
+            started_at=timezone.now(),
+            is_active=True,
         )
-        if submission.status in {HomeworkSubmission.STATUS_SUBMITTED, HomeworkSubmission.STATUS_AUTO_CHECKED, HomeworkSubmission.STATUS_REVIEWED}:
-            return submission
 
         correct_count = 0
-        question_ids = []
         for question in questions:
-            question_ids.append(question.id)
             selected_answer = normalize_candidate_text(selected_answers.get(question.id)).upper()[:1]
             is_correct = bool(selected_answer and selected_answer == question.correct_answer)
             if is_correct:
                 correct_count += 1
-            HomeworkSubmissionAnswer.objects.update_or_create(
+            HomeworkSubmissionAnswer.objects.create(
                 submission=submission,
                 homework_question=question,
-                defaults={
-                    "selected_answer": selected_answer if selected_answer in {"A", "B", "C", "D"} else "",
-                    "is_correct": is_correct,
-                    "correct_answer_snapshot": question.correct_answer,
-                    "analysis_snapshot": question.analysis,
-                },
+                selected_answer=selected_answer if selected_answer in {"A", "B", "C", "D"} else "",
+                is_correct=is_correct,
+                correct_answer_snapshot=question.correct_answer,
+                analysis_snapshot=question.analysis,
             )
-        HomeworkSubmissionAnswer.objects.filter(submission=submission).exclude(homework_question_id__in=question_ids).delete()
 
         total_count = len(questions)
         wrong_count = total_count - correct_count

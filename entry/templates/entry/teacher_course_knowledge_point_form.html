@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -46,7 +46,7 @@
             <p>当前表单支持最小维护字段：title、slug、summary、route_path、has_real_content、sort_order 和 level_id。</p>
         </div>
 
-        <div class="topic-work-card__meta" style="margin-bottom: 24px;">
+        <div class="portal-topic-card__meta topic-work-card__meta portal-topic-card__meta--spaced topic-work-card__meta--spaced">
             {% for item in identity_items %}
                 <article class="topic-work-card__meta-item">
                     <span>{{ item.label }}</span>
@@ -59,7 +59,7 @@
             <div class="entry-hint-bar">{{ error_message }}</div>
         {% endif %}
 
-        <form method="post" class="login-form" style="max-width: none;">
+        <form method="post" class="login-form portal-form--wide">
             {% csrf_token %}
             <input id="knowledge-level-input" type="hidden" name="level_id" value="{{ form_values.level_id }}">
             <div class="form-group">
@@ -72,14 +72,14 @@
             </div>
             <div class="form-group">
                 <label>所属 Level</label>
-                <div class="teacher-tabulator-shell">
-                    <div class="teacher-tabulator-toolbar">
-                        <div class="teacher-tabulator-toolbar__search">
+                <div class="portal-grid-shell teacher-tabulator-shell">
+                    <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                        <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
                             <label for="knowledge-level-search">按 Level 查找</label>
-                            <input id="knowledge-level-search" class="teacher-tabulator-search" type="text" placeholder="输入 Level 编码或名称">
+                            <input id="knowledge-level-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入 Level 编码或名称">
                         </div>
                     </div>
-                    <div id="knowledge-level-table" class="teacher-tabulator-container"></div>
+                    <div id="knowledge-level-table" class="portal-grid-container teacher-tabulator-container"></div>
                 </div>
             </div>
             <div class="form-group">
@@ -94,7 +94,7 @@
                 <label for="knowledge-summary">摘要</label>
                 <textarea id="knowledge-summary" name="summary" rows="4">{{ form_values.summary }}</textarea>
             </div>
-            <label class="course-assignment-table__row course-assignment-table__row--open" style="align-items: center;">
+            <label class="course-assignment-table__row course-assignment-table__row--open">
                 <input type="checkbox" name="has_real_content" {% if form_values.has_real_content %}checked{% endif %}>
                 <strong>已接入真实教学页</strong>
                 <span>仅在该知识点已经有真实 Teaching Page 时勾选。</span>

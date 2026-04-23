@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .content_visibility import CONTENT_PERMISSION_ORDER, CPP_STAGE_PERMISSION_CODE_MAP
 
 COURSE_TITLES = {
     "cpp": "C++",
@@ -20,16 +21,8 @@ COURSE_NAME_SLUG_ALIASES = {
     "pbl": "pbl",
 }
 
-CPP_LEVEL_CODE_MAP = {
-    "C1": "C1",
-    "C2": "C2",
-    "C3": "C3",
-    "C4": "C4",
-    "GESP1": "C1",
-    "GESP2": "C2",
-    "GESP3": "C3",
-    "GESP4": "C4",
-}
+CPP_LEVEL_CODE_MAP = {code: code for code in CONTENT_PERMISSION_ORDER}
+CPP_LEVEL_CODE_MAP.update(CPP_STAGE_PERMISSION_CODE_MAP)
 
 UAV_LEVEL_CODE_MAP = {
     "S1": "S1",

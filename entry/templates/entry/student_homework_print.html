@@ -1,0 +1,55 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <link rel="stylesheet" href="{% static 'entry/css/shared_print.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+</head>
+<body class="print-page">
+    <div class="print-shell">
+        <div class="print-logo">
+            <img src="{% static 'entry/images/code_master.png' %}" alt="大师码 Logo">
+        </div>
+
+        <div class="print-toolbar">
+            <div class="print-toolbar__copy">
+                <p>{{ assignment.title }}</p>
+                <h1>{{ page_title }}</h1>
+            </div>
+            <button type="button" class="print-button" onclick="window.print()">打印</button>
+        </div>
+
+        <div class="meta-grid">
+            {% for item in meta_items %}
+                <article class="meta-card">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                </article>
+            {% endfor %}
+        </div>
+
+        <div class="homework-print">
+            <div class="homework-question-list">
+                {% for question in question_rows %}
+                    {% include "entry/includes/homework_questions/question_card_base.html" with question=question %}
+                {% empty %}
+                    <article class="homework-question homework-question--print">
+                        <div class="homework-question__unsupported">
+                            {% if blank_only %}
+                                这份作业当前还没有可打印的在线题目。
+                            {% elif wrong_only %}
+                                这次提交当前没有错题。
+                            {% else %}
+                                这次提交当前还没有可打印结果。
+                            {% endif %}
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

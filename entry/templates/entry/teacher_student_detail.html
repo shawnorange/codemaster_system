@@ -3,7 +3,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block system_content %}
-    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
                 <a href="{{ item.href }}">{{ item.label }}</a>
@@ -37,8 +37,8 @@
 
     <div class="system-content-grid">
         <section class="surface-panel surface-panel--primary">
-            <div class="teacher-workbench">
-                <section class="teacher-overview-card">
+            <div class="portal-workbench-shell teacher-workbench">
+                <section class="portal-overview-card teacher-overview-card">
                     <div class="teacher-overview-card__header">
                         <div class="teacher-overview-card__identity">
                             <div class="teacher-overview-card__avatar">{{ student.display_name|slice:":1" }}</div>
@@ -49,9 +49,11 @@
                             </div>
                         </div>
 
-                        <div class="teacher-overview-card__actions">
+                        <div class="teacher-overview-card__actions portal-action-row portal-overview-card__actions">
                             <a href="{{ assignment_management_href }}" class="teacher-anchor-link">学生关系管理</a>
                             <a href="#topic-management" class="teacher-anchor-link">专题开放管理</a>
+                            <a href="#content-restrictions" class="teacher-anchor-link">内容限制</a>
+                            <a href="#homework-panel" class="teacher-anchor-link">作业</a>
                             <a href="#teaching-records" class="teacher-anchor-link">教学记录录入</a>
                             <a href="#recent-records" class="teacher-anchor-link">最近记录</a>
                         </div>
@@ -63,7 +65,7 @@
                         {% endfor %}
                     </div>
 
-                    <div class="teacher-overview-card__grid">
+                    <div class="teacher-overview-card__grid portal-overview-grid">
                         {% for item in overview_items %}
                             <article class="teacher-overview-item">
                                 <span>{{ item.label }}</span>
@@ -74,17 +76,17 @@
                     </div>
                 </section>
 
-                <div class="teacher-workbench-grid">
-                    <section class="workbench-panel workbench-panel--topics" id="topic-management">
+                <div class="portal-workbench-grid teacher-workbench-grid">
+                    <section class="portal-workbench-panel portal-workbench-panel--topics workbench-panel workbench-panel--topics" id="topic-management">
                         <div class="section-heading">
                             <p class="section-heading__eyebrow">Topic Access</p>
                             <h3>专题开放管理</h3>
                             <p>页面本体只保留已开放摘要，具体开关统一收进弹窗里管理，避免学生工作台被专题卡片铺满。</p>
                         </div>
 
-                        <div class="teacher-mini-stat-grid">
+                        <div class="portal-mini-stat-grid teacher-mini-stat-grid">
                             {% for item in topic_summary_items %}
-                                <article class="teacher-mini-stat">
+                                <article class="portal-mini-stat teacher-mini-stat">
                                     <span>{{ item.label }}</span>
                                     <strong>{{ item.value }}</strong>
                                     <p>{{ item.hint }}</p>
@@ -92,14 +94,14 @@
                             {% endfor %}
                         </div>
 
-                        <section class="topic-permission-summary">
-                            <div class="topic-permission-summary__header">
+                        <section class="portal-topic-summary topic-permission-summary">
+                            <div class="portal-topic-summary__header topic-permission-summary__header">
                                 <div>
                                     <p class="section-heading__eyebrow">Permission Summary</p>
                                     <h4>已开放内容摘要</h4>
                                     <p>{{ topic_access_summary_text }}</p>
                                 </div>
-                                <button type="button" class="login-button topic-permission-summary__button" id="open-topic-access-modal">
+                                <button type="button" class="login-button portal-topic-summary__button topic-permission-summary__button" id="open-topic-access-modal">
                                     管理专题权限
                                 </button>
                             </div>
@@ -117,7 +119,7 @@
                                 <div class="entry-hint-bar">当前还没有已开放专题，可点击“管理专题权限”进行统一设置。</div>
                             {% endif %}
 
-                            <div class="topic-work-card__meta">
+                            <div class="portal-topic-card__meta topic-work-card__meta">
                                 <article class="topic-work-card__meta-item">
                                     <span>已开放</span>
                                     <strong>{{ topic_access_open_count }} 个</strong>
@@ -128,19 +130,74 @@
                                 </article>
                             </div>
                         </section>
+
+                        <section class="portal-topic-summary topic-permission-summary" id="content-restrictions">
+                            <div class="portal-topic-summary__header topic-permission-summary__header">
+                                <div>
+                                    <p class="section-heading__eyebrow">Content Restriction</p>
+                                    <h4>批量限制内容访问</h4>
+                                    <p>{{ content_restriction_summary_text }}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="login-button portal-topic-summary__button topic-permission-summary__button"
+                                    id="open-content-restriction-modal"
+                                    {% if not content_restriction_items %}disabled{% endif %}
+                                >
+                                    批量限制访问
+                                </button>
+                            </div>
+
+                            {% if content_restriction_success_message %}
+                                <div class="entry-hint-bar">
+                                    <strong>内容限制已保存</strong>
+                                    <span>{{ content_restriction_success_message }}</span>
+                                </div>
+                            {% endif %}
+
+                            {% if restricted_content_items %}
+                                <div class="topic-chip-grid">
+                                    {% for item in restricted_content_items %}
+                                        <div class="topic-chip-card">
+                                            <strong>{{ item.title }}</strong>
+                                            <span>{{ item.level_label }} · {{ item.status_text }}</span>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% elif content_restriction_items %}
+                                <div class="entry-hint-bar">当前还没有内容限制记录，学生会直接看到这些默认可见内容。</div>
+                            {% else %}
+                                <div class="entry-hint-bar">当前老师负责范围内还没有可限制的默认可见内容。</div>
+                            {% endif %}
+
+                            <div class="portal-topic-card__meta topic-work-card__meta">
+                                <article class="topic-work-card__meta-item">
+                                    <span>默认可见</span>
+                                    <strong>{{ content_restriction_total_count }} 个</strong>
+                                </article>
+                                <article class="topic-work-card__meta-item">
+                                    <span>已限制</span>
+                                    <strong>{{ content_restriction_restricted_count }} 个</strong>
+                                </article>
+                                <article class="topic-work-card__meta-item">
+                                    <span>当前仍可见</span>
+                                    <strong>{{ content_restriction_visible_count }} 个</strong>
+                                </article>
+                            </div>
+                        </section>
                     </section>
 
-                    <aside class="teacher-workbench-sidebar" id="teaching-records">
-                        <section class="workbench-panel workbench-panel--records">
+                    <aside class="portal-workbench-sidebar teacher-workbench-sidebar" id="teaching-records">
+                        <section class="portal-workbench-panel portal-workbench-panel--records workbench-panel workbench-panel--records">
                             <div class="section-heading">
                                 <p class="section-heading__eyebrow">Teaching Records</p>
                                 <h3>教学记录录入</h3>
                                 <p>把评价、奖励和课时变动压缩在同一侧边工作区，老师进入页面后可以连续完成常用动作。</p>
                             </div>
 
-                            <div class="teacher-mini-stat-grid teacher-mini-stat-grid--records">
+                            <div class="portal-mini-stat-grid portal-mini-stat-grid--records teacher-mini-stat-grid teacher-mini-stat-grid--records">
                                 {% for item in record_summary_items %}
-                                    <article class="teacher-mini-stat">
+                                    <article class="portal-mini-stat teacher-mini-stat">
                                         <span>{{ item.label }}</span>
                                         <strong>{{ item.value }}</strong>
                                         <p>{{ item.hint }}</p>
@@ -231,7 +288,224 @@
                     </aside>
                 </div>
 
-                <section class="workbench-panel workbench-panel--recent" id="recent-records">
+                <section class="portal-workbench-panel portal-workbench-panel--recent workbench-panel workbench-panel--recent" id="homework-panel">
+                    <div class="section-heading">
+                        <p class="section-heading__eyebrow">Homework</p>
+                        <h3>作业</h3>
+                        <p>当前学生固定来自详情页上下文；老师在这里直接布置、评语和取消作业，不再跳转到别的页面。</p>
+                    </div>
+
+                    <div class="portal-mini-stat-grid teacher-mini-stat-grid">
+                        {% for item in homework_summary_items %}
+                            <article class="portal-mini-stat teacher-mini-stat">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                                <p>{{ item.hint }}</p>
+                            </article>
+                        {% endfor %}
+                    </div>
+
+                    <section class="topic-permission-summary">
+                        <div class="topic-permission-summary__header">
+                            <div>
+                                <p class="section-heading__eyebrow">Assign Homework</p>
+                                <h4>从当前学生详情页直接布置</h4>
+                                <p>只允许选择当前老师对当前学生、在负责范围内可布置的 CourseContent；提交后学生端会立刻出现。</p>
+                            </div>
+                            <div class="topic-access-card__pills">
+                                <button
+                                    type="button"
+                                    class="login-button topic-permission-summary__button"
+                                    id="open-homework-create-modal"
+                                    {% if not homework_content_options %}disabled title="{{ homework_create_disabled_reason }}"{% endif %}
+                                >
+                                    {% if homework_content_options %}布置作业{% else %}暂无可布置内容{% endif %}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="teacher-anchor-link topic-permission-summary__button"
+                                    id="open-homework-summary-modal"
+                                    {% if not homework_items %}disabled{% endif %}
+                                >
+                                    上传本周总结
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="topic-work-card__meta">
+                            <article class="topic-work-card__meta-item">
+                                <span>当前学生</span>
+                                <strong>{{ student.display_name }}</strong>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>当前学生固定</span>
+                                <strong>不重复选择学生</strong>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>可布置内容</span>
+                                <strong>{{ homework_content_options|length }} 个</strong>
+                            </article>
+                        </div>
+
+                        {% if homework_success_message %}
+                            <div class="entry-hint-bar">
+                                <strong>作业区反馈</strong>
+                                <span>{{ homework_success_message }}</span>
+                            </div>
+                        {% endif %}
+
+                        {% if not homework_content_options %}
+                            <div class="entry-hint-bar">
+                                <strong>{{ homework_empty_state_title }}</strong>
+                                <span>{{ homework_empty_state_message }}</span>
+                            </div>
+                            {% if homework_scope_assignments %}
+                                <div class="topic-work-card__meta">
+                                    {% for item in homework_scope_assignments %}
+                                        <article class="topic-work-card__meta-item">
+                                            <span>{{ item.course_title }} / {{ item.raw_level_code }}</span>
+                                            <strong>映射 {{ item.mapped_level_codes_text }}</strong>
+                                            <p>匹配到 {{ item.matched_content_count }} 个 CourseContent</p>
+                                        </article>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        {% endif %}
+                    </section>
+
+                    <section class="topic-permission-summary portal-block-offset-md">
+                        <div class="topic-permission-summary__header">
+                            <div>
+                                <p class="section-heading__eyebrow">Weekly Summary</p>
+                                <h4>上传或录入一篇总结，批量绑定当周作业</h4>
+                                <p>本轮按作业布置时间 `assigned_at` 的日期范围匹配。命中范围内的多条 assignment 会共用同一篇 summary。</p>
+                            </div>
+                            <span class="state-pill state-pill--future">按布置时间批量绑定</span>
+                        </div>
+
+                        <div class="topic-work-card__meta">
+                            <article class="topic-work-card__meta-item">
+                                <span>当前学生</span>
+                                <strong>{{ student.display_name }}</strong>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>当前作业总数</span>
+                                <strong>{{ homework_items|length }} 条</strong>
+                                <p>只会绑定当前老师对当前学生的作业记录</p>
+                            </article>
+                            <article class="topic-work-card__meta-item">
+                                <span>默认日期范围</span>
+                                <strong>{{ homework_summary_form_values.start_date }} 至 {{ homework_summary_form_values.end_date }}</strong>
+                                <p>优先取最近布置作业所在周，否则回落到当前自然周</p>
+                            </article>
+                        </div>
+
+                        {% if not homework_items %}
+                            <div class="entry-hint-bar">
+                                <strong>当前还没有作业</strong>
+                                <span>{{ homework_summary_create_disabled_reason }}</span>
+                            </div>
+                        {% endif %}
+                    </section>
+
+                    <section class="record-panel record-panel--recent portal-block-offset-md">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Homework Records</p>
+                            <h3>当前学生作业记录</h3>
+                        </div>
+
+                        <div class="content-access-list">
+                            {% for item in homework_items %}
+                                <article class="content-access-card content-access-card--{{ item.status_tone }}" id="homework-{{ item.id }}">
+                                    <div class="content-access-card__top">
+                                        <div>
+                                            <h5>{{ item.title }}</h5>
+                                            <p>{{ item.content_title }}</p>
+                                            <p class="homework-card__status-copy">{{ item.status_note }}</p>
+                                        </div>
+                                        <span class="state-pill state-pill--{{ item.status_tone }}">{{ item.status_text }}</span>
+                                    </div>
+                                    <p class="content-access-card__description">{{ item.content_path_label }}</p>
+                                    <div class="topic-work-card__meta">
+                                        <article class="topic-work-card__meta-item">
+                                            <span>截止日期</span>
+                                            <strong>{{ item.due_date_text }}</strong>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>评语摘要</span>
+                                            <strong title="{{ item.teacher_comment_text }}">{{ item.teacher_comment_summary }}</strong>
+                                            <p class="homework-card__comment-note">
+                                                {% if item.has_teacher_comment %}
+                                                    完整评语请点“{{ item.review_action_label }}”查看和修改。
+                                                {% else %}
+                                                    当前还没有评语，学生端会显示“暂无评语”。
+                                                {% endif %}
+                                            </p>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>布置时间</span>
+                                            <strong>{{ item.assigned_at_text }}</strong>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>在线题目</span>
+                                            <strong>{{ item.homework_mode_text }}</strong>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>本周总结</span>
+                                            <strong>{{ item.summary_status_text }}</strong>
+                                            <p>
+                                                {% if item.has_summary %}
+                                                    {{ item.summary_title }}
+                                                {% else %}
+                                                    当前作业还没有绑定本周总结。
+                                                {% endif %}
+                                            </p>
+                                        </article>
+                                    </div>
+                                    <div class="record-inline-feedback homework-card__comment-box">
+                                        <strong>{% if item.has_teacher_comment %}完整评语摘要{% else %}评语状态{% endif %}</strong>
+                                        <span class="homework-card__comment-text" title="{{ item.teacher_comment_text }}">{{ item.teacher_comment_text }}</span>
+                                    </div>
+                                    <div class="content-access-card__footer">
+                                        <span>{{ item.completed_at_text }} / {{ item.reviewed_at_text }}</span>
+                                        <div class="topic-access-card__pills">
+                                            <a href="{{ item.question_builder_href }}" class="teacher-anchor-link">{{ item.question_builder_label }}</a>
+                                            {% if not item.is_cancelled %}
+                                                <button
+                                                    type="button"
+                                                    class="{{ item.review_action_class }}"
+                                                    data-open-homework-review-modal
+                                                    data-homework-id="{{ item.id }}"
+                                                    data-homework-title="{{ item.title|escape }}"
+                                                    data-homework-content="{{ item.content_title|escape }}"
+                                                    data-homework-status="{{ item.status_text|escape }}"
+                                                    data-homework-comment="{{ item.teacher_comment|escapejs }}"
+                                                >
+                                                    {{ item.review_action_label }}
+                                                </button>
+                                            {% endif %}
+                                            {% if item.can_cancel %}
+                                                <form method="post">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="form_action" value="cancel_homework">
+                                                    <input type="hidden" name="homework_id" value="{{ item.id }}">
+                                                    <button type="submit" class="teacher-anchor-link">取消</button>
+                                                </form>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </article>
+                            {% empty %}
+                                <div class="entry-hint-bar">
+                                    <strong>还没有布置作业</strong>
+                                    <span>可以先点上方“布置作业”，给当前学生安排一个知识点任务。</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </section>
+                </section>
+
+                <section class="portal-workbench-panel portal-workbench-panel--recent workbench-panel workbench-panel--recent" id="recent-records">
                     <div class="section-heading">
                         <p class="section-heading__eyebrow">Recent Records</p>
                         <h3>最近记录</h3>
@@ -323,7 +597,7 @@
                 <div>
                     <p class="section-heading__eyebrow">Manage Topic Access</p>
                     <h3>管理专题权限</h3>
-                    <p>已开放内容默认勾选。勾选后开放，取消勾选后关闭，保存后会同步更新真实权限状态。</p>
+                    <p>默认可见或已额外开放的内容会勾选。保存时只会把偏离默认规则的结果写入学生级 override。</p>
                 </div>
                 <button type="button" class="teacher-modal-close" id="close-topic-access-modal" aria-label="关闭弹窗">×</button>
             </div>
@@ -361,31 +635,316 @@
         </form>
     </dialog>
 
+    <dialog class="topic-access-modal" id="homework-create-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_homework">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Assign Homework</p>
+                    <h3>布置作业</h3>
+                    <p>当前学生固定为详情页学生，不在弹窗里重复选择。提交后会自动补开知识点权限。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-homework-create-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="context-list">
+                <div class="context-list__item">
+                    <span>当前学生</span>
+                    <strong>{{ student.display_name }}</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>年级 / 校区</span>
+                    <strong>{{ student.grade|default:"年级待补充" }} · {{ student.campus|default:"校区待补充" }}</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>学生来源</span>
+                    <strong>当前详情页上下文固定</strong>
+                </div>
+            </div>
+
+            {% if homework_error_message %}
+                <div class="entry-hint-bar">{{ homework_error_message }}</div>
+            {% endif %}
+
+            {% if homework_content_options %}
+                <div class="topic-access-modal__search">
+                    <input type="search" id="homework-content-search" placeholder="搜索知识点标题、级别、摘要或路由">
+                </div>
+
+                <div class="record-form">
+                    <select name="content_id" id="homework-content-select" size="8" required>
+                        {% for option in homework_content_options %}
+                            <option
+                                value="{{ option.id }}"
+                                data-title="{{ option.title }}"
+                                data-level="{{ option.level_label }}"
+                                data-summary="{{ option.summary }}"
+                                data-route="{{ option.route_path }}"
+                                data-search-text="{{ option.title|lower }} {{ option.level_label|lower }} {{ option.summary|lower }} {{ option.route_path|lower }}"
+                                {% if option.id == homework_form_values.content_id %}selected{% endif %}
+                            >
+                                {{ option.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+
+                    <div class="record-inline-feedback">
+                        <strong id="homework-content-preview-title">{{ homework_selected_content_option.title|default:"请先选择作业内容" }}</strong>
+                        <span id="homework-content-preview-level">{{ homework_selected_content_option.level_label|default:"" }}</span>
+                        <span id="homework-content-preview-summary">{{ homework_selected_content_option.summary|default:"" }}</span>
+                        <span id="homework-content-preview-route">{{ homework_selected_content_option.route_path|default:"" }}</span>
+                    </div>
+
+                    <input type="date" name="due_date" value="{{ homework_form_values.due_date }}" required>
+                    <input type="text" name="title" id="homework-title-input" value="{{ homework_form_values.title }}" placeholder="默认自动带出知识点标题，可自行改名">
+                    <textarea name="description" rows="4" placeholder="例如：先复述本节关键规律，再完成知识点页里的示例题和同类练习。">{{ homework_form_values.description }}</textarea>
+                </div>
+            {% else %}
+                <div class="entry-hint-bar">当前没有可布置的 CourseContent，无法继续创建作业。</div>
+            {% endif %}
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-homework-create-modal">取消</button>
+                <button type="submit" class="login-button" {% if not homework_content_options %}disabled{% endif %}>提交作业</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="topic-access-modal" id="homework-summary-modal">
+        <form method="post" class="topic-access-modal__panel" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_homework_summary">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Weekly Summary</p>
+                    <h3>创建并绑定本周总结</h3>
+                    <p>支持上传 HTML 文件，或直接粘贴 HTML 正文。提交后会把当前日期范围内的多条作业统一绑定到这篇总结。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-homework-summary-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="context-list">
+                <div class="context-list__item">
+                    <span>当前学生</span>
+                    <strong>{{ student.display_name }}</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>匹配依据</span>
+                    <strong>作业布置时间 assigned_at</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>当前命中</span>
+                    <strong>{{ homework_summary_scope_count }} 条</strong>
+                </div>
+            </div>
+
+            {% if homework_summary_error_message %}
+                <div class="entry-hint-bar">{{ homework_summary_error_message }}</div>
+            {% endif %}
+
+            <div class="record-form">
+                <input
+                    type="text"
+                    name="summary_title"
+                    id="homework-summary-title-input"
+                    value="{{ homework_summary_form_values.title }}"
+                    placeholder="默认自动带出学生 + 日期范围标题，可自行修改"
+                >
+                <input type="date" name="summary_start_date" value="{{ homework_summary_form_values.start_date }}" required>
+                <input type="date" name="summary_end_date" value="{{ homework_summary_form_values.end_date }}" required>
+                <label>
+                    <span>上传 HTML 文件</span>
+                    <input type="file" name="summary_html_file" accept=".html,.htm">
+                </label>
+                <textarea
+                    name="summary_html"
+                    rows="10"
+                    placeholder="如果不上传 HTML 文件，可以直接在这里粘贴 summary_html。"
+                >{{ homework_summary_form_values.summary_html }}</textarea>
+            </div>
+
+            <section class="record-panel record-panel--recent">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Matched Assignments</p>
+                    <h3>当前日期范围命中的作业</h3>
+                    <p>这些作业提交后会统一指向同一篇 summary。</p>
+                </div>
+
+                <div class="record-list">
+                    {% for item in homework_summary_scope_rows %}
+                        <article class="record-list-item">
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.content_title }} · {{ item.assigned_at_text }} · {{ item.status_text }}</span>
+                            {% if item.summary_title %}
+                                <span>当前已绑定：{{ item.summary_title }}</span>
+                            {% endif %}
+                        </article>
+                    {% empty %}
+                        <div class="entry-hint-bar">当前日期范围内还没有命中的作业，提交前请先调整日期范围。</div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-homework-summary-modal">取消</button>
+                <button type="submit" class="login-button" {% if not homework_items %}disabled{% endif %}>创建并绑定总结</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="topic-access-modal" id="content-restriction-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="save_content_restrictions">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Restrict Content Access</p>
+                    <h3>批量限制内容访问</h3>
+                    <p>这里只展示当前学生在你负责范围内默认可见的内容。勾选表示限制访问，取消勾选则恢复默认可见。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-content-restriction-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="topic-access-modal__search">
+                <input type="search" id="content-restriction-search" placeholder="搜索内容标题、级别、权限归属或说明">
+            </div>
+
+            <div class="topic-access-modal__list" id="content-restriction-list">
+                {% for item in content_restriction_items %}
+                    <label class="topic-access-option" data-content-restriction-item data-content-restriction-text="{{ item.title|lower }} {{ item.level_label|lower }} {{ item.permission_code|lower }} {{ item.summary|lower }} {{ item.route_path|lower }}">
+                        <input type="checkbox" name="restricted_content_ids" value="{{ item.id }}" {% if item.selected %}checked{% endif %}>
+                        <div class="topic-access-option__content">
+                            <div class="topic-access-option__header">
+                                <div>
+                                    <p class="section-heading__eyebrow">{{ item.level_label }} · {{ item.permission_code }}</p>
+                                    <h4>{{ item.title }}</h4>
+                                </div>
+                                <div class="topic-access-card__pills">
+                                    <span class="state-pill state-pill--{{ item.state }}">{{ item.status_text }}</span>
+                                    <span class="state-pill state-pill--future">{{ item.course_title }}</span>
+                                </div>
+                            </div>
+                            <p>{{ item.summary }}</p>
+                            <span>{{ item.note }}</span>
+                            <span>{{ item.route_path }}</span>
+                        </div>
+                    </label>
+                {% endfor %}
+            </div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-content-restriction-modal">取消</button>
+                <button type="submit" class="login-button" {% if not content_restriction_items %}disabled{% endif %}>保存限制结果</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="topic-access-modal" id="homework-review-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="review_homework">
+            <input type="hidden" name="homework_id" id="homework-review-id">
+
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Homework Review</p>
+                    <h3>写评语</h3>
+                    <p>在当前学生详情页内完成老师评语，不离开作业列表。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-homework-review-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="context-list">
+                <div class="context-list__item">
+                    <span>当前学生</span>
+                    <strong>{{ student.display_name }}</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>作业标题</span>
+                    <strong id="homework-review-title">-</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>对应知识点</span>
+                    <strong id="homework-review-content">-</strong>
+                </div>
+                <div class="context-list__item">
+                    <span>当前状态</span>
+                    <strong id="homework-review-status">-</strong>
+                </div>
+            </div>
+
+            <div class="record-form">
+                <textarea name="teacher_comment" id="homework-review-comment" rows="5" placeholder="例如：完成速度不错，但要再关注边界处理。" required></textarea>
+            </div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-homework-review-modal">取消</button>
+                <button type="submit" class="login-button">保存评语</button>
+            </div>
+        </form>
+    </dialog>
+
     <script>
         (function () {
-            const dialog = document.getElementById("topic-access-modal");
-            const openButton = document.getElementById("open-topic-access-modal");
-            const closeButton = document.getElementById("close-topic-access-modal");
-            const cancelButton = document.getElementById("cancel-topic-access-modal");
-            const searchInput = document.getElementById("topic-access-search");
-            const items = Array.from(document.querySelectorAll("[data-topic-item]"));
+            const topicAccessDialog = document.getElementById("topic-access-modal");
+            const topicAccessOpenButton = document.getElementById("open-topic-access-modal");
+            const topicAccessCloseButton = document.getElementById("close-topic-access-modal");
+            const topicAccessCancelButton = document.getElementById("cancel-topic-access-modal");
+            const topicAccessSearchInput = document.getElementById("topic-access-search");
+            const contentRestrictionDialog = document.getElementById("content-restriction-modal");
+            const contentRestrictionOpenButton = document.getElementById("open-content-restriction-modal");
+            const contentRestrictionCloseButton = document.getElementById("close-content-restriction-modal");
+            const contentRestrictionCancelButton = document.getElementById("cancel-content-restriction-modal");
+            const contentRestrictionSearchInput = document.getElementById("content-restriction-search");
+            const homeworkCreateDialog = document.getElementById("homework-create-modal");
+            const homeworkCreateOpenButton = document.getElementById("open-homework-create-modal");
+            const homeworkCreateCloseButton = document.getElementById("close-homework-create-modal");
+            const homeworkCreateCancelButton = document.getElementById("cancel-homework-create-modal");
+            const homeworkCreateShouldOpen = {{ homework_modal_should_open|yesno:"true,false" }};
+            const homeworkSummaryDialog = document.getElementById("homework-summary-modal");
+            const homeworkSummaryOpenButton = document.getElementById("open-homework-summary-modal");
+            const homeworkSummaryCloseButton = document.getElementById("close-homework-summary-modal");
+            const homeworkSummaryCancelButton = document.getElementById("cancel-homework-summary-modal");
+            const homeworkSummaryShouldOpen = {{ homework_summary_modal_should_open|yesno:"true,false" }};
+            const homeworkSummaryTitleInput = document.getElementById("homework-summary-title-input");
+            const homeworkReviewDialog = document.getElementById("homework-review-modal");
+            const homeworkReviewCloseButton = document.getElementById("close-homework-review-modal");
+            const homeworkReviewCancelButton = document.getElementById("cancel-homework-review-modal");
+            const homeworkReviewButtons = Array.from(document.querySelectorAll("[data-open-homework-review-modal]"));
+            const homeworkContentSelect = document.getElementById("homework-content-select");
+            const homeworkContentSearch = document.getElementById("homework-content-search");
+            const homeworkTitleInput = document.getElementById("homework-title-input");
+            const homeworkContentPreviewTitle = document.getElementById("homework-content-preview-title");
+            const homeworkContentPreviewLevel = document.getElementById("homework-content-preview-level");
+            const homeworkContentPreviewSummary = document.getElementById("homework-content-preview-summary");
+            const homeworkContentPreviewRoute = document.getElementById("homework-content-preview-route");
+            const homeworkReviewIdInput = document.getElementById("homework-review-id");
+            const homeworkReviewTitle = document.getElementById("homework-review-title");
+            const homeworkReviewContent = document.getElementById("homework-review-content");
+            const homeworkReviewStatus = document.getElementById("homework-review-status");
+            const homeworkReviewComment = document.getElementById("homework-review-comment");
+            const topicItems = Array.from(document.querySelectorAll("[data-topic-item]"));
+            const contentRestrictionItems = Array.from(document.querySelectorAll("[data-content-restriction-item]"));
 
-            if (!dialog || !openButton) {
-                return;
-            }
-
-            const openDialog = () => {
+            const showDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
                 if (typeof dialog.showModal === "function") {
                     dialog.showModal();
                 } else {
                     dialog.setAttribute("open", "open");
                 }
-                if (searchInput) {
-                    searchInput.focus();
-                }
             };
 
-            const closeDialog = () => {
+            const hideDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
                 if (typeof dialog.close === "function") {
                     dialog.close();
                 } else {
@@ -393,27 +952,230 @@
                 }
             };
 
-            openButton.addEventListener("click", openDialog);
-            if (closeButton) {
-                closeButton.addEventListener("click", closeDialog);
+            if (topicAccessOpenButton) {
+                topicAccessOpenButton.addEventListener("click", () => {
+                    showDialog(topicAccessDialog);
+                    if (topicAccessSearchInput) {
+                        topicAccessSearchInput.focus();
+                    }
+                });
             }
-            if (cancelButton) {
-                cancelButton.addEventListener("click", closeDialog);
+            if (topicAccessCloseButton) {
+                topicAccessCloseButton.addEventListener("click", () => hideDialog(topicAccessDialog));
             }
-            dialog.addEventListener("click", (event) => {
-                if (event.target === dialog) {
-                    closeDialog();
-                }
-            });
+            if (topicAccessCancelButton) {
+                topicAccessCancelButton.addEventListener("click", () => hideDialog(topicAccessDialog));
+            }
+            if (topicAccessDialog) {
+                topicAccessDialog.addEventListener("click", (event) => {
+                    if (event.target === topicAccessDialog) {
+                        hideDialog(topicAccessDialog);
+                    }
+                });
+            }
 
-            if (searchInput) {
-                searchInput.addEventListener("input", (event) => {
+            if (topicAccessSearchInput) {
+                topicAccessSearchInput.addEventListener("input", (event) => {
                     const keyword = event.target.value.trim().toLowerCase();
-                    items.forEach((item) => {
+                    topicItems.forEach((item) => {
                         const text = item.dataset.topicText || "";
                         item.hidden = keyword && !text.includes(keyword);
                     });
                 });
+            }
+
+            if (contentRestrictionOpenButton) {
+                contentRestrictionOpenButton.addEventListener("click", () => {
+                    showDialog(contentRestrictionDialog);
+                    if (contentRestrictionSearchInput) {
+                        contentRestrictionSearchInput.focus();
+                    }
+                });
+            }
+            if (contentRestrictionCloseButton) {
+                contentRestrictionCloseButton.addEventListener("click", () => hideDialog(contentRestrictionDialog));
+            }
+            if (contentRestrictionCancelButton) {
+                contentRestrictionCancelButton.addEventListener("click", () => hideDialog(contentRestrictionDialog));
+            }
+            if (contentRestrictionDialog) {
+                contentRestrictionDialog.addEventListener("click", (event) => {
+                    if (event.target === contentRestrictionDialog) {
+                        hideDialog(contentRestrictionDialog);
+                    }
+                });
+            }
+            if (contentRestrictionSearchInput) {
+                contentRestrictionSearchInput.addEventListener("input", (event) => {
+                    const keyword = event.target.value.trim().toLowerCase();
+                    contentRestrictionItems.forEach((item) => {
+                        const text = item.dataset.contentRestrictionText || "";
+                        item.hidden = keyword && !text.includes(keyword);
+                    });
+                });
+            }
+
+            const updateHomeworkContentPreview = () => {
+                if (!homeworkContentSelect) {
+                    return;
+                }
+                const selectedOption = homeworkContentSelect.selectedOptions[0];
+                if (!selectedOption) {
+                    if (homeworkContentPreviewTitle) {
+                        homeworkContentPreviewTitle.textContent = "请先选择作业内容";
+                    }
+                    if (homeworkContentPreviewLevel) {
+                        homeworkContentPreviewLevel.textContent = "";
+                    }
+                    if (homeworkContentPreviewSummary) {
+                        homeworkContentPreviewSummary.textContent = "";
+                    }
+                    if (homeworkContentPreviewRoute) {
+                        homeworkContentPreviewRoute.textContent = "";
+                    }
+                    return;
+                }
+                if (homeworkContentPreviewTitle) {
+                    homeworkContentPreviewTitle.textContent = selectedOption.dataset.title || selectedOption.textContent.trim();
+                }
+                if (homeworkContentPreviewLevel) {
+                    homeworkContentPreviewLevel.textContent = selectedOption.dataset.level || "";
+                }
+                if (homeworkContentPreviewSummary) {
+                    homeworkContentPreviewSummary.textContent = selectedOption.dataset.summary || "";
+                }
+                if (homeworkContentPreviewRoute) {
+                    homeworkContentPreviewRoute.textContent = selectedOption.dataset.route || "";
+                }
+            };
+
+            if (homeworkCreateOpenButton) {
+                homeworkCreateOpenButton.addEventListener("click", () => {
+                    showDialog(homeworkCreateDialog);
+                    updateHomeworkContentPreview();
+                    if (homeworkContentSearch) {
+                        homeworkContentSearch.focus();
+                    }
+                });
+            }
+            if (homeworkCreateCloseButton) {
+                homeworkCreateCloseButton.addEventListener("click", () => hideDialog(homeworkCreateDialog));
+            }
+            if (homeworkCreateCancelButton) {
+                homeworkCreateCancelButton.addEventListener("click", () => hideDialog(homeworkCreateDialog));
+            }
+            if (homeworkCreateDialog) {
+                homeworkCreateDialog.addEventListener("click", (event) => {
+                    if (event.target === homeworkCreateDialog) {
+                        hideDialog(homeworkCreateDialog);
+                    }
+                });
+            }
+            if (homeworkSummaryOpenButton) {
+                homeworkSummaryOpenButton.addEventListener("click", () => {
+                    showDialog(homeworkSummaryDialog);
+                    if (homeworkSummaryTitleInput) {
+                        homeworkSummaryTitleInput.focus();
+                    }
+                });
+            }
+            if (homeworkSummaryCloseButton) {
+                homeworkSummaryCloseButton.addEventListener("click", () => hideDialog(homeworkSummaryDialog));
+            }
+            if (homeworkSummaryCancelButton) {
+                homeworkSummaryCancelButton.addEventListener("click", () => hideDialog(homeworkSummaryDialog));
+            }
+            if (homeworkSummaryDialog) {
+                homeworkSummaryDialog.addEventListener("click", (event) => {
+                    if (event.target === homeworkSummaryDialog) {
+                        hideDialog(homeworkSummaryDialog);
+                    }
+                });
+            }
+
+            if (homeworkContentSearch && homeworkContentSelect) {
+                homeworkContentSearch.addEventListener("input", (event) => {
+                    const keyword = event.target.value.trim().toLowerCase();
+                    const visibleOptions = [];
+                    Array.from(homeworkContentSelect.options).forEach((option) => {
+                        const searchText = option.dataset.searchText || "";
+                        const matched = !keyword || searchText.includes(keyword);
+                        option.hidden = !matched;
+                        if (matched) {
+                            visibleOptions.push(option);
+                        }
+                    });
+                    const selectedOption = homeworkContentSelect.selectedOptions[0];
+                    if ((!selectedOption || selectedOption.hidden) && visibleOptions.length) {
+                        homeworkContentSelect.value = visibleOptions[0].value;
+                    }
+                    updateHomeworkContentPreview();
+                });
+            }
+
+            if (homeworkContentSelect && homeworkTitleInput) {
+                let lastAutoTitle = homeworkTitleInput.value.trim();
+                updateHomeworkContentPreview();
+                homeworkContentSelect.addEventListener("change", () => {
+                    const nextTitle = homeworkContentSelect.selectedOptions[0]?.dataset.title || "";
+                    const currentTitle = homeworkTitleInput.value.trim();
+                    if (!currentTitle || currentTitle === lastAutoTitle) {
+                        homeworkTitleInput.value = nextTitle;
+                    }
+                    lastAutoTitle = nextTitle;
+                    updateHomeworkContentPreview();
+                });
+            }
+
+            homeworkReviewButtons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    if (homeworkReviewIdInput) {
+                        homeworkReviewIdInput.value = button.dataset.homeworkId || "";
+                    }
+                    if (homeworkReviewTitle) {
+                        homeworkReviewTitle.textContent = button.dataset.homeworkTitle || "-";
+                    }
+                    if (homeworkReviewContent) {
+                        homeworkReviewContent.textContent = button.dataset.homeworkContent || "-";
+                    }
+                    if (homeworkReviewStatus) {
+                        homeworkReviewStatus.textContent = button.dataset.homeworkStatus || "-";
+                    }
+                    if (homeworkReviewComment) {
+                        homeworkReviewComment.value = button.dataset.homeworkComment || "";
+                    }
+                    showDialog(homeworkReviewDialog);
+                    if (homeworkReviewComment) {
+                        homeworkReviewComment.focus();
+                    }
+                });
+            });
+
+            if (homeworkReviewCloseButton) {
+                homeworkReviewCloseButton.addEventListener("click", () => hideDialog(homeworkReviewDialog));
+            }
+            if (homeworkReviewCancelButton) {
+                homeworkReviewCancelButton.addEventListener("click", () => hideDialog(homeworkReviewDialog));
+            }
+            if (homeworkReviewDialog) {
+                homeworkReviewDialog.addEventListener("click", (event) => {
+                    if (event.target === homeworkReviewDialog) {
+                        hideDialog(homeworkReviewDialog);
+                    }
+                });
+            }
+
+            if (homeworkCreateShouldOpen) {
+                showDialog(homeworkCreateDialog);
+                if (homeworkContentSearch) {
+                    homeworkContentSearch.focus();
+                }
+            }
+            if (homeworkSummaryShouldOpen) {
+                showDialog(homeworkSummaryDialog);
+                if (homeworkSummaryTitleInput) {
+                    homeworkSummaryTitleInput.focus();
+                }
             }
         })();
     </script>
