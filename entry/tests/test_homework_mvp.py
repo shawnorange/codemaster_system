@@ -863,6 +863,34 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(assignments.get().level_code, "C1")
         self.assertTrue(assignments.get().is_active)
 
+    def test_teacher001_can_import_student_csv_with_c_permission_level(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_import_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n权限级学生,13800001022,二维数组,C1\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        student = Student.objects.select_related("parent_user").get(display_name="权限级学生")
+        self.assertEqual(student.parent_user.phone, "13800001022")
+        self.assertEqual(student.primary_track_name, "二维数组")
+        self.assertEqual(student.primary_level_name, "C1")
+        assignment = TeacherStudentAssignment.objects.get(
+            teacher=self.import_admin,
+            student=student,
+            course=self.cpp_course,
+        )
+        self.assertEqual(assignment.level_code, "C1")
+
     def test_teacher001_can_import_student_xlsx(self) -> None:
         self.sign_in(self.import_admin)
 
@@ -892,6 +920,38 @@ class HomeworkMVPTests(TestCase):
         self.assertRegex(student.user.username, r"^student_13800001012_\d{4}$")
         self.assertEqual(student.primary_track_name, "二分查找")
         self.assertEqual(student.primary_level_name, "GESP5")
+        assignment = TeacherStudentAssignment.objects.get(
+            teacher=self.import_admin,
+            student=student,
+            course=self.cpp_course,
+        )
+        self.assertEqual(assignment.level_code, "C2")
+
+    def test_teacher001_can_import_student_xlsx_with_c_permission_level(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_import_file": SimpleUploadedFile(
+                    "students.xlsx",
+                    self.build_student_import_xlsx(
+                        [
+                            ["学生姓名", "家长手机号", "当前学习内容", "当前级别"],
+                            ["权限级王五", "13800001023", "二分查找", "C2"],
+                        ]
+                    ),
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        student = Student.objects.get(display_name="权限级王五")
+        self.assertEqual(student.primary_track_name, "二分查找")
+        self.assertEqual(student.primary_level_name, "C2")
         assignment = TeacherStudentAssignment.objects.get(
             teacher=self.import_admin,
             student=student,

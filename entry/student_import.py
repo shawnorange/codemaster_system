@@ -13,12 +13,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from .account_identity import normalize_phone
-from .content_visibility import infer_cpp_permission_code, normalize_stage_code
+from .content_visibility import CONTENT_PERMISSION_ORDER, infer_cpp_permission_code, normalize_stage_code
 from .models import Course, PortalUser, Student, TeacherStudentAssignment
 
 STUDENT_IMPORT_ADMIN_USERNAME = "teacher001"
 DEFAULT_IMPORTED_ACCOUNT_PASSWORD = "123456"
 CSV_IMPORT_ALLOWED_CPP_LEVELS = (
+    "C1",
+    "C2",
+    "C3",
+    "C4",
     "GESP1",
     "GESP2",
     "GESP3",
@@ -186,23 +190,26 @@ def import_students_from_rows(
 
 
 def validate_student_import_row(*, row: StudentImportRow, course: Course) -> str:
+    normalized_level_name = normalize_student_import_level_name(row.primary_level_name)
     if not row.student_name:
         raise StudentImportError("学生姓名不能为空。")
     if not row.parent_phone:
         raise StudentImportError("家长手机号不能为空。")
     if not row.primary_track_name:
         raise StudentImportError("当前学习内容不能为空。")
-    if not row.primary_level_name:
+    if not normalized_level_name:
         raise StudentImportError("当前级别不能为空。")
 
     if course.slug != "cpp":
         raise StudentImportError("当前仅支持在 C++ 课程下导入学生。")
-    if row.primary_level_name not in CSV_IMPORT_ALLOWED_CPP_LEVELS:
-        raise StudentImportError("当前级别必须是 GESP1~8 / CSP-J / CSP-S。")
+    if normalized_level_name not in CSV_IMPORT_ALLOWED_CPP_LEVELS:
+        raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
 
-    level_code = infer_cpp_permission_code(row.primary_level_name)
+    level_code = infer_cpp_permission_code(normalized_level_name)
     if not level_code:
         raise StudentImportError("当前级别无法映射到权限等级。")
+    if level_code not in CONTENT_PERMISSION_ORDER:
+        raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
     return level_code
 
 
