@@ -3130,7 +3130,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     page_shell["course_table_rows"] = course_rows
     page_shell["student_pool_links"] = [
         {
-            "label": f"从{course['title']}学生池加入我名下",
+            "label": f"{course['title']} · 添加新学生",
             "href": course["student_pool_href"],
         }
         for course in course_rows

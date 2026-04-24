@@ -7,14 +7,14 @@ from django.db import transaction
 from django.db.models import Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.uploadedfile import UploadedFile
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.utils.text import slugify
 
-from .account_identity import build_student_default_username, ensure_unique_username, normalize_phone
+from .account_identity import normalize_phone
 from .auth import (
     ROLE_CONFIG,
     authenticate_credentials,
@@ -104,6 +104,15 @@ from .portal_context import (
     student_has_content_access,
     get_teacher_student_homework_contents,
 )
+from .student_import import (
+    DEFAULT_IMPORTED_ACCOUNT_PASSWORD,
+    StudentImportError,
+    create_or_update_student_with_parent_and_assignment,
+    import_students_from_rows,
+    infer_student_primary_track_name,
+    parse_student_import_csv,
+    teacher_can_import_students,
+)
 from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
 from .topic_content.gesp2_ascii_char_encoding.context import (
     get_topic_page_context as get_gesp2_ascii_char_encoding_page_context,
@@ -115,8 +124,6 @@ from .topic_content.gesp4_array_2d.context import get_topic_page_context as get_
 from .topic_content.gesp4_shared.context import get_topic_page_context as get_generic_gesp4_topic_page_context
 
 logger = logging.getLogger(__name__)
-
-SINGLE_STUDENT_DEFAULT_PASSWORD = "123456"
 
 
 def build_shell_identity_context(request: HttpRequest) -> dict[str, str]:
@@ -241,23 +248,6 @@ def build_teacher_course_student_pool_single_student_form_values(
             data.get("primary_level_name") or defaults.get("primary_level_name") or ""
         ).strip().upper(),
     }
-
-
-def find_existing_student_by_name_and_parent_phone(*, student_name: str, parent_phone: str) -> Student | None:
-    queryset = Student.objects.select_related("user", "parent_user").filter(display_name=student_name)
-    if parent_phone:
-        queryset = queryset.filter(parent_user__phone=parent_phone)
-    return queryset.order_by("id").first()
-
-
-def infer_student_primary_track_name(*, course: Course, primary_level_name: str) -> str:
-    normalized_primary_level_name = str(primary_level_name or "").strip().upper()
-    if course.slug == "cpp":
-        if normalized_primary_level_name.startswith("GESP"):
-            return "GESP"
-        if normalized_primary_level_name.startswith("CSP"):
-            return "CSP"
-    return ""
 
 
 def build_json_download_response(*, payload: dict, filename: str) -> HttpResponse:
@@ -1320,16 +1310,67 @@ def teacher_course_students_detail(request: HttpRequest, course_slug: str) -> Ht
     search_query = request.GET.get("q", "").strip()
     page = normalize_grid_page(request.GET.get("page"))
     page_size = normalize_grid_page_size(request.GET.get("page_size"))
-    try:
-        context = build_teacher_course_students_detail_context(
+
+    def build_context() -> dict:
+        return build_teacher_course_students_detail_context(
             portal_user,
             course_slug,
             search_query=search_query,
             page=page,
             page_size=page_size,
         )
+
+    try:
+        context = build_context()
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该课程") from exc
+
+    student_import_modal_should_open = False
+    student_import_result: dict[str, object] | None = None
+    student_import_error_message = ""
+    can_import_students = teacher_can_import_students(portal_user) and context["course"].slug == "cpp"
+
+    if request.method == "POST" and (request.POST.get("form_action") or "").strip() == "import_students_csv":
+        if not teacher_can_import_students(portal_user):
+            return HttpResponseForbidden("只有 teacher001 可以导入学生。")
+
+        student_import_modal_should_open = True
+        if context["course"].slug != "cpp":
+            student_import_error_message = "当前仅支持在 C++ 课程下导入学生。"
+        else:
+            uploaded_file = request.FILES.get("student_csv_file")
+            if uploaded_file is None:
+                student_import_error_message = "请先选择一个 CSV 文件再提交。"
+            else:
+                try:
+                    rows = parse_student_import_csv(uploaded_file)
+                except ValidationError as exc:
+                    student_import_error_message = str(exc)
+                else:
+                    student_import_result = import_students_from_rows(
+                        teacher_user=portal_user,
+                        course=context["course"],
+                        rows=rows,
+                    )
+
+        context = build_context()
+        can_import_students = teacher_can_import_students(portal_user) and context["course"].slug == "cpp"
+        if student_import_result is not None:
+            success_count = int(student_import_result["success_count"])
+            failure_count = int(student_import_result["failure_count"])
+            if success_count and failure_count:
+                context["success_message"] = f"CSV 导入完成：成功 {success_count} 行，失败 {failure_count} 行。"
+            elif success_count:
+                context["success_message"] = f"CSV 导入完成：成功 {success_count} 行。"
+            elif failure_count and not student_import_error_message:
+                student_import_error_message = "CSV 导入失败：没有成功导入任何学生。"
+        if student_import_error_message:
+            context["error_message"] = student_import_error_message
+
+    context["can_import_students"] = can_import_students
+    context["student_import_modal_should_open"] = student_import_modal_should_open
+    context["student_import_result"] = student_import_result
+    context["student_import_error_message"] = student_import_error_message
 
     return render(
         request,
@@ -1404,110 +1445,37 @@ def teacher_course_student_pool(request: HttpRequest, course_slug: str) -> HttpR
                 context["single_student_error_message"] = "请选择有效的权限等级后再提交。"
             elif primary_level_name not in context["single_student_level_name_options"]:
                 context["single_student_error_message"] = "请选择有效的等级名称后再提交。"
-            elif find_existing_student_by_name_and_parent_phone(
-                student_name=student_name,
-                parent_phone=parent_phone,
-            ):
-                context["single_student_error_message"] = "该学生已经在数据库中，添加失败"
             else:
-                with transaction.atomic():
-                    parent_username = f"parent_{parent_phone}"
-                    parent_account_conflict = None
-                    existing_parent_user = PortalUser.objects.filter(
-                        role=PortalUser.ROLE_PARENT,
-                        phone=parent_phone,
-                    ).order_by("id").first()
-                    if existing_parent_user is None:
-                        username_owner = PortalUser.objects.filter(username=parent_username).order_by("id").first()
-                        if username_owner and username_owner.role != PortalUser.ROLE_PARENT:
-                            parent_account_conflict = "家长默认账号已被其他角色占用，当前无法新增该学生。"
-                        elif username_owner and username_owner.phone and username_owner.phone != parent_phone:
-                            parent_account_conflict = "家长默认账号与当前手机号不一致，当前无法新增该学生。"
-                        elif username_owner:
-                            existing_parent_user = username_owner
-
-                    if parent_account_conflict:
-                        context["single_student_error_message"] = parent_account_conflict
-                        context["error_message"] = parent_account_conflict
-                        return render(
-                            request,
-                            "entry/teacher_course_student_pool.html",
-                            {
-                                "role_label": ROLE_CONFIG["teacher"]["label"],
-                                **build_shell_identity_context(request),
-                                **context,
-                            },
-                        )
-
-                    if existing_parent_user:
-                        changed_fields: list[str] = []
-                        if not existing_parent_user.full_name:
-                            existing_parent_user.full_name = f"{student_name}家长"
-                            changed_fields.append("full_name")
-                        if not existing_parent_user.phone and parent_phone:
-                            existing_parent_user.phone = parent_phone
-                            changed_fields.append("phone")
-                        if not existing_parent_user.is_active:
-                            existing_parent_user.is_active = True
-                            changed_fields.append("is_active")
-                        if changed_fields:
-                            existing_parent_user.save(update_fields=changed_fields + ["updated_at"])
-                        parent_user = existing_parent_user
-                    else:
-                        parent_user = PortalUser(
-                            username=parent_username,
-                            role=PortalUser.ROLE_PARENT,
-                            full_name=f"{student_name}家长",
-                            phone=parent_phone,
-                            is_active=True,
-                        )
-                        parent_user.set_password(SINGLE_STUDENT_DEFAULT_PASSWORD)
-                        parent_user.save()
-
-                    used_usernames = set(PortalUser.objects.values_list("username", flat=True))
-                    student_user = PortalUser(
-                        username=ensure_unique_username(
-                            build_student_default_username(student_name, parent_phone),
-                            used_usernames,
-                        ),
-                        role=PortalUser.ROLE_STUDENT,
-                        full_name=student_name,
-                        is_active=True,
-                    )
-                    student_user.set_password(SINGLE_STUDENT_DEFAULT_PASSWORD)
-                    student_user.save()
-                    student = Student.objects.create(
-                        user=student_user,
-                        parent_user=parent_user,
-                        teacher_user=portal_user,
-                        display_name=student_name,
-                        grade="",
-                        campus="",
-                        primary_course_name=course.title,
-                        primary_track_name=infer_student_primary_track_name(
+                try:
+                    with transaction.atomic():
+                        create_or_update_student_with_parent_and_assignment(
+                            teacher_user=portal_user,
                             course=course,
+                            student_name=student_name,
+                            parent_phone=parent_phone,
+                            primary_track_name=infer_student_primary_track_name(
+                                course=course,
+                                primary_level_name=primary_level_name,
+                            ),
                             primary_level_name=primary_level_name,
-                        ),
-                        primary_level_name=primary_level_name,
+                            level_code=normalized_permission_level_code,
+                            default_password=DEFAULT_IMPORTED_ACCOUNT_PASSWORD,
+                            allow_existing_student=False,
+                        )
+                except StudentImportError as exc:
+                    context["single_student_error_message"] = str(exc)
+                else:
+                    redirect_url = build_redirect_with_query(
+                        reverse("teacher-course-student-pool", args=[course_slug]),
+                        params={
+                            "level_code": context["selected_level_code"],
+                            "single_student_saved": 1,
+                        },
                     )
-                    TeacherStudentAssignment.objects.create(
-                        teacher=portal_user,
-                        student=student,
-                        course=course,
-                        level_code=normalized_permission_level_code,
-                        is_active=True,
-                    )
+                    return redirect(redirect_url)
 
-                redirect_url = build_redirect_with_query(
-                    reverse("teacher-course-student-pool", args=[course_slug]),
-                    params={
-                        "level_code": context["selected_level_code"],
-                        "single_student_saved": 1,
-                    },
-                )
-                return redirect(redirect_url)
-
-            context["error_message"] = context["single_student_error_message"]
+            if context["single_student_error_message"]:
+                context["error_message"] = context["single_student_error_message"]
         else:
             selected_student_ids = {int(value) for value in request.POST.getlist("student_ids") if value.isdigit()}
             pool_student_ids = context["pool_student_ids"]

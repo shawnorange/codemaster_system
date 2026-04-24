@@ -47,6 +47,15 @@ class HomeworkMVPTests(TestCase):
             full_name="无权限老师",
             phone="13800000006",
         )
+        self.import_admin, _ = PortalUser.objects.update_or_create(
+            username="teacher001",
+            defaults={
+                "role": PortalUser.ROLE_TEACHER,
+                "full_name": "管理员老师",
+                "phone": "13800000007",
+                "is_active": True,
+            },
+        )
         self.parent = PortalUser.objects.create(
             username="parent_homework",
             role=PortalUser.ROLE_PARENT,
@@ -230,6 +239,13 @@ class HomeworkMVPTests(TestCase):
         TeacherStudentAssignment.objects.get_or_create(
             teacher=self.teacher,
             student=self.other_student,
+            course=self.cpp_course,
+            level_code="C4",
+            defaults={"is_active": True},
+        )
+        TeacherStudentAssignment.objects.get_or_create(
+            teacher=self.import_admin,
+            student=self.student,
             course=self.cpp_course,
             level_code="C4",
             defaults={"is_active": True},
@@ -683,6 +699,163 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(PortalUser.objects.filter(role=PortalUser.ROLE_PARENT, phone="13800000888").count(), 1)
         existing_parent.refresh_from_db()
         self.assertTrue(existing_parent.check_password("legacy-pass"))
+
+    def test_teacher001_can_see_student_import_button_on_course_students_page(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.get(reverse("teacher-course-students-detail", args=[self.cpp_course.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "导入学生")
+
+    def test_non_teacher001_cannot_see_student_import_button_on_course_students_page(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-course-students-detail", args=[self.cpp_course.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "导入学生")
+
+    def test_non_teacher001_cannot_post_student_csv_import(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n张三,13800001001,二维数组,GESP4\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Student.objects.filter(display_name="张三").exists())
+
+    def test_teacher001_can_import_student_csv(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n张三,13800001002,二维数组,GESP4\n".encode("utf-8-sig"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        self.assertEqual(response.context["student_import_result"]["failure_count"], 0)
+
+        student = Student.objects.select_related("user", "parent_user", "teacher_user").get(display_name="张三")
+        self.assertEqual(student.parent_user.username, "parent_13800001002")
+        self.assertEqual(student.parent_user.phone, "13800001002")
+        self.assertRegex(student.user.username, r"^student_13800001002_\d{4}$")
+        self.assertEqual(student.user.phone, "")
+        self.assertEqual(student.teacher_user, self.import_admin)
+        self.assertEqual(student.primary_course_name, self.cpp_course.title)
+        self.assertEqual(student.primary_track_name, "二维数组")
+        self.assertEqual(student.primary_level_name, "GESP4")
+        self.assertTrue(student.user.check_password("123456"))
+        self.assertTrue(student.parent_user.check_password("123456"))
+        self.assertNotEqual(student.user.password, "123456")
+        self.assertNotEqual(student.parent_user.password, "123456")
+
+        assignments = TeacherStudentAssignment.objects.filter(
+            teacher=self.import_admin,
+            student=student,
+            course=self.cpp_course,
+        )
+        self.assertEqual(assignments.count(), 1)
+        self.assertEqual(assignments.get().level_code, "C1")
+        self.assertTrue(assignments.get().is_active)
+
+    def test_reimport_same_student_does_not_duplicate_student_and_updates_assignment(self) -> None:
+        self.sign_in(self.import_admin)
+        url = reverse("teacher-course-students-detail", args=[self.cpp_course.slug])
+
+        first_response = self.client.post(
+            url,
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n李四,13800001003,枚举法,GESP2\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+        self.assertEqual(first_response.status_code, 200)
+
+        second_response = self.client.post(
+            url,
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n李四,13800001003,冲刺复习,CSP-S\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        student = Student.objects.select_related("user", "parent_user").get(display_name="李四", parent_user__phone="13800001003")
+        self.assertEqual(
+            Student.objects.filter(display_name="李四", parent_user__phone="13800001003").count(),
+            1,
+        )
+        self.assertEqual(student.primary_track_name, "冲刺复习")
+        self.assertEqual(student.primary_level_name, "CSP-S")
+        self.assertEqual(
+            TeacherStudentAssignment.objects.filter(
+                teacher=self.import_admin,
+                student=student,
+                course=self.cpp_course,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            TeacherStudentAssignment.objects.get(
+                teacher=self.import_admin,
+                student=student,
+                course=self.cpp_course,
+            ).level_code,
+            "C4",
+        )
+
+    def test_student_csv_import_allows_partial_success_with_row_errors(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    (
+                        "学生姓名,家长手机号,当前学习内容,当前级别\n"
+                        "成功学生,13800001004,二维数组,GESP5\n"
+                        "失败学生,13800001005,枚举法,\n"
+                    ).encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        self.assertEqual(response.context["student_import_result"]["failure_count"], 1)
+        self.assertEqual(len(response.context["student_import_result"]["failure_items"]), 1)
+        self.assertIn("当前级别不能为空", response.context["student_import_result"]["failure_items"][0]["reason"])
+        self.assertTrue(Student.objects.filter(display_name="成功学生", parent_user__phone="13800001004").exists())
+        self.assertFalse(Student.objects.filter(display_name="失败学生", parent_user__phone="13800001005").exists())
 
     def test_teacher_can_batch_restrict_current_student_visible_contents(self) -> None:
         self.sign_in(self.teacher)
