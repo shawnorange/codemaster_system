@@ -1325,10 +1325,12 @@ def teacher_course_students_detail(request: HttpRequest, course_slug: str) -> Ht
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该课程") from exc
 
-    student_import_modal_should_open = False
+    student_import_modal_should_open = request.GET.get("open_import") == "1"
     student_import_result: dict[str, object] | None = None
     student_import_error_message = ""
     can_import_students = teacher_can_import_students(portal_user) and context["course"].slug == "cpp"
+    if student_import_modal_should_open and not can_import_students:
+        student_import_modal_should_open = False
 
     if request.method == "POST" and (request.POST.get("form_action") or "").strip() == "import_students_csv":
         if not teacher_can_import_students(portal_user):

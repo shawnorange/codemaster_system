@@ -708,12 +708,35 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "导入学生")
 
+    def test_teacher001_can_see_student_import_button_on_teacher_workbench(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.get(reverse("teacher-students"), {"tab": "students"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "C++ · 添加新学生")
+        self.assertContains(response, "导入学生")
+        self.assertContains(
+            response,
+            f'{reverse("teacher-course-students-detail", args=[self.cpp_course.slug])}?open_import=1',
+            html=False,
+        )
+
     def test_non_teacher001_cannot_see_student_import_button_on_course_students_page(self) -> None:
         self.sign_in(self.teacher)
 
         response = self.client.get(reverse("teacher-course-students-detail", args=[self.cpp_course.slug]))
 
         self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "导入学生")
+
+    def test_non_teacher001_cannot_see_student_import_button_on_teacher_workbench(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-students"), {"tab": "students"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "C++ · 添加新学生")
         self.assertNotContains(response, "导入学生")
 
     def test_non_teacher001_cannot_post_student_csv_import(self) -> None:
@@ -775,6 +798,17 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(assignments.count(), 1)
         self.assertEqual(assignments.get().level_code, "C1")
         self.assertTrue(assignments.get().is_active)
+
+    def test_open_import_query_opens_teacher_course_students_modal(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.get(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {"open_import": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["student_import_modal_should_open"])
 
     def test_reimport_same_student_does_not_duplicate_student_and_updates_assignment(self) -> None:
         self.sign_in(self.import_admin)
@@ -1363,7 +1397,7 @@ class HomeworkMVPTests(TestCase):
         self.assertContains(response, "C++")
         self.assertContains(response, "练习")
         self.assertNotContains(response, "Python")
-        self.assertNotContains(response, "AI")
+        self.assertNotContains(response, 'id="entry-ai"', html=False)
         self.assertNotContains(response, "无人机")
 
     def test_student_courses_page_keeps_exception_account_entries(self) -> None:
@@ -1380,7 +1414,7 @@ class HomeworkMVPTests(TestCase):
         self.assertContains(response, "C++")
         self.assertContains(response, "练习")
         self.assertContains(response, "Python")
-        self.assertContains(response, "AI")
+        self.assertContains(response, 'id="entry-ai"', html=False)
 
     def assert_cpp_portal_category_slugs(self, *, level_code: str, primary_level_name: str, expected_slugs: list[str]) -> None:
         portal_user, _ = self.create_student_account(

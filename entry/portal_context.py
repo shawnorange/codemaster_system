@@ -67,6 +67,7 @@ from .models import (
     TeacherStudentAssignment,
 )
 from .shell_content import ROLE_SHELL_CONTENT
+from .student_import import teacher_can_import_students
 from .student_portal_content import STUDENT_PORTAL_CONTENT
 from .teacher_course_catalog import TEACHER_COURSE_DEFINITIONS, TEACHER_COURSE_MAP
 
@@ -3132,6 +3133,12 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         {
             "label": f"{course['title']} · 添加新学生",
             "href": course["student_pool_href"],
+            "import_label": "导入学生" if course["slug"] == "cpp" and teacher_can_import_students(portal_user) else "",
+            "import_href": (
+                f"{reverse('teacher-course-students-detail', args=[course['slug']])}?open_import=1"
+                if course["slug"] == "cpp" and teacher_can_import_students(portal_user)
+                else ""
+            ),
         }
         for course in course_rows
     ]

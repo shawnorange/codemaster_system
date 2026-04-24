@@ -295,6 +295,9 @@
                             <div class="topic-access-modal__footer topic-access-modal__footer--course portal-action-row portal-action-row--leading portal-stack-spacing-sm">
                                 {% for item in page_shell.student_pool_links %}
                                     <a class="system-header__link" href="{{ item.href }}">{{ item.label }}</a>
+                                    {% if item.import_href %}
+                                        <a class="system-header__link" href="{{ item.import_href }}">{{ item.import_label }}</a>
+                                    {% endif %}
                                 {% endfor %}
                             </div>
 
