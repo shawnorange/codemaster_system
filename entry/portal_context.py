@@ -495,6 +495,18 @@ def set_student_content_visibility(
 def get_teacher_course_scope(portal_user: PortalUser, course_slug: str) -> dict:
     course_assignments = list(get_teacher_active_assignments(portal_user).filter(course__slug=course_slug))
     if not course_assignments:
+        if teacher_can_import_students(portal_user) and course_slug == "cpp":
+            course = Course.objects.filter(slug=course_slug).order_by("id").first()
+            if course is None:
+                raise Course.DoesNotExist(course_slug)
+            return {
+                "course": course,
+                "course_assignments": [],
+                "assignments_by_student": defaultdict(list),
+                "related_students": [],
+                "student_ids": [],
+                "student_map": {},
+            }
         raise Course.DoesNotExist(course_slug)
 
     assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
@@ -3142,6 +3154,18 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         }
         for course in course_rows
     ]
+    if teacher_can_import_students(portal_user) and not any(item["href"].endswith("/cpp/student-pool") for item in page_shell["student_pool_links"]):
+        cpp_course = Course.objects.filter(slug="cpp").order_by("id").first()
+        if cpp_course is not None:
+            page_shell["student_pool_links"].insert(
+                0,
+                {
+                    "label": f"{cpp_course.title} · 添加新学生",
+                    "href": reverse("teacher-course-student-pool", args=[cpp_course.slug]),
+                    "import_label": "导入学生",
+                    "import_href": f"{reverse('teacher-course-students-detail', args=[cpp_course.slug])}?open_import=1",
+                },
+            )
     return page_shell
 
 

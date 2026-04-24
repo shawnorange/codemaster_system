@@ -722,6 +722,16 @@ class HomeworkMVPTests(TestCase):
             html=False,
         )
 
+    def test_teacher001_workbench_still_shows_bootstrap_links_without_assignments(self) -> None:
+        TeacherStudentAssignment.objects.filter(teacher=self.import_admin).delete()
+        self.sign_in(self.import_admin)
+
+        response = self.client.get(reverse("teacher-students"), {"tab": "students"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "C++ · 添加新学生")
+        self.assertContains(response, "导入学生")
+
     def test_non_teacher001_cannot_see_student_import_button_on_course_students_page(self) -> None:
         self.sign_in(self.teacher)
 
@@ -809,6 +819,33 @@ class HomeworkMVPTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context["student_import_modal_should_open"])
+
+    def test_teacher001_can_import_student_csv_without_existing_assignments(self) -> None:
+        TeacherStudentAssignment.objects.filter(teacher=self.import_admin).delete()
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n无关系导入,13800001006,二维数组,GESP4\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        student = Student.objects.get(display_name="无关系导入", parent_user__phone="13800001006")
+        assignment = TeacherStudentAssignment.objects.get(
+            teacher=self.import_admin,
+            student=student,
+            course=self.cpp_course,
+        )
+        self.assertEqual(assignment.level_code, "C1")
+        self.assertTrue(assignment.is_active)
 
     def test_reimport_same_student_does_not_duplicate_student_and_updates_assignment(self) -> None:
         self.sign_in(self.import_admin)
