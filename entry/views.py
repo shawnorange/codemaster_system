@@ -110,7 +110,7 @@ from .student_import import (
     create_or_update_student_with_parent_and_assignment,
     import_students_from_rows,
     infer_student_primary_track_name,
-    parse_student_import_csv,
+    parse_student_import_file,
     teacher_can_import_students,
 )
 from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
@@ -1340,12 +1340,12 @@ def teacher_course_students_detail(request: HttpRequest, course_slug: str) -> Ht
         if context["course"].slug != "cpp":
             student_import_error_message = "当前仅支持在 C++ 课程下导入学生。"
         else:
-            uploaded_file = request.FILES.get("student_csv_file")
+            uploaded_file = request.FILES.get("student_import_file") or request.FILES.get("student_csv_file")
             if uploaded_file is None:
-                student_import_error_message = "请先选择一个 CSV 文件再提交。"
+                student_import_error_message = "请先选择一个 CSV / XLSX 文件再提交。"
             else:
                 try:
-                    rows = parse_student_import_csv(uploaded_file)
+                    rows = parse_student_import_file(uploaded_file)
                 except ValidationError as exc:
                     student_import_error_message = str(exc)
                 else:

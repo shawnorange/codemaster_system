@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import io
 import secrets
+import zipfile
 from dataclasses import dataclass
+from xml.etree import ElementTree
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
@@ -28,6 +30,10 @@ CSV_IMPORT_ALLOWED_CPP_LEVELS = (
     "CSP-J",
     "CSP-S",
 )
+XLSX_XML_NS = {
+    "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+}
 
 
 class StudentImportError(Exception):
@@ -90,33 +96,28 @@ def infer_student_primary_track_name(*, course: Course, primary_level_name: str)
     return ""
 
 
-def parse_student_import_csv(uploaded_file: UploadedFile) -> list[StudentImportRow]:
+def parse_student_import_file(uploaded_file: UploadedFile) -> list[StudentImportRow]:
+    filename = str(getattr(uploaded_file, "name", "") or "").strip().lower()
     payload = uploaded_file.read()
     if not payload:
-        raise ValidationError("请先选择一个非空的 CSV 文件。")
+        raise ValidationError("请先选择一个非空的 CSV / XLSX 文件。")
 
-    text = ""
-    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
-        try:
-            text = payload.decode(encoding)
-            break
-        except UnicodeDecodeError:
-            continue
+    if filename.endswith(".xlsx"):
+        parsed_rows = _parse_student_import_xlsx_rows(payload)
+        file_label = "XLSX"
+    elif filename.endswith(".csv") or not filename:
+        parsed_rows = _parse_student_import_csv_rows(payload)
+        file_label = "CSV"
     else:
-        raise ValidationError("当前无法识别这个 CSV 文件的编码，请改用 UTF-8。")
+        raise ValidationError("当前只支持 CSV / XLSX 文件。")
 
-    parsed_rows = [
-        [str(cell or "").strip() for cell in row]
-        for row in csv.reader(io.StringIO(text))
-        if any(str(cell or "").strip() for cell in row)
-    ]
     if not parsed_rows:
-        raise ValidationError("CSV 文件没有可导入的数据。")
+        raise ValidationError(f"{file_label} 文件没有可导入的数据。")
 
     has_header = _looks_like_header(parsed_rows[0])
     data_rows = parsed_rows[1:] if has_header else parsed_rows
     if not data_rows:
-        raise ValidationError("CSV 文件没有可导入的数据行。")
+        raise ValidationError(f"{file_label} 文件没有可导入的数据行。")
 
     start_row_number = 2 if has_header else 1
     rows: list[StudentImportRow] = []
@@ -132,6 +133,10 @@ def parse_student_import_csv(uploaded_file: UploadedFile) -> list[StudentImportR
             )
         )
     return rows
+
+
+def parse_student_import_csv(uploaded_file: UploadedFile) -> list[StudentImportRow]:
+    return parse_student_import_file(uploaded_file)
 
 
 def import_students_from_rows(
@@ -292,6 +297,24 @@ def _looks_like_header(row: list[str]) -> bool:
     )
 
 
+def _parse_student_import_csv_rows(payload: bytes) -> list[list[str]]:
+    text = ""
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            text = payload.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise ValidationError("当前无法识别这个 CSV 文件的编码，请改用 UTF-8。")
+
+    return [
+        [str(cell or "").strip() for cell in row]
+        for row in csv.reader(io.StringIO(text))
+        if any(str(cell or "").strip() for cell in row)
+    ]
+
+
 def _normalize_header_cell(value: str) -> str:
     return (
         str(value or "")
@@ -300,6 +323,91 @@ def _normalize_header_cell(value: str) -> str:
         .replace("\ufeff", "")
         .replace("_", "")
     )
+
+
+def _parse_student_import_xlsx_rows(payload: bytes) -> list[list[str]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            shared_strings = _load_xlsx_shared_strings(archive)
+            worksheet_name = _get_first_xlsx_worksheet_name(archive)
+            root = ElementTree.fromstring(archive.read(worksheet_name))
+    except zipfile.BadZipFile as exc:
+        raise ValidationError("当前 XLSX 文件损坏，无法解析。") from exc
+    except KeyError as exc:
+        raise ValidationError("当前 XLSX 文件缺少必要 worksheet，无法解析。") from exc
+    except ElementTree.ParseError as exc:
+        raise ValidationError("当前 XLSX 文件格式异常，无法解析。") from exc
+
+    rows: list[list[str]] = []
+    for row in root.findall(".//a:sheetData/a:row", XLSX_XML_NS):
+        cell_values: dict[int, str] = {}
+        for position, cell in enumerate(row.findall("a:c", XLSX_XML_NS), start=1):
+            reference = cell.attrib.get("r", "")
+            column_index = _xlsx_column_index(reference) if reference else position
+            cell_text = _extract_xlsx_cell_text(cell, shared_strings)
+            cell_values[column_index] = cell_text
+        if cell_values and any(value for value in cell_values.values()):
+            width = max(cell_values)
+            rows.append([cell_values.get(index, "").strip() for index in range(1, width + 1)])
+    return rows
+
+
+def _load_xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    try:
+        xml_bytes = archive.read("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+    root = ElementTree.fromstring(xml_bytes)
+    strings: list[str] = []
+    for item in root.iter():
+        if item.tag.endswith("}si"):
+            strings.append("".join(node.text or "" for node in item.iter() if node.tag.endswith("}t")).strip())
+    return strings
+
+
+def _get_first_xlsx_worksheet_name(archive: zipfile.ZipFile) -> str:
+    workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
+    relationships = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    relationship_map = {rel.attrib["Id"]: rel.attrib["Target"] for rel in relationships}
+    sheets = workbook.find("a:sheets", XLSX_XML_NS)
+    if sheets is None or not list(sheets):
+        raise ValidationError("XLSX 文件中没有可读取的工作表。")
+    first_sheet = list(sheets)[0]
+    relation_id = first_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    if not relation_id or relation_id not in relationship_map:
+        raise ValidationError("XLSX 文件中缺少 worksheet 关系信息。")
+    target = relationship_map[relation_id]
+    if not target.startswith("xl/"):
+        target = f"xl/{target.lstrip('/')}"
+    return target
+
+
+def _extract_xlsx_cell_text(cell: ElementTree.Element, shared_strings: list[str]) -> str:
+    cell_type = cell.attrib.get("t", "")
+    if cell_type == "inlineStr":
+        return "".join(node.text or "" for node in cell.iter() if node.tag.endswith("}t")).strip()
+
+    value = ""
+    for node in cell.iter():
+        if node.tag.endswith("}v") and node.text:
+            value = node.text.strip()
+            break
+    if not value:
+        return ""
+    if cell_type == "s":
+        try:
+            return str(shared_strings[int(value)]).strip()
+        except (ValueError, IndexError):
+            return ""
+    return value
+
+
+def _xlsx_column_index(cell_reference: str) -> int:
+    value = 0
+    for char in str(cell_reference or ""):
+        if char.isalpha():
+            value = value * 26 + ord(char.upper()) - 64
+    return value
 
 
 def _generate_student_username(*, parent_phone: str, used_usernames: set[str]) -> str:

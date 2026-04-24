@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import timedelta
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -256,6 +258,58 @@ class HomeworkMVPTests(TestCase):
             {"username": user.username, "role": user.role},
             salt=AUTH_COOKIE_SALT,
         )
+
+    def build_student_import_xlsx(self, rows: list[list[str]]) -> bytes:
+        workbook_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>
+"""
+        workbook_rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>
+"""
+
+        row_xml_parts = []
+        for row_index, row in enumerate(rows, start=1):
+            cell_xml_parts = []
+            for col_index, value in enumerate(row, start=1):
+                column_ref = ""
+                current = col_index
+                while current:
+                    current, remainder = divmod(current - 1, 26)
+                    column_ref = chr(65 + remainder) + column_ref
+                cell_ref = f"{column_ref}{row_index}"
+                escaped_value = (
+                    str(value)
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                )
+                cell_xml_parts.append(
+                    f'<c r="{cell_ref}" t="inlineStr"><is><t>{escaped_value}</t></is></c>'
+                )
+            row_xml_parts.append(f'<row r="{row_index}">{"".join(cell_xml_parts)}</row>')
+        sheet_xml = (
+            """<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>"""
+            + "".join(row_xml_parts)
+            + """</sheetData>
+</worksheet>
+"""
+        )
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("xl/workbook.xml", workbook_xml)
+            archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+            archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        return buffer.getvalue()
 
     def create_homework(
         self,
@@ -808,6 +862,42 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(assignments.count(), 1)
         self.assertEqual(assignments.get().level_code, "C1")
         self.assertTrue(assignments.get().is_active)
+
+    def test_teacher001_can_import_student_xlsx(self) -> None:
+        self.sign_in(self.import_admin)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[self.cpp_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_import_file": SimpleUploadedFile(
+                    "students.xlsx",
+                    self.build_student_import_xlsx(
+                        [
+                            ["学生姓名", "家长手机号", "当前学习内容", "当前级别"],
+                            ["王五", "13800001012", "二分查找", "GESP5"],
+                        ]
+                    ),
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        self.assertEqual(response.context["student_import_result"]["failure_count"], 0)
+
+        student = Student.objects.select_related("user", "parent_user", "teacher_user").get(display_name="王五")
+        self.assertEqual(student.parent_user.username, "parent_13800001012")
+        self.assertRegex(student.user.username, r"^student_13800001012_\d{4}$")
+        self.assertEqual(student.primary_track_name, "二分查找")
+        self.assertEqual(student.primary_level_name, "GESP5")
+        assignment = TeacherStudentAssignment.objects.get(
+            teacher=self.import_admin,
+            student=student,
+            course=self.cpp_course,
+        )
+        self.assertEqual(assignment.level_code, "C2")
 
     def test_open_import_query_opens_teacher_course_students_modal(self) -> None:
         self.sign_in(self.import_admin)
