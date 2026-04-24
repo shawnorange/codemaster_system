@@ -98,6 +98,9 @@
                                 <span>{{ assignment.content_route_path }}</span>
                                 <div class="portal-action-row" style="margin: 0;">
                                     <a href="{{ assignment.content_route_path }}" target="_blank" rel="noopener">打开知识点</a>
+                                    {% if has_online_questions and practice_href %}
+                                        <a href="{{ practice_href }}">{{ practice_label }}</a>
+                                    {% endif %}
                                     {% if assignment.summary_href %}
                                         <a href="{{ assignment.summary_href }}">查看本周总结</a>
                                     {% endif %}

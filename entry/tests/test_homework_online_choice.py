@@ -1460,6 +1460,18 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertContains(response, "标记已完成")
         self.assertNotContains(response, "submit_choice_answers")
 
+    def test_online_homework_detail_shows_practice_entry(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(assignment, question_no=1, stem="入口题", correct_answer="A")
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "在线选择题 1 题")
+        self.assertContains(response, reverse("student-homework-practice", args=[assignment.id]))
+        self.assertContains(response, "开始第一次练习")
+
     def test_print_pages_open_after_submission(self) -> None:
         assignment = self.create_assignment()
         question_1 = self.create_question(assignment, question_no=1, stem="打印错题", correct_answer="A")
