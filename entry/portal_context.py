@@ -20,6 +20,10 @@ from .content_visibility import (
     pick_highest_permission_code,
 )
 from .course_identity import resolve_course_slug, summarize_course_level_labels
+from .homework_batch import (
+    build_homework_import_job_question_payloads,
+    get_visible_homework_import_jobs,
+)
 from .html_sanitizer import sanitize_rich_html
 from .homework_online import normalize_candidate_editor_rows
 from .homework_option_formatting import format_homework_option_display
@@ -3151,6 +3155,8 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
                 if course["slug"] == "cpp" and teacher_can_import_students(portal_user)
                 else ""
             ),
+            "homework_batch_label": "布置作业",
+            "homework_batch_href": f"{reverse('teacher-homework-batch-create')}?course={course['slug']}",
         }
         for course in course_rows
     ]
@@ -3164,6 +3170,8 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
                     "href": reverse("teacher-course-student-pool", args=[cpp_course.slug]),
                     "import_label": "导入学生",
                     "import_href": f"{reverse('teacher-course-students-detail', args=[cpp_course.slug])}?open_import=1",
+                    "homework_batch_label": "布置作业",
+                    "homework_batch_href": f"{reverse('teacher-homework-batch-create')}?course={cpp_course.slug}",
                 },
             )
     return page_shell
@@ -3451,6 +3459,138 @@ def build_teacher_course_students_detail_context(
         "student_rows": student_rows,
         "student_table_rows": student_rows,
         "student_pool_href": reverse("teacher-course-student-pool", args=[course_slug]),
+        "homework_batch_href": f"{reverse('teacher-homework-batch-create')}?course={course.slug}",
+    }
+
+
+def build_teacher_homework_batch_create_context(
+    portal_user: PortalUser,
+    *,
+    selected_course_slug: str = "",
+    form_values: dict[str, object] | None = None,
+    error_message: str = "",
+    success_message: str = "",
+) -> dict:
+    normalized_course_slug = str(selected_course_slug or "").strip().lower()
+    selected_course = None
+    if normalized_course_slug:
+        selected_course = Course.objects.filter(slug=normalized_course_slug).order_by("id").first()
+        if selected_course is None:
+            raise Course.DoesNotExist(normalized_course_slug)
+
+    course_assignments = list(get_teacher_active_assignments(portal_user))
+    if selected_course is not None:
+        course_assignments = [
+            assignment
+            for assignment in course_assignments
+            if assignment.course_id == selected_course.id
+        ]
+
+    assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in course_assignments:
+        assignments_by_student[assignment.student_id].append(assignment)
+
+    selected_student_ids = {
+        normalize_positive_value(value, default=0, minimum=1)
+        for value in (form_values or {}).get("student_ids", [])
+    }
+    selected_student_ids.discard(0)
+    selected_import_job_id = normalize_positive_value((form_values or {}).get("import_job_id"), default=0, minimum=1)
+
+    student_rows = []
+    for student_id in sorted(assignments_by_student):
+        student = assignments_by_student[student_id][0].student
+        student_rows.append(
+            {
+                "student_id": student.id,
+                "name": student.display_name,
+                "grade": student.grade or "待补充",
+                "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
+                "scope_text": summarize_teacher_assignment_scope(assignments_by_student[student_id]),
+                "selected": student.id in selected_student_ids,
+            }
+        )
+
+    visible_import_jobs = list(
+        get_visible_homework_import_jobs(
+            portal_user,
+            course_id=selected_course.id if selected_course is not None else None,
+        )
+    )
+    import_job_rows = []
+    for import_job in visible_import_jobs:
+        question_count = len(build_homework_import_job_question_payloads(import_job))
+        import_job_rows.append(
+            {
+                "import_job_id": import_job.id,
+                "source_filename": import_job.source_filename,
+                "teacher_display_name": import_job.teacher.full_name or import_job.teacher.username,
+                "teacher_username": import_job.teacher.username,
+                "assignment_title": import_job.assignment.title,
+                "course_title": import_job.assignment.content.course.title,
+                "content_title": import_job.assignment.content.title,
+                "source_due_date_text": format_date(import_job.assignment.due_date),
+                "source_due_date_value": import_job.assignment.due_date.isoformat(),
+                "question_count": question_count,
+                "created_at_text": format_datetime(import_job.created_at),
+                "preview_href": reverse("teacher-homework-import-job-preview", args=[import_job.id]),
+                "selected": import_job.id == selected_import_job_id,
+            }
+        )
+
+    selected_import_job_row = next(
+        (item for item in import_job_rows if item["import_job_id"] == selected_import_job_id),
+        None,
+    )
+    course_filter_label = selected_course.title if selected_course is not None else "全部课程"
+    save_action = reverse("teacher-homework-batch-create")
+    if selected_course is not None:
+        save_action += "?" + urlencode({"course": selected_course.slug})
+
+    return {
+        "page_title": "批量布置作业",
+        "page_description": "先选当前老师名下学生，再选一条已确认的题目导入记录，最后统一生成 HomeworkAssignment。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "批量布置作业"},
+        ],
+        "summary_cards": [
+            {"label": "当前老师", "value": portal_user.full_name, "hint": portal_user.username},
+            {"label": "课程筛选", "value": course_filter_label, "hint": "按钮从课程入口进入时会自动带上当前课程"},
+            {"label": "可选学生", "value": f"{len(student_rows)} 人", "hint": "只显示当前老师 active assignment 覆盖的学生"},
+            {"label": "可选题目记录", "value": f"{len(import_job_rows)} 条", "hint": "只显示当前老师可见的 confirmed HomeworkImportJob"},
+        ],
+        "identity_items": [
+            {"label": "当前老师", "value": portal_user.full_name},
+            {"label": "课程筛选", "value": course_filter_label},
+            {"label": "已选学生", "value": f"{len(selected_student_ids)} 人"},
+            {"label": "已选题目", "value": selected_import_job_row["source_filename"] if selected_import_job_row else "尚未选择"},
+        ],
+        "student_rows": student_rows,
+        "student_table_rows": student_rows,
+        "import_job_rows": import_job_rows,
+        "import_job_table_rows": import_job_rows,
+        "selected_course_slug": selected_course.slug if selected_course is not None else "",
+        "selected_course_label": course_filter_label,
+        "selected_import_job_row": selected_import_job_row,
+        "selected_student_ids": sorted(selected_student_ids),
+        "batch_create_error_message": error_message,
+        "batch_create_success_message": success_message,
+        "import_job_selector_should_open": bool(error_message and not selected_import_job_id),
+        "form_values": {
+            "student_ids": sorted(selected_student_ids),
+            "import_job_id": selected_import_job_id or "",
+            "assignment_requirement": str((form_values or {}).get("assignment_requirement") or ""),
+            "due_date": str((form_values or {}).get("due_date") or timezone.localdate().isoformat()),
+        },
+        "save_action": save_action,
+        "back_href": f"{reverse('teacher-students')}?tab=students",
+        "support_items": [
+            {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},
+            {"title": "题目来源", "description": "当前只允许选择已 confirmed 的 HomeworkImportJob，保存时会克隆 import job 和正式题目。"},
+            {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description，不新增重复字段。"},
+            {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
+        ],
     }
 
 

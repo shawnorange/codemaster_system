@@ -1028,11 +1028,275 @@
         return table;
     }
 
+    function buildHomeworkBatchStudentGrid(config) {
+        var data = readJsonScript(config.dataScriptId).slice().sort(function (left, right) {
+            return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+        });
+        var hiddenContainer = document.getElementById(config.hiddenContainerId);
+        var form = document.getElementById(config.formId);
+        var selectedCounter = document.getElementById(config.selectedCountId);
+        var totalCounter = document.getElementById(config.totalCountId);
+        var selectAllButton = document.getElementById(config.selectAllButtonId);
+        var clearSelectionButton = document.getElementById(config.clearSelectionButtonId);
+
+        function toggleRowSelection(row) {
+            if (row.isSelected()) {
+                row.deselect();
+            } else {
+                row.select();
+            }
+        }
+
+        function syncHiddenInputs(table) {
+            if (!hiddenContainer) {
+                return;
+            }
+            hiddenContainer.innerHTML = "";
+            table.getSelectedData().forEach(function (row) {
+                var input = document.createElement("input");
+                input.type = "hidden";
+                input.name = "student_ids";
+                input.value = row.student_id;
+                hiddenContainer.appendChild(input);
+            });
+        }
+
+        function updateCounters(table) {
+            if (selectedCounter) {
+                selectedCounter.textContent = String(table.getSelectedData().length);
+            }
+            if (totalCounter) {
+                totalCounter.textContent = String(data.length);
+            }
+        }
+
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    {
+                        title: "Student",
+                        columns: [
+                            { title: "姓名", field: "name", minWidth: 180 },
+                            { title: "年级", field: "grade", hozAlign: "center", width: 120 },
+                            { title: "家长手机", field: "parent_phone", hozAlign: "center", minWidth: 150 },
+                        ],
+                    },
+                    { title: "负责范围", field: "scope_text", minWidth: 320 },
+                ],
+                {
+                    index: "student_id",
+                    selectableRows: true,
+                    selectableRowsPersistence: true,
+                    rowHeader: {
+                        formatter: "rowSelection",
+                        titleFormatter: "rowSelection",
+                        width: 56,
+                        hozAlign: "center",
+                        headerHozAlign: "center",
+                        resizable: false,
+                        frozen: true,
+                        headerSort: false,
+                        cellClick: function (e, cell) {
+                            toggleRowSelection(cell.getRow());
+                        },
+                    },
+                    rowClick: function (e, row) {
+                        toggleRowSelection(row);
+                    },
+                }
+            )
+        );
+
+        var searchFilter = attachSearch(table, config.searchInputId, ["name", "grade", "parent_phone", "scope_text"]);
+        wirePersistentState("homework-batch-students", table, document.getElementById(config.tableId), config.searchInputId, searchFilter);
+
+        table.on("tableBuilt", function () {
+            var selectedIds = data.filter(function (row) { return row.selected; }).map(function (row) { return row.student_id; });
+            if (selectedIds.length) {
+                table.selectRow(selectedIds);
+            }
+            updateCounters(table);
+            syncHiddenInputs(table);
+        });
+
+        table.on("rowSelectionChanged", function () {
+            updateCounters(table);
+            syncHiddenInputs(table);
+        });
+
+        if (selectAllButton) {
+            selectAllButton.addEventListener("click", function () {
+                table.getRows("active").forEach(function (row) {
+                    row.select();
+                });
+            });
+        }
+
+        if (clearSelectionButton) {
+            clearSelectionButton.addEventListener("click", function () {
+                table.deselectRow();
+            });
+        }
+
+        if (form) {
+            form.addEventListener("submit", function () {
+                syncHiddenInputs(table);
+            });
+        }
+
+        return table;
+    }
+
+    function buildHomeworkImportJobGrid(config) {
+        var data = readJsonScript(config.dataScriptId);
+        var hiddenInput = document.getElementById(config.hiddenInputId);
+        var tableElement = document.getElementById(config.tableId);
+
+        function selectedValue() {
+            return hiddenInput ? String(hiddenInput.value || "") : "";
+        }
+
+        function syncSelection(rowData) {
+            if (!hiddenInput) {
+                return;
+            }
+            hiddenInput.value = rowData ? String(rowData.import_job_id || "") : "";
+        }
+
+        function emitEvent(eventName, rowData) {
+            if (!tableElement) {
+                return;
+            }
+            tableElement.dispatchEvent(
+                new CustomEvent(eventName, {
+                    detail: {
+                        row: rowData || null,
+                    },
+                })
+            );
+        }
+
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    {
+                        title: "Import Job",
+                        columns: [
+                            { title: "文件名", field: "source_filename", minWidth: 220 },
+                            { title: "创建老师", field: "teacher_display_name", minWidth: 150 },
+                            { title: "来源作业", field: "assignment_title", minWidth: 180 },
+                            { title: "来源课程", field: "course_title", hozAlign: "center", width: 120 },
+                        ],
+                    },
+                    {
+                        title: "Stats",
+                        columns: [
+                            {
+                                title: "题目数",
+                                field: "question_count",
+                                hozAlign: "center",
+                                width: 96,
+                                formatter: function (cell) {
+                                    var row = cell.getRow().getData();
+                                    return statusPill(String(row.question_count || 0), row.question_count ? "open" : "locked");
+                                },
+                            },
+                            { title: "创建时间", field: "created_at_text", minWidth: 170 },
+                        ],
+                    },
+                    {
+                        title: "Action",
+                        columns: [
+                            {
+                                title: "详细",
+                                field: "preview_href",
+                                hozAlign: "center",
+                                width: 96,
+                                headerSort: false,
+                                formatter: function (cell) {
+                                    var row = cell.getRow().getData();
+                                    return '<button class="cm-tabulator-btn" type="button" data-import-job-preview-id="' + escapeHtml(String(row.import_job_id || "")) + '">详细</button>';
+                                },
+                            },
+                        ],
+                    },
+                ],
+                {
+                    index: "import_job_id",
+                    selectableRows: 1,
+                    rowHeader: {
+                        formatter: "rowSelection",
+                        titleFormatter: "rowSelection",
+                        width: 56,
+                        hozAlign: "center",
+                        headerHozAlign: "center",
+                        resizable: false,
+                        frozen: true,
+                        headerSort: false,
+                        cellClick: function (e, cell) {
+                            cell.getRow().select();
+                        },
+                    },
+                    rowClick: function (e, row) {
+                        if (e.target && e.target.closest("[data-import-job-preview-id]")) {
+                            return;
+                        }
+                        row.select();
+                    },
+                }
+            )
+        );
+
+        attachSearch(table, config.searchInputId, ["source_filename", "teacher_display_name", "teacher_username", "assignment_title", "course_title", "content_title"]);
+
+        table.on("tableBuilt", function () {
+            var presetValue = selectedValue();
+            var selectedRow = data.find(function (row) {
+                return String(row.import_job_id || "") === presetValue;
+            }) || data.find(function (row) {
+                return !!row.selected;
+            });
+            if (selectedRow) {
+                table.selectRow([selectedRow.import_job_id]);
+                syncSelection(selectedRow);
+                emitEvent("codemaster:import-job-selected", selectedRow);
+            }
+        });
+
+        table.on("rowSelectionChanged", function (selectedData) {
+            var selectedRow = selectedData.length ? selectedData[0] : null;
+            syncSelection(selectedRow);
+            emitEvent("codemaster:import-job-selected", selectedRow);
+        });
+
+        if (tableElement) {
+            tableElement.addEventListener("click", function (event) {
+                var previewButton = event.target.closest("[data-import-job-preview-id]");
+                if (!previewButton) {
+                    return;
+                }
+                var importJobId = String(previewButton.getAttribute("data-import-job-preview-id") || "");
+                var rowData = data.find(function (row) {
+                    return String(row.import_job_id || "") === importJobId;
+                }) || null;
+                emitEvent("codemaster:import-job-preview-requested", rowData);
+            });
+        }
+
+        return table;
+    }
+
     window.CodeMasterTeacherTabulator = {
         initAssignmentStudentSelector: buildAssignmentStudentSelector,
         initAssignmentScopeSelector: buildAssignmentScopeSelector,
         initCourseStudents: buildCourseStudentsTable,
         initCourseStudentPoolGrid: buildCourseStudentPoolTable,
+        initHomeworkBatchStudentGrid: buildHomeworkBatchStudentGrid,
+        initHomeworkImportJobGrid: buildHomeworkImportJobGrid,
         initKnowledgeLevelSelector: buildKnowledgeLevelSelector,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,

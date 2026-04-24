@@ -64,6 +64,7 @@
                     {% if can_import_students %}
                         <button id="open-student-import-modal" class="cm-tabulator-btn" type="button">导入学生</button>
                     {% endif %}
+                    <a class="system-header__link" href="{{ homework_batch_href }}">布置作业</a>
                     <span class="portal-grid-note teacher-tabulator-note">分页和每页 10 / 15 / 50 / 100 在表格底部切换</span>
                     <a class="system-header__link" href="{% url 'teacher-course-detail' course_slug %}">返回课程页</a>
                 </div>

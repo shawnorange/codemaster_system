@@ -1,0 +1,466 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Batch Homework</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="portal-content-grid portal-content-grid--single">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Batch Assignment</p>
+                <h3>批量选择学生并生成 HomeworkAssignment</h3>
+                <p>当前页面只承接老师批量布置作业：学生多选、题目记录选择、作业要求填写，以及整批创建 assignment。</p>
+            </div>
+
+            <div class="context-list">
+                {% for item in identity_items %}
+                    <div class="context-list__item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </div>
+                {% endfor %}
+            </div>
+
+            {% if batch_create_success_message %}
+                <div class="entry-hint-bar">{{ batch_create_success_message }}</div>
+            {% endif %}
+            {% if batch_create_error_message %}
+                <div class="entry-hint-bar">{{ batch_create_error_message }}</div>
+            {% endif %}
+
+            <form id="homework-batch-create-form" method="post" action="{{ save_action }}">
+                {% csrf_token %}
+                <div id="homework-batch-student-hidden-inputs"></div>
+                <input type="hidden" name="import_job_id" id="homework-import-job-id" value="{{ form_values.import_job_id }}">
+
+                <section class="record-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Student Selection</p>
+                        <h3>学生选择区</h3>
+                        <p>支持姓名模糊搜索、多选和跨搜索结果保留勾选。保存时仍以后端校验后的 `student_ids` 为准。</p>
+                    </div>
+
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                <label for="homework-batch-student-search">学生检索</label>
+                                <input id="homework-batch-student-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按学生姓名 / 年级 / 家长手机 / 负责范围搜索">
+                            </div>
+                            <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                <div class="portal-grid-meta teacher-tabulator-meta">
+                                    <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">总学生<strong id="homework-batch-student-total-count">{{ student_rows|length }}</strong></span>
+                                    <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">已选<strong id="homework-batch-student-selected-count">{{ selected_student_ids|length }}</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar portal-grid-toolbar--secondary teacher-tabulator-toolbar--secondary">
+                            <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                <button id="homework-batch-student-select-all" class="cm-tabulator-btn" type="button">全选当前结果</button>
+                                <button id="homework-batch-student-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
+                            </div>
+                            <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                <span class="portal-grid-note teacher-tabulator-note">学生列表只来自当前老师 active 的 TeacherStudentAssignment。</span>
+                            </div>
+                        </div>
+
+                        <div id="homework-batch-student-table" class="portal-grid-container teacher-tabulator-container"></div>
+                    </div>
+                </section>
+
+                <section class="record-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Requirement</p>
+                        <h3>作业要求填写区</h3>
+                        <p>作业要求复用 `HomeworkAssignment.description`。截止日期沿用现有 HomeworkAssignment 必填字段。</p>
+                    </div>
+
+                    <div class="record-form">
+                        <label>
+                            <span>截止日期</span>
+                            <input type="date" name="due_date" value="{{ form_values.due_date }}" required>
+                        </label>
+                        <label>
+                            <span>作业要求</span>
+                            <textarea name="assignment_requirement" rows="5" placeholder="例如：先独立完成 10 道选择题，再口头说明错题原因和二维数组遍历思路。">{{ form_values.assignment_requirement }}</textarea>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="record-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Question Source</p>
+                        <h3>题目选择区</h3>
+                        <p>这里选择一条已确认的 HomeworkImportJob。保存时会为每个新 assignment 克隆一条 import job 和对应正式题目。</p>
+                    </div>
+
+                    <div class="portal-action-row portal-action-row--leading">
+                        <button id="open-homework-import-job-selector" class="cm-tabulator-btn cm-tabulator-btn--primary" type="button" {% if not import_job_rows %}disabled{% endif %}>选择题目</button>
+                        <a class="system-header__link" href="{{ back_href }}">返回教师工作台</a>
+                    </div>
+
+                    {% if not import_job_rows %}
+                        <div class="entry-hint-bar">当前没有可选的 HomeworkImportJob。先去单个学生作业页上传并确认一份在线题目。</div>
+                    {% endif %}
+
+                    <div id="homework-import-job-selector-panel" {% if not import_job_selector_should_open %}hidden{% endif %}>
+                        <div class="portal-grid-shell teacher-tabulator-shell" style="margin-top: 16px;">
+                            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                    <label for="homework-import-job-search">题目记录检索</label>
+                                    <input id="homework-import-job-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按文件名 / 老师 / 作业标题 / 课程搜索">
+                                </div>
+                                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                    <span class="portal-grid-note teacher-tabulator-note">普通老师只看自己的 confirmed import job；teacher001 可查看全部 confirmed 记录。</span>
+                                    <button id="close-homework-import-job-selector" class="cm-tabulator-btn" type="button">收起选择区</button>
+                                </div>
+                            </div>
+                            <div id="homework-import-job-table" class="portal-grid-container teacher-tabulator-container"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="record-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Selected Preview</p>
+                        <h3>已选题目预览区</h3>
+                        <p>这里展示当前选中的文件、来源作业和题目候选预览；点击 datagrid 里的“详细”会打开完整弹窗。</p>
+                    </div>
+
+                    <div class="context-list">
+                        <div class="context-list__item">
+                            <span>已选文件</span>
+                            <strong id="selected-import-job-filename">{% if selected_import_job_row %}{{ selected_import_job_row.source_filename }}{% else %}尚未选择{% endif %}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>来源作业</span>
+                            <strong id="selected-import-job-assignment">{% if selected_import_job_row %}{{ selected_import_job_row.assignment_title }}{% else %}尚未选择{% endif %}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>来源课程 / 知识点</span>
+                            <strong id="selected-import-job-course">{% if selected_import_job_row %}{{ selected_import_job_row.course_title }} · {{ selected_import_job_row.content_title }}{% else %}尚未选择{% endif %}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>题目数量</span>
+                            <strong id="selected-import-job-question-count">{% if selected_import_job_row %}{{ selected_import_job_row.question_count }} 题{% else %}0 题{% endif %}</strong>
+                        </div>
+                    </div>
+
+                    <div class="record-list" id="selected-import-job-preview-list">
+                        <article class="record-list-item">
+                            <strong>尚未加载题目预览</strong>
+                            <span>先从上方选择一条 HomeworkImportJob。</span>
+                        </article>
+                    </div>
+                </section>
+
+                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                    <button type="submit" class="login-button" {% if not student_rows or not import_job_rows %}disabled{% endif %}>保存并批量布置作业</button>
+                    <a class="system-header__link" href="{{ back_href }}">返回教师工作台</a>
+                </div>
+            </form>
+        </section>
+
+        <aside class="system-aside">
+            <section class="surface-panel">
+                <div class="section-heading section-heading--compact">
+                    <p class="section-heading__eyebrow">Support</p>
+                    <h3>当前规则边界</h3>
+                </div>
+
+                <ul class="support-list">
+                    {% for item in support_items %}
+                        <li>
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.description }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </aside>
+    </div>
+
+    <dialog class="topic-access-modal" id="homework-import-job-preview-modal">
+        <div class="topic-access-modal__panel">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Import Job Preview</p>
+                    <h3 id="homework-import-job-preview-modal-title">题目详情</h3>
+                    <p id="homework-import-job-preview-modal-meta">点击“详细”后加载 candidates_json / 正式题目预览。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-homework-import-job-preview-modal" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div class="record-list" id="homework-import-job-preview-modal-list">
+                <article class="record-list-item">
+                    <strong>暂无可预览题目</strong>
+                    <span>当前还没有加载任何 HomeworkImportJob。</span>
+                </article>
+            </div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-homework-import-job-preview-modal">关闭</button>
+            </div>
+        </div>
+    </dialog>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ student_table_rows|json_script:"homework-batch-student-table-data" }}
+    {{ import_job_table_rows|json_script:"homework-import-job-table-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            if (!window.CodeMasterTeacherTabulator) {
+                return;
+            }
+
+            window.CodeMasterTeacherTabulator.initHomeworkBatchStudentGrid({
+                tableId: "homework-batch-student-table",
+                dataScriptId: "homework-batch-student-table-data",
+                searchInputId: "homework-batch-student-search",
+                formId: "homework-batch-create-form",
+                hiddenContainerId: "homework-batch-student-hidden-inputs",
+                selectedCountId: "homework-batch-student-selected-count",
+                totalCountId: "homework-batch-student-total-count",
+                selectAllButtonId: "homework-batch-student-select-all",
+                clearSelectionButtonId: "homework-batch-student-clear-selection"
+            });
+
+            window.CodeMasterTeacherTabulator.initHomeworkImportJobGrid({
+                tableId: "homework-import-job-table",
+                dataScriptId: "homework-import-job-table-data",
+                searchInputId: "homework-import-job-search",
+                hiddenInputId: "homework-import-job-id"
+            });
+
+            const importJobTableElement = document.getElementById("homework-import-job-table");
+            const importJobPanel = document.getElementById("homework-import-job-selector-panel");
+            const importJobOpenButton = document.getElementById("open-homework-import-job-selector");
+            const importJobCloseButton = document.getElementById("close-homework-import-job-selector");
+            const previewFilename = document.getElementById("selected-import-job-filename");
+            const previewAssignment = document.getElementById("selected-import-job-assignment");
+            const previewCourse = document.getElementById("selected-import-job-course");
+            const previewQuestionCount = document.getElementById("selected-import-job-question-count");
+            const previewList = document.getElementById("selected-import-job-preview-list");
+            const previewModal = document.getElementById("homework-import-job-preview-modal");
+            const previewModalTitle = document.getElementById("homework-import-job-preview-modal-title");
+            const previewModalMeta = document.getElementById("homework-import-job-preview-modal-meta");
+            const previewModalList = document.getElementById("homework-import-job-preview-modal-list");
+            const previewModalCloseButton = document.getElementById("close-homework-import-job-preview-modal");
+            const previewModalCancelButton = document.getElementById("cancel-homework-import-job-preview-modal");
+
+            function setImportJobPanelOpen(isOpen) {
+                if (!importJobPanel) {
+                    return;
+                }
+                if (isOpen) {
+                    importJobPanel.removeAttribute("hidden");
+                } else {
+                    importJobPanel.setAttribute("hidden", "hidden");
+                }
+            }
+
+            function showDialog(dialog) {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+            }
+
+            function hideDialog(dialog) {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            }
+
+            function buildPreviewItemHtml(item) {
+                const analysisText = String(item.analysis || "").trim();
+                return [
+                    '<article class="record-list-item">',
+                    '<strong>第 ' + String(item.question_no || "") + ' 题 · ' + String(item.stem || "") + '</strong>',
+                    '<span>' + String(item.options_text || "暂无选项信息") + '</span>',
+                    '<span>答案：' + String(item.correct_answer || "暂无") + (analysisText ? ' · 解析：' + analysisText : "") + '</span>',
+                    '</article>'
+                ].join("");
+            }
+
+            function renderPreviewList(container, payload) {
+                if (!container) {
+                    return;
+                }
+                const items = Array.isArray(payload.preview_items) ? payload.preview_items : [];
+                if (!items.length) {
+                    container.innerHTML = [
+                        '<article class="record-list-item">',
+                        '<strong>' + String(payload.empty_message || "暂无可预览题目") + '</strong>',
+                        '<span>当前 HomeworkImportJob 没有可展示的 candidates / 正式题目。</span>',
+                        '</article>'
+                    ].join("");
+                    return;
+                }
+                container.innerHTML = items.map(buildPreviewItemHtml).join("");
+            }
+
+            function renderPreviewShell(row, payload) {
+                if (previewFilename) {
+                    previewFilename.textContent = row ? String(row.source_filename || "尚未选择") : "尚未选择";
+                }
+                if (previewAssignment) {
+                    previewAssignment.textContent = payload ? String(payload.assignment_title || "尚未选择") : "尚未选择";
+                }
+                if (previewCourse) {
+                    previewCourse.textContent = payload ? String((payload.course_title || "") + " · " + (payload.content_title || "")).replace(/^ · | · $/g, "") || "尚未选择" : "尚未选择";
+                }
+                if (previewQuestionCount) {
+                    previewQuestionCount.textContent = payload ? String(payload.question_count || 0) + " 题" : "0 题";
+                }
+                renderPreviewList(previewList, payload || { preview_items: [], empty_message: "尚未加载题目预览" });
+            }
+
+            function renderPreviewModal(payload) {
+                if (previewModalTitle) {
+                    previewModalTitle.textContent = payload ? String(payload.source_filename || "题目详情") : "题目详情";
+                }
+                if (previewModalMeta) {
+                    previewModalMeta.textContent = payload
+                        ? String(payload.teacher_name || "") + " · " + String(payload.assignment_title || "") + " · " + String(payload.course_title || "")
+                        : "点击“详细”后加载 candidates_json / 正式题目预览。";
+                }
+                renderPreviewList(previewModalList, payload || { preview_items: [], empty_message: "暂无可预览题目" });
+            }
+
+            async function loadImportJobPreview(row, options) {
+                const shouldOpenModal = !!(options && options.openModal);
+                if (!row || !row.preview_href) {
+                    renderPreviewShell(null, null);
+                    if (shouldOpenModal) {
+                        renderPreviewModal(null);
+                        showDialog(previewModal);
+                    }
+                    return;
+                }
+                renderPreviewShell(row, {
+                    assignment_title: row.assignment_title,
+                    course_title: row.course_title,
+                    content_title: row.content_title,
+                    question_count: row.question_count,
+                    preview_items: [],
+                    empty_message: "正在加载题目预览…"
+                });
+                try {
+                    const response = await window.fetch(row.preview_href, {
+                        headers: { "X-Requested-With": "XMLHttpRequest" }
+                    });
+                    if (!response.ok) {
+                        throw new Error("HTTP " + response.status);
+                    }
+                    const payload = await response.json();
+                    renderPreviewShell(row, payload);
+                    if (shouldOpenModal) {
+                        renderPreviewModal(payload);
+                        showDialog(previewModal);
+                    }
+                } catch (error) {
+                    const fallbackPayload = {
+                        assignment_title: row.assignment_title,
+                        course_title: row.course_title,
+                        content_title: row.content_title,
+                        question_count: row.question_count,
+                        preview_items: [],
+                        empty_message: "JSON 解析失败或预览加载失败",
+                    };
+                    renderPreviewShell(row, fallbackPayload);
+                    if (shouldOpenModal) {
+                        renderPreviewModal(fallbackPayload);
+                        showDialog(previewModal);
+                    }
+                }
+            }
+
+            if (importJobOpenButton) {
+                importJobOpenButton.addEventListener("click", function () {
+                    setImportJobPanelOpen(true);
+                });
+            }
+            if (importJobCloseButton) {
+                importJobCloseButton.addEventListener("click", function () {
+                    setImportJobPanelOpen(false);
+                });
+            }
+            if (previewModalCloseButton) {
+                previewModalCloseButton.addEventListener("click", function () {
+                    hideDialog(previewModal);
+                });
+            }
+            if (previewModalCancelButton) {
+                previewModalCancelButton.addEventListener("click", function () {
+                    hideDialog(previewModal);
+                });
+            }
+            if (previewModal) {
+                previewModal.addEventListener("click", function (event) {
+                    if (event.target === previewModal) {
+                        hideDialog(previewModal);
+                    }
+                });
+            }
+            if (importJobTableElement) {
+                importJobTableElement.addEventListener("codemaster:import-job-selected", function (event) {
+                    loadImportJobPreview(event.detail ? event.detail.row : null);
+                });
+                importJobTableElement.addEventListener("codemaster:import-job-preview-requested", function (event) {
+                    loadImportJobPreview(event.detail ? event.detail.row : null, { openModal: true });
+                });
+            }
+
+            if ({{ import_job_selector_should_open|yesno:"true,false" }}) {
+                setImportJobPanelOpen(true);
+            }
+        }());
+    </script>
+{% endblock %}

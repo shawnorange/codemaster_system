@@ -298,6 +298,9 @@
                                     {% if item.import_href %}
                                         <a class="system-header__link" href="{{ item.import_href }}">{{ item.import_label }}</a>
                                     {% endif %}
+                                    {% if item.homework_batch_href %}
+                                        <a class="system-header__link" href="{{ item.homework_batch_href }}">{{ item.homework_batch_label }}</a>
+                                    {% endif %}
                                 {% endfor %}
                             </div>
 

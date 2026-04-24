@@ -1625,3 +1625,463 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertEqual(print_blank.status_code, 200)
         self.assertNotContains(print_blank, "正确答案")
         self.assertNotContains(print_blank, "解析")
+
+
+class HomeworkBatchCreateTests(TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._media_root = tempfile.mkdtemp(prefix="codemaster-homework-batch-media-")
+        cls._media_override = override_settings(MEDIA_ROOT=cls._media_root)
+        cls._media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._media_override.disable()
+        shutil.rmtree(cls._media_root, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.teacher = PortalUser.objects.create(
+            username="teacher_batch_homework",
+            role=PortalUser.ROLE_TEACHER,
+            full_name="批量作业老师",
+            phone="13800000201",
+        )
+        self.peer_teacher = PortalUser.objects.create(
+            username="teacher_batch_peer",
+            role=PortalUser.ROLE_TEACHER,
+            full_name="别的作业老师",
+            phone="13800000202",
+        )
+        self.parent = PortalUser.objects.create(
+            username="parent_batch_homework",
+            role=PortalUser.ROLE_PARENT,
+            full_name="批量作业家长",
+            phone="13800000203",
+        )
+        self.source_student_user = PortalUser.objects.create(
+            username="student_batch_source",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="题目来源学生",
+            phone="13800000204",
+        )
+        self.target_student_user = PortalUser.objects.create(
+            username="student_batch_target",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="批量目标学生甲",
+            phone="13800000205",
+        )
+        self.second_target_student_user = PortalUser.objects.create(
+            username="student_batch_target_two",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="批量目标学生乙",
+            phone="13800000206",
+        )
+        self.outsider_student_user = PortalUser.objects.create(
+            username="student_batch_outsider",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="别的老师学生",
+            phone="13800000207",
+        )
+
+        self.source_student = Student.objects.create(
+            user=self.source_student_user,
+            parent_user=self.parent,
+            teacher_user=self.teacher,
+            display_name="题目来源学生",
+            grade="四年级",
+            campus="虹桥校区",
+            primary_course_name="C++",
+            primary_track_name="GESP",
+            primary_level_name="GESP4",
+        )
+        self.target_student = Student.objects.create(
+            user=self.target_student_user,
+            teacher_user=self.teacher,
+            display_name="批量目标学生甲",
+            grade="四年级",
+            campus="虹桥校区",
+            primary_course_name="C++",
+            primary_track_name="GESP",
+            primary_level_name="GESP4",
+        )
+        self.second_target_student = Student.objects.create(
+            user=self.second_target_student_user,
+            teacher_user=self.teacher,
+            display_name="批量目标学生乙",
+            grade="五年级",
+            campus="虹桥校区",
+            primary_course_name="C++",
+            primary_track_name="GESP",
+            primary_level_name="GESP4",
+        )
+        self.outsider_student = Student.objects.create(
+            user=self.outsider_student_user,
+            teacher_user=self.peer_teacher,
+            display_name="别的老师学生",
+            grade="五年级",
+            campus="徐汇校区",
+            primary_course_name="C++",
+            primary_track_name="GESP",
+            primary_level_name="GESP4",
+        )
+
+        self.cpp_course, _ = Course.objects.get_or_create(
+            slug="cpp",
+            defaults={"title": "C++", "summary": "算法与竞赛"},
+        )
+        self.gesp_category, _ = CourseCategory.objects.get_or_create(
+            course=self.cpp_course,
+            slug="gesp",
+            defaults={
+                "title": "GESP",
+                "summary": "GESP 课程",
+                "sort_order": 1,
+                "is_active": True,
+            },
+        )
+        self.gesp4_level, _ = CourseLevel.objects.get_or_create(
+            category=self.gesp_category,
+            code="GESP4",
+            defaults={
+                "title": "GESP4",
+                "summary": "GESP4 级别",
+                "sort_order": 4,
+                "is_active": True,
+            },
+        )
+        self.array_content, _ = CourseContent.objects.update_or_create(
+            slug=ARRAY_2D_CONTENT_SLUG,
+            defaults={
+                "course": self.cpp_course,
+                "level": self.gesp4_level,
+                "content_type": "topic",
+                "title": next(item["title"] for item in GESP4_TOPIC_DEFINITIONS if item["slug"] == ARRAY_2D_CONTENT_SLUG),
+                "phase": "GESP4",
+                "sort_order": 1,
+                "route_path": "/student/cpp/gesp/gesp4/array-2d",
+                "summary": "二维数组专题",
+                "has_real_content": True,
+                "is_active": True,
+            },
+        )
+
+        TeacherStudentAssignment.objects.create(
+            teacher=self.teacher,
+            student=self.source_student,
+            course=self.cpp_course,
+            level_code="C4",
+            is_active=True,
+        )
+        TeacherStudentAssignment.objects.create(
+            teacher=self.teacher,
+            student=self.target_student,
+            course=self.cpp_course,
+            level_code="C4",
+            is_active=True,
+        )
+        TeacherStudentAssignment.objects.create(
+            teacher=self.teacher,
+            student=self.second_target_student,
+            course=self.cpp_course,
+            level_code="C4",
+            is_active=True,
+        )
+        TeacherStudentAssignment.objects.create(
+            teacher=self.peer_teacher,
+            student=self.outsider_student,
+            course=self.cpp_course,
+            level_code="C4",
+            is_active=True,
+        )
+
+        self.source_import_job = self.create_confirmed_import_job(
+            teacher=self.teacher,
+            student=self.source_student,
+            title="二维数组批量题单",
+            filename="array-batch-source.txt",
+        )
+        self.peer_import_job = self.create_confirmed_import_job(
+            teacher=self.peer_teacher,
+            student=self.outsider_student,
+            title="别的老师题单",
+            filename="peer-batch-source.txt",
+        )
+        self.batch_create_url = reverse("teacher-homework-batch-create") + "?course=cpp"
+
+    def sign_in(self, user: PortalUser) -> None:
+        self.client.cookies[AUTH_COOKIE_NAME] = signing.dumps(
+            {"username": user.username, "role": user.role},
+            salt=AUTH_COOKIE_SALT,
+        )
+
+    def create_confirmed_import_job(
+        self,
+        *,
+        teacher: PortalUser,
+        student: Student,
+        title: str,
+        filename: str,
+    ) -> HomeworkImportJob:
+        assignment = HomeworkAssignment.objects.create(
+            teacher=teacher,
+            student=student,
+            content=self.array_content,
+            title=title,
+            description="源作业说明",
+            due_date=timezone.localdate() + timedelta(days=2),
+            status=HomeworkAssignment.STATUS_ASSIGNED,
+        )
+        candidates = [
+            {
+                "index": 1,
+                "stem": "二维数组第 1 题",
+                "options": {
+                    "A": "选项 A1",
+                    "B": "选项 B1",
+                    "C": "选项 C1",
+                    "D": "选项 D1",
+                },
+                "correct_answer": "A",
+                "analysis": "二维数组第 1 题解析",
+                "notes": "",
+                "included": True,
+            },
+            {
+                "index": 2,
+                "stem": "二维数组第 2 题",
+                "options": {
+                    "A": "选项 A2",
+                    "B": "选项 B2",
+                    "C": "选项 C2",
+                    "D": "选项 D2",
+                },
+                "correct_answer": "B",
+                "analysis": "二维数组第 2 题解析",
+                "notes": "",
+                "included": True,
+            },
+        ]
+        import_job = HomeworkImportJob.objects.create(
+            teacher=teacher,
+            assignment=assignment,
+            source_file=SimpleUploadedFile(filename, b"batch homework source", content_type="text/plain"),
+            source_filename=filename,
+            source_sha256=hashlib.sha256(b"batch homework source").hexdigest(),
+            source_type=HomeworkImportJob.SOURCE_TYPE_TEXT,
+            parse_status=HomeworkImportJob.STATUS_CONFIRMED,
+            candidates_json=candidates,
+            parse_notes="教师已确认题目，可用于批量布置。",
+            confirmed_at=timezone.now(),
+            is_active=True,
+        )
+        for index, candidate in enumerate(candidates, start=1):
+            HomeworkQuestion.objects.create(
+                assignment=assignment,
+                import_job=import_job,
+                question_no=index,
+                question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                stem=candidate["stem"],
+                options_json=candidate["options"],
+                correct_answer=candidate["correct_answer"],
+                analysis=candidate["analysis"],
+                source_snapshot_json={"source_import_job_id": import_job.id, "candidate_index": index},
+                is_active=True,
+            )
+        return import_job
+
+    def post_batch_create(
+        self,
+        *,
+        student_ids: list[int] | None = None,
+        import_job_id: int | None = None,
+        requirement: str = "先完成选择题，再口头讲解。",
+        due_date: str | None = None,
+        follow: bool = False,
+    ):
+        payload = {
+            "student_ids": student_ids or [],
+            "assignment_requirement": requirement,
+            "due_date": due_date or (timezone.localdate() + timedelta(days=5)).isoformat(),
+        }
+        if import_job_id is not None:
+            payload["import_job_id"] = str(import_job_id)
+        return self.client.post(self.batch_create_url, payload, follow=follow)
+
+    def test_teacher_workbench_shows_batch_homework_button(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(reverse("teacher-students") + "?tab=students")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "布置作业")
+        self.assertContains(response, reverse("teacher-homework-batch-create") + "?course=cpp")
+        self.assertNotContains(response, "导入学生")
+
+    def test_batch_homework_page_returns_200_for_teacher(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "批量布置作业")
+        self.assertContains(response, "选择题目")
+
+    def test_non_teacher_is_redirected_from_batch_homework_page(self) -> None:
+        self.sign_in(self.target_student_user)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("student-courses"))
+
+    def test_batch_page_lists_only_current_teacher_students(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        student_names = {item["name"] for item in response.context["student_rows"]}
+        self.assertSetEqual(
+            student_names,
+            {"题目来源学生", "批量目标学生甲", "批量目标学生乙"},
+        )
+
+    def test_batch_create_creates_assignment_for_each_selected_student(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id, self.second_target_student.id],
+            import_job_id=self.source_import_job.id,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        created_assignments = HomeworkAssignment.objects.filter(
+            teacher=self.teacher,
+            student_id__in=[self.target_student.id, self.second_target_student.id],
+            title="二维数组批量题单",
+        ).order_by("student_id")
+        self.assertEqual(created_assignments.count(), 2)
+        for assignment in created_assignments:
+            self.assertEqual(assignment.description, "先完成选择题，再口头讲解。")
+            self.assertEqual(assignment.content, self.array_content)
+            self.assertEqual(assignment.questions.count(), 2)
+            cloned_import_job = assignment.import_jobs.get()
+            self.assertEqual(cloned_import_job.source_filename, self.source_import_job.source_filename)
+            self.assertEqual(cloned_import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+
+    def test_batch_create_requires_student_selection(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[],
+            import_job_id=self.source_import_job.id,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "请至少选择 1 名学生。")
+        self.assertFalse(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student=self.target_student,
+                title="二维数组批量题单",
+            ).exists()
+        )
+
+    def test_batch_create_requires_import_job_selection(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "请先选择 1 条 HomeworkImportJob 题目记录。")
+
+    def test_batch_create_saves_requirement_and_links_import_job(self) -> None:
+        self.sign_in(self.teacher)
+
+        self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.source_import_job.id,
+            requirement="口头复述二维数组遍历，再完成 2 题。",
+        )
+
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title="二维数组批量题单",
+        )
+        self.assertEqual(assignment.description, "口头复述二维数组遍历，再完成 2 题。")
+        self.assertEqual(assignment.import_jobs.count(), 1)
+        self.assertEqual(assignment.import_jobs.first().source_filename, "array-batch-source.txt")
+
+    def test_forged_student_id_outside_teacher_scope_is_rejected(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id, self.outsider_student.id],
+            import_job_id=self.source_import_job.id,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "不属于你当前 C++ 负责范围")
+        self.assertFalse(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student_id__in=[self.target_student.id, self.outsider_student.id],
+                title="二维数组批量题单",
+            ).exists()
+        )
+
+    def test_forged_other_teacher_import_job_is_rejected(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.peer_import_job.id,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前老师不能使用这条 HomeworkImportJob 题目记录。")
+        self.assertFalse(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student=self.target_student,
+                title="别的老师题单",
+            ).exists()
+        )
+
+    def test_import_job_preview_endpoint_returns_candidate_preview(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(
+            reverse("teacher-homework-import-job-preview", args=[self.source_import_job.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["source_filename"], "array-batch-source.txt")
+        self.assertEqual(payload["question_count"], 2)
+        self.assertEqual(payload["preview_items"][0]["question_no"], 1)
+        self.assertIn("二维数组第 1 题", payload["preview_items"][0]["stem"])
+
+    def test_student_homework_list_shows_batch_created_assignment(self) -> None:
+        self.sign_in(self.teacher)
+        self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.source_import_job.id,
+        )
+
+        self.sign_in(self.target_student_user)
+        response = self.client.get(reverse("student-homework-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "二维数组批量题单")

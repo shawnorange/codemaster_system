@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.uploadedfile import UploadedFile
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -29,6 +29,11 @@ from .course_identity import normalize_assignment_level
 from .gesp2_catalog import ASCII_CHAR_ENCODING_CONTENT_SLUG, ENUMERATION_METHOD_CONTENT_SLUG
 from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .gesp4_catalog import BINARY_SEARCH_CONTENT_SLUG, SORTING_CONTENT_SLUG, STRINGS_CONTENT_SLUG
+from .homework_batch import (
+    build_homework_import_job_preview_payload,
+    clone_confirmed_import_job_to_assignment,
+    get_visible_homework_import_jobs,
+)
 from .homework_online import (
     HomeworkImportParseError,
     compute_uploaded_file_sha256,
@@ -74,6 +79,7 @@ from .portal_context import (
     build_teacher_course_student_pool_context,
     build_teacher_course_students_detail_context,
     build_teacher_course_structure_export_payload,
+    build_teacher_homework_batch_create_context,
     build_parent_page_shell,
     build_principal_page_shell,
     build_student_portal_page,
@@ -194,6 +200,18 @@ def normalize_positive_int(value: object, *, default: int = 0, minimum: int = 0)
     except (TypeError, ValueError):
         return default
     return normalized if normalized >= minimum else default
+
+
+def normalize_positive_int_list(values: list[object]) -> list[int]:
+    normalized_values: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        normalized = normalize_positive_int(value, default=0, minimum=1)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_values.append(normalized)
+    return normalized_values
 
 
 def parse_iso_date(value: object) -> date | None:
@@ -1036,6 +1054,172 @@ def teacher_students(request: HttpRequest) -> HttpResponse:
         "teacher",
         build_teacher_page_shell(get_portal_user_from_request(request), active_tab=active_tab),
     )
+
+
+@role_required("teacher")
+def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    selected_course_slug = (request.GET.get("course") or "").strip().lower()
+    selected_course = None
+    if selected_course_slug:
+        selected_course = Course.objects.filter(slug=selected_course_slug).order_by("id").first()
+        if selected_course is None:
+            raise Http404("未找到该课程")
+
+    success_message = ""
+    if request.GET.get("op") == "created":
+        created_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
+        if created_count:
+            success_message = f"批量布置完成：已为 {created_count} 名学生创建作业。"
+
+    form_values: dict[str, object] | None = None
+    error_message = ""
+
+    if request.method == "POST":
+        selected_student_ids = normalize_positive_int_list(request.POST.getlist("student_ids"))
+        selected_import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
+        due_date_raw = request.POST.get("due_date", "").strip()
+        assignment_requirement = request.POST.get("assignment_requirement", "").strip()
+        form_values = {
+            "student_ids": selected_student_ids,
+            "import_job_id": selected_import_job_id,
+            "assignment_requirement": assignment_requirement,
+            "due_date": due_date_raw,
+        }
+
+        if not selected_student_ids:
+            error_message = "请至少选择 1 名学生。"
+        elif not selected_import_job_id:
+            error_message = "请先选择 1 条 HomeworkImportJob 题目记录。"
+        else:
+            try:
+                due_date_value = date.fromisoformat(due_date_raw)
+            except ValueError:
+                due_date_value = None
+                error_message = "请选择有效的截止日期。"
+
+            visible_import_job = None
+            if due_date_value is not None:
+                visible_import_job = (
+                    get_visible_homework_import_jobs(
+                        portal_user,
+                        course_id=selected_course.id if selected_course is not None else None,
+                    )
+                    .filter(id=selected_import_job_id)
+                    .first()
+                )
+                if visible_import_job is None:
+                    error_message = "当前老师不能使用这条 HomeworkImportJob 题目记录。"
+
+            if visible_import_job is not None:
+                source_course = visible_import_job.assignment.content.course
+                allowed_assignments = list(
+                    TeacherStudentAssignment.objects.select_related("student")
+                    .filter(
+                        teacher=portal_user,
+                        student_id__in=selected_student_ids,
+                        course=source_course,
+                        is_active=True,
+                    )
+                    .order_by("student_id", "id")
+                )
+                allowed_student_ids = {assignment.student_id for assignment in allowed_assignments}
+                invalid_student_ids = [
+                    student_id for student_id in selected_student_ids if student_id not in allowed_student_ids
+                ]
+                if invalid_student_ids:
+                    invalid_students = list(
+                        Student.objects.filter(id__in=invalid_student_ids).order_by("id")
+                    )
+                    invalid_names = "、".join(student.display_name for student in invalid_students)
+                    error_message = (
+                        f"所选学生里存在不属于你当前 {source_course.title} 负责范围的记录：{invalid_names or '未知学生'}。"
+                    )
+                else:
+                    student_map = {
+                        student.id: student
+                        for student in Student.objects.select_related("user", "parent_user", "teacher_user")
+                        .filter(id__in=selected_student_ids)
+                    }
+                    selected_students = [
+                        student_map[student_id]
+                        for student_id in selected_student_ids
+                        if student_id in student_map
+                    ]
+                    assignment_title = (
+                        visible_import_job.assignment.title.strip()
+                        or visible_import_job.assignment.content.title.strip()
+                        or visible_import_job.source_filename.strip()
+                    )
+                    try:
+                        with transaction.atomic():
+                            for student in selected_students:
+                                ensure_homework_content_access(
+                                    student,
+                                    visible_import_job.assignment.content,
+                                    portal_user,
+                                )
+                                assignment = HomeworkAssignment.objects.create(
+                                    teacher=portal_user,
+                                    student=student,
+                                    content=visible_import_job.assignment.content,
+                                    title=assignment_title,
+                                    description=assignment_requirement,
+                                    due_date=due_date_value,
+                                    status=HomeworkAssignment.STATUS_ASSIGNED,
+                                    assigned_at=timezone.now(),
+                                    is_active=True,
+                                )
+                                clone_confirmed_import_job_to_assignment(
+                                    source_import_job=visible_import_job,
+                                    assignment=assignment,
+                                    teacher=portal_user,
+                                )
+                    except ValidationError as exc:
+                        error_message = "；".join(exc.messages) if exc.messages else str(exc)
+                    else:
+                        redirect_params: dict[str, object] = {
+                            "op": "created",
+                            "count": len(selected_students),
+                        }
+                        if selected_course_slug:
+                            redirect_params["course"] = selected_course_slug
+                        return redirect(
+                            build_redirect_with_query(
+                                reverse("teacher-homework-batch-create"),
+                                params=redirect_params,
+                            )
+                        )
+
+    try:
+        context = build_teacher_homework_batch_create_context(
+            portal_user,
+            selected_course_slug=selected_course_slug,
+            form_values=form_values,
+            error_message=error_message,
+            success_message=success_message,
+        )
+    except ObjectDoesNotExist as exc:
+        raise Http404("未找到该课程") from exc
+
+    return render(
+        request,
+        "entry/teacher_homework_batch_create.html",
+        {
+            "role_label": ROLE_CONFIG["teacher"]["label"],
+            **build_shell_identity_context(request),
+            **context,
+        },
+    )
+
+
+@role_required("teacher")
+def teacher_homework_import_job_preview(request: HttpRequest, import_job_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    import_job = get_visible_homework_import_jobs(portal_user).filter(id=import_job_id).first()
+    if import_job is None:
+        raise Http404("未找到该题目记录")
+    return JsonResponse(build_homework_import_job_preview_payload(import_job))
 
 
 @role_required("teacher")
