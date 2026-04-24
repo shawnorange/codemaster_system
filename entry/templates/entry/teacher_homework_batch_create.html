@@ -95,7 +95,7 @@
                                 <button id="homework-batch-student-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
                             </div>
                             <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
-                                <span class="portal-grid-note teacher-tabulator-note">学生列表只来自当前老师 active 的 TeacherStudentAssignment。</span>
+                                <span class="portal-grid-note teacher-tabulator-note">学生列表按当前老师名下 Student.teacher_user 取数；保存时后端会再次校验 student_ids。</span>
                             </div>
                         </div>
 
@@ -126,7 +126,7 @@
                     <div class="section-heading section-heading--compact">
                         <p class="section-heading__eyebrow">Question Source</p>
                         <h3>题目选择区</h3>
-                        <p>这里选择一条已确认的 HomeworkImportJob。保存时会为每个新 assignment 克隆一条 import job 和对应正式题目。</p>
+                        <p>这里选择一条当前老师可见的 HomeworkImportJob。已 confirmed 或已经写入正式 HomeworkQuestion 的记录都可以选择。</p>
                     </div>
 
                     <div class="portal-action-row portal-action-row--leading">
@@ -146,7 +146,7 @@
                                     <input id="homework-import-job-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按文件名 / 老师 / 作业标题 / 课程搜索">
                                 </div>
                                 <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
-                                    <span class="portal-grid-note teacher-tabulator-note">普通老师只看自己的 confirmed import job；teacher001 可查看全部 confirmed 记录。</span>
+                                    <span class="portal-grid-note teacher-tabulator-note">普通老师只看自己可见的题目记录；teacher001 可查看全部可用记录。</span>
                                     <button id="close-homework-import-job-selector" class="cm-tabulator-btn" type="button">收起选择区</button>
                                 </div>
                             </div>
@@ -250,24 +250,28 @@
                 return;
             }
 
-            window.CodeMasterTeacherTabulator.initHomeworkBatchStudentGrid({
-                tableId: "homework-batch-student-table",
-                dataScriptId: "homework-batch-student-table-data",
-                searchInputId: "homework-batch-student-search",
-                formId: "homework-batch-create-form",
-                hiddenContainerId: "homework-batch-student-hidden-inputs",
-                selectedCountId: "homework-batch-student-selected-count",
-                totalCountId: "homework-batch-student-total-count",
-                selectAllButtonId: "homework-batch-student-select-all",
-                clearSelectionButtonId: "homework-batch-student-clear-selection"
-            });
+            if (typeof window.CodeMasterTeacherTabulator.initHomeworkBatchStudentGrid === "function") {
+                window.CodeMasterTeacherTabulator.initHomeworkBatchStudentGrid({
+                    tableId: "homework-batch-student-table",
+                    dataScriptId: "homework-batch-student-table-data",
+                    searchInputId: "homework-batch-student-search",
+                    formId: "homework-batch-create-form",
+                    hiddenContainerId: "homework-batch-student-hidden-inputs",
+                    selectedCountId: "homework-batch-student-selected-count",
+                    totalCountId: "homework-batch-student-total-count",
+                    selectAllButtonId: "homework-batch-student-select-all",
+                    clearSelectionButtonId: "homework-batch-student-clear-selection"
+                });
+            }
 
-            window.CodeMasterTeacherTabulator.initHomeworkImportJobGrid({
-                tableId: "homework-import-job-table",
-                dataScriptId: "homework-import-job-table-data",
-                searchInputId: "homework-import-job-search",
-                hiddenInputId: "homework-import-job-id"
-            });
+            if (typeof window.CodeMasterTeacherTabulator.initHomeworkImportJobGrid === "function") {
+                window.CodeMasterTeacherTabulator.initHomeworkImportJobGrid({
+                    tableId: "homework-import-job-table",
+                    dataScriptId: "homework-import-job-table-data",
+                    searchInputId: "homework-import-job-search",
+                    hiddenInputId: "homework-import-job-id"
+                });
+            }
 
             const importJobTableElement = document.getElementById("homework-import-job-table");
             const importJobPanel = document.getElementById("homework-import-job-selector-panel");

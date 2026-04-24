@@ -1847,10 +1847,20 @@ def confirm_homework_import_job(
                 reviewed_candidates.append(reviewed_candidate)
 
             assignment.status = HomeworkAssignment.STATUS_ASSIGNED
+            assignment.source_import_job = locked_import_job
             assignment.completed_at = None
             assignment.reviewed_at = None
             assignment.teacher_comment = ""
-            assignment.save(update_fields=["status", "completed_at", "reviewed_at", "teacher_comment", "updated_at"])
+            assignment.save(
+                update_fields=[
+                    "status",
+                    "source_import_job",
+                    "completed_at",
+                    "reviewed_at",
+                    "teacher_comment",
+                    "updated_at",
+                ]
+            )
 
             locked_import_job.candidates_json = reviewed_candidates
             locked_import_job.parse_status = HomeworkImportJob.STATUS_CONFIRMED
@@ -1884,9 +1894,7 @@ def grade_homework_submission(
 ) -> HomeworkSubmission:
     if not assignment.is_active or assignment.status == HomeworkAssignment.STATUS_CANCELLED:
         raise HomeworkImportParseError("当前作业已取消，不能继续提交。")
-    questions = list(
-        assignment.questions.filter(is_active=True).order_by("question_no", "id")
-    )
+    questions = list(assignment.get_effective_questions_queryset())
     if not questions:
         raise HomeworkImportParseError("当前作业还没有正式题目，暂时不能在线提交。")
 

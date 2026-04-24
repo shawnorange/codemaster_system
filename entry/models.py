@@ -297,6 +297,13 @@ class HomeworkAssignment(models.Model):
         blank=True,
         related_name="assignments",
     )
+    source_import_job = models.ForeignKey(
+        "HomeworkImportJob",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shared_assignments",
+    )
     assigned_at = models.DateTimeField("布置时间", default=timezone.now)
     completed_at = models.DateTimeField("完成时间", null=True, blank=True)
     reviewed_at = models.DateTimeField("评阅时间", null=True, blank=True)
@@ -316,6 +323,28 @@ class HomeworkAssignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.student.display_name} - {self.title}"
+
+    def get_effective_questions_queryset(self):
+        direct_questions = self.questions.filter(is_active=True).order_by("question_no", "id")
+        if direct_questions.exists():
+            return direct_questions
+        if self.source_import_job_id and self.source_import_job and self.source_import_job.is_active:
+            return self.source_import_job.questions.filter(is_active=True).order_by("question_no", "id")
+        return self.questions.none()
+
+    def get_effective_online_question_count(self) -> int:
+        direct_count = getattr(self, "direct_online_question_count", None)
+        if direct_count is None:
+            direct_count = self.questions.filter(is_active=True).count()
+        if direct_count:
+            return int(direct_count)
+
+        source_count = getattr(self, "source_online_question_count", None)
+        if source_count is None:
+            if not self.source_import_job_id or not self.source_import_job or not self.source_import_job.is_active:
+                return 0
+            source_count = self.source_import_job.questions.filter(is_active=True).count()
+        return int(source_count or 0)
 
     def mark_completed(self) -> bool:
         if not self.is_active or self.status != self.STATUS_ASSIGNED:

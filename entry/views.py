@@ -31,7 +31,6 @@ from .gesp4_catalog import ARRAY_2D_CONTENT_SLUG
 from .gesp4_catalog import BINARY_SEARCH_CONTENT_SLUG, SORTING_CONTENT_SLUG, STRINGS_CONTENT_SLUG
 from .homework_batch import (
     build_homework_import_job_preview_payload,
-    clone_confirmed_import_job_to_assignment,
     get_visible_homework_import_jobs,
 )
 from .homework_online import (
@@ -562,7 +561,7 @@ def student_homework_detail(request: HttpRequest, assignment_id: int) -> HttpRes
             )
             if not assignment:
                 raise Http404("未找到该作业")
-            if assignment.questions.filter(is_active=True).exists():
+            if assignment.get_effective_online_question_count() > 0:
                 return render_detail(error_message="这份作业已经切到在线选择题模式，请提交整份作业完成。")
             if assignment.mark_completed():
                 assignment.save(update_fields=["status", "completed_at", "updated_at"])
@@ -1112,18 +1111,15 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                     error_message = "当前老师不能使用这条 HomeworkImportJob 题目记录。"
 
             if visible_import_job is not None:
-                source_course = visible_import_job.assignment.content.course
-                allowed_assignments = list(
-                    TeacherStudentAssignment.objects.select_related("student")
+                allowed_students = list(
+                    Student.objects.select_related("user", "parent_user", "teacher_user")
                     .filter(
-                        teacher=portal_user,
-                        student_id__in=selected_student_ids,
-                        course=source_course,
-                        is_active=True,
+                        id__in=selected_student_ids,
+                        teacher_user=portal_user,
                     )
-                    .order_by("student_id", "id")
+                    .order_by("id")
                 )
-                allowed_student_ids = {assignment.student_id for assignment in allowed_assignments}
+                allowed_student_ids = {student.id for student in allowed_students}
                 invalid_student_ids = [
                     student_id for student_id in selected_student_ids if student_id not in allowed_student_ids
                 ]
@@ -1132,19 +1128,13 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                         Student.objects.filter(id__in=invalid_student_ids).order_by("id")
                     )
                     invalid_names = "、".join(student.display_name for student in invalid_students)
-                    error_message = (
-                        f"所选学生里存在不属于你当前 {source_course.title} 负责范围的记录：{invalid_names or '未知学生'}。"
-                    )
+                    error_message = f"所选学生里存在不属于你名下的记录：{invalid_names or '未知学生'}。"
                 else:
-                    student_map = {
-                        student.id: student
-                        for student in Student.objects.select_related("user", "parent_user", "teacher_user")
-                        .filter(id__in=selected_student_ids)
-                    }
+                    allowed_student_map = {student.id: student for student in allowed_students}
                     selected_students = [
-                        student_map[student_id]
+                        allowed_student_map[student_id]
                         for student_id in selected_student_ids
-                        if student_id in student_map
+                        if student_id in allowed_student_map
                     ]
                     assignment_title = (
                         visible_import_job.assignment.title.strip()
@@ -1167,13 +1157,9 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                                     description=assignment_requirement,
                                     due_date=due_date_value,
                                     status=HomeworkAssignment.STATUS_ASSIGNED,
+                                    source_import_job=visible_import_job,
                                     assigned_at=timezone.now(),
                                     is_active=True,
-                                )
-                                clone_confirmed_import_job_to_assignment(
-                                    source_import_job=visible_import_job,
-                                    assignment=assignment,
-                                    teacher=portal_user,
                                 )
                     except ValidationError as exc:
                         error_message = "；".join(exc.messages) if exc.messages else str(exc)

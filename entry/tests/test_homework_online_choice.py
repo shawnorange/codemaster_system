@@ -1809,6 +1809,44 @@ class HomeworkBatchCreateTests(TestCase):
             title="别的老师题单",
             filename="peer-batch-source.txt",
         )
+        self.question_backed_import_job = self.create_confirmed_import_job(
+            teacher=self.teacher,
+            student=self.source_student,
+            title="已有正式题目的未确认题单",
+            filename="question-backed-source.txt",
+        )
+        self.question_backed_import_job.parse_status = HomeworkImportJob.STATUS_UPLOADED
+        self.question_backed_import_job.candidates_json = [
+            {
+                "index": 1,
+                "stem": "fallback 候选题干",
+                "options": {
+                    "A": "候选 A",
+                    "B": "候选 B",
+                    "C": "候选 C",
+                    "D": "候选 D",
+                },
+                "correct_answer": "A",
+                "analysis": "候选解析",
+                "notes": "",
+                "included": True,
+            }
+        ]
+        self.question_backed_import_job.save(update_fields=["parse_status", "candidates_json", "updated_at"])
+        HomeworkQuestion.objects.filter(
+            import_job=self.question_backed_import_job,
+            question_no=1,
+        ).update(
+            stem="正式题优先返回",
+            options_json={
+                "A": "正式 A",
+                "B": "正式 B",
+                "C": "正式 C",
+                "D": "正式 D",
+            },
+            correct_answer="C",
+            analysis="正式题解析",
+        )
         self.batch_create_url = reverse("teacher-homework-batch-create") + "?course=cpp"
 
     def sign_in(self, user: PortalUser) -> None:
@@ -1929,6 +1967,23 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertContains(response, "批量布置作业")
         self.assertContains(response, "选择题目")
 
+    def test_batch_homework_page_opens_question_source_panel_when_import_jobs_exist(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["import_job_selector_should_open"])
+        self.assertNotContains(response, 'id="homework-import-job-selector-panel" hidden')
+
+    def test_batch_homework_page_uses_versioned_teacher_tabulator_asset(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "teacher_tabulator.js?v=20260424-homework-batch-fix")
+
     def test_non_teacher_is_redirected_from_batch_homework_page(self) -> None:
         self.sign_in(self.target_student_user)
 
@@ -1949,8 +2004,23 @@ class HomeworkBatchCreateTests(TestCase):
             {"题目来源学生", "批量目标学生甲", "批量目标学生乙"},
         )
 
+    def test_batch_page_lists_students_by_teacher_user_even_without_assignment(self) -> None:
+        TeacherStudentAssignment.objects.filter(
+            teacher=self.teacher,
+            student=self.target_student,
+        ).delete()
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        student_names = {item["name"] for item in response.context["student_rows"]}
+        self.assertIn("批量目标学生甲", student_names)
+
     def test_batch_create_creates_assignment_for_each_selected_student(self) -> None:
         self.sign_in(self.teacher)
+        import_job_count_before = HomeworkImportJob.objects.count()
+        question_count_before = HomeworkQuestion.objects.count()
 
         response = self.post_batch_create(
             student_ids=[self.target_student.id, self.second_target_student.id],
@@ -1967,10 +2037,38 @@ class HomeworkBatchCreateTests(TestCase):
         for assignment in created_assignments:
             self.assertEqual(assignment.description, "先完成选择题，再口头讲解。")
             self.assertEqual(assignment.content, self.array_content)
-            self.assertEqual(assignment.questions.count(), 2)
-            cloned_import_job = assignment.import_jobs.get()
-            self.assertEqual(cloned_import_job.source_filename, self.source_import_job.source_filename)
-            self.assertEqual(cloned_import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+            self.assertEqual(assignment.source_import_job_id, self.source_import_job.id)
+            self.assertEqual(assignment.import_jobs.count(), 0)
+            self.assertEqual(assignment.questions.count(), 0)
+            self.assertEqual(assignment.get_effective_online_question_count(), 2)
+            self.assertEqual(
+                [question.id for question in assignment.get_effective_questions_queryset()],
+                [question.id for question in self.source_import_job.questions.filter(is_active=True).order_by("question_no", "id")],
+            )
+        self.assertEqual(HomeworkImportJob.objects.count(), import_job_count_before)
+        self.assertEqual(HomeworkQuestion.objects.count(), question_count_before)
+
+    def test_batch_create_still_works_when_teacher_student_assignment_is_missing(self) -> None:
+        TeacherStudentAssignment.objects.filter(
+            teacher=self.teacher,
+            student=self.target_student,
+        ).delete()
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.source_import_job.id,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title="二维数组批量题单",
+        )
+        self.assertEqual(assignment.questions.count(), 0)
+        self.assertEqual(assignment.source_import_job_id, self.source_import_job.id)
+        self.assertEqual(assignment.get_effective_online_question_count(), 2)
 
     def test_batch_create_requires_student_selection(self) -> None:
         self.sign_in(self.teacher)
@@ -2018,8 +2116,65 @@ class HomeworkBatchCreateTests(TestCase):
             title="二维数组批量题单",
         )
         self.assertEqual(assignment.description, "口头复述二维数组遍历，再完成 2 题。")
-        self.assertEqual(assignment.import_jobs.count(), 1)
-        self.assertEqual(assignment.import_jobs.first().source_filename, "array-batch-source.txt")
+        self.assertEqual(assignment.source_import_job_id, self.source_import_job.id)
+        self.assertEqual(assignment.import_jobs.count(), 0)
+
+    def test_batch_created_assignments_share_questions_for_practice_and_grading(self) -> None:
+        self.sign_in(self.teacher)
+        self.post_batch_create(
+            student_ids=[self.target_student.id, self.second_target_student.id],
+            import_job_id=self.source_import_job.id,
+        )
+
+        first_assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title="二维数组批量题单",
+        )
+        second_assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.second_target_student,
+            title="二维数组批量题单",
+        )
+        shared_questions = list(self.source_import_job.questions.filter(is_active=True).order_by("question_no", "id"))
+
+        self.assertEqual(first_assignment.questions.count(), 0)
+        self.assertEqual(second_assignment.questions.count(), 0)
+        self.assertEqual(
+            [question.id for question in first_assignment.get_effective_questions_queryset()],
+            [question.id for question in shared_questions],
+        )
+        self.assertEqual(
+            [question.id for question in second_assignment.get_effective_questions_queryset()],
+            [question.id for question in shared_questions],
+        )
+
+        self.sign_in(self.target_student_user)
+        practice_response = self.client.get(reverse("student-homework-practice", args=[first_assignment.id]))
+
+        self.assertEqual(practice_response.status_code, 200)
+        self.assertContains(practice_response, "二维数组第 1 题")
+        self.assertContains(practice_response, "二维数组第 2 题")
+
+        submit_response = self.client.post(
+            reverse("student-homework-practice", args=[first_assignment.id]),
+            {
+                f"question_{shared_questions[0].id}": "A",
+                f"question_{shared_questions[1].id}": "B",
+            },
+        )
+
+        self.assertEqual(submit_response.status_code, 302)
+        submission = HomeworkSubmission.objects.get(assignment=first_assignment, student=self.target_student)
+        self.assertEqual(submission.status, HomeworkSubmission.STATUS_AUTO_CHECKED)
+        self.assertEqual(submission.correct_count, 2)
+        self.assertEqual(
+            HomeworkSubmissionAnswer.objects.filter(
+                submission=submission,
+                homework_question_id__in=[question.id for question in shared_questions],
+            ).count(),
+            2,
+        )
 
     def test_forged_student_id_outside_teacher_scope_is_rejected(self) -> None:
         self.sign_in(self.teacher)
@@ -2031,7 +2186,7 @@ class HomeworkBatchCreateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "不属于你当前 C++ 负责范围")
+        self.assertContains(response, "不属于你名下")
         self.assertFalse(
             HomeworkAssignment.objects.filter(
                 teacher=self.teacher,
@@ -2073,6 +2228,29 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(payload["preview_items"][0]["question_no"], 1)
         self.assertIn("二维数组第 1 题", payload["preview_items"][0]["stem"])
 
+    def test_question_source_lists_import_job_when_questions_exist_even_if_not_confirmed(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        import_job_ids = {item["import_job_id"] for item in response.context["import_job_rows"]}
+        self.assertIn(self.question_backed_import_job.id, import_job_ids)
+
+    def test_import_job_preview_prefers_homework_questions_over_candidates_json(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(
+            reverse("teacher-homework-import-job-preview", args=[self.question_backed_import_job.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["parse_status"], HomeworkImportJob.STATUS_UPLOADED)
+        self.assertEqual(payload["preview_items"][0]["stem"], "正式题优先返回")
+        self.assertEqual(payload["preview_items"][0]["correct_answer"], "C")
+        self.assertEqual(payload["preview_items"][0]["analysis"], "正式题解析")
+
     def test_student_homework_list_shows_batch_created_assignment(self) -> None:
         self.sign_in(self.teacher)
         self.post_batch_create(
@@ -2085,3 +2263,13 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "二维数组批量题单")
+
+    def test_existing_direct_assignment_questions_remain_compatible(self) -> None:
+        source_assignment = self.source_import_job.assignment
+        self.sign_in(self.source_student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[source_assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "二维数组第 1 题")
+        self.assertContains(response, "二维数组第 2 题")

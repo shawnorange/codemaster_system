@@ -1186,10 +1186,30 @@ def serialize_homework_content_option(content: CourseContent) -> dict:
     }
 
 
+def annotate_homework_online_question_counts(queryset: QuerySet[HomeworkAssignment]) -> QuerySet[HomeworkAssignment]:
+    return queryset.annotate(
+        direct_online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True),
+        source_online_question_count=Count(
+            "source_import_job__questions",
+            filter=Q(source_import_job__questions__is_active=True),
+            distinct=True,
+        ),
+    )
+
+
 def get_teacher_student_homework_queryset(portal_user: PortalUser, student: Student) -> QuerySet[HomeworkAssignment]:
     return (
-        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
-        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        annotate_homework_online_question_counts(
+            HomeworkAssignment.objects.select_related(
+                "teacher",
+                "student",
+                "content",
+                "content__course",
+                "content__level",
+                "summary",
+                "source_import_job",
+            )
+        )
         .filter(teacher=portal_user, student=student, is_active=True)
         .order_by("-due_date", "-assigned_at", "-id")
     )
@@ -1197,8 +1217,17 @@ def get_teacher_student_homework_queryset(portal_user: PortalUser, student: Stud
 
 def get_student_homework_queryset(student: Student) -> QuerySet[HomeworkAssignment]:
     return (
-        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
-        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        annotate_homework_online_question_counts(
+            HomeworkAssignment.objects.select_related(
+                "teacher",
+                "student",
+                "content",
+                "content__course",
+                "content__level",
+                "summary",
+                "source_import_job",
+            )
+        )
         .filter(student=student, is_active=True)
         .order_by("-due_date", "-assigned_at", "-id")
     )
@@ -1384,9 +1413,7 @@ def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
     has_comment = bool(teacher_comment)
     summary = getattr(assignment, "summary", None)
     has_summary = bool(summary)
-    online_question_count = getattr(assignment, "online_question_count", None)
-    if online_question_count is None:
-        online_question_count = assignment.questions.filter(is_active=True).count()
+    online_question_count = assignment.get_effective_online_question_count()
     return {
         "id": assignment.id,
         "title": assignment.title,
@@ -1858,7 +1885,7 @@ def build_homework_answer_map(submission: HomeworkSubmission | None) -> dict[int
 
 
 def get_homework_assignment_questions(assignment: HomeworkAssignment) -> list[HomeworkQuestion]:
-    return list(assignment.questions.filter(is_active=True).order_by("question_no", "id"))
+    return list(assignment.get_effective_questions_queryset())
 
 
 def build_homework_question_rows_for_assignment(
@@ -1900,8 +1927,17 @@ def build_teacher_homework_builder_context(
     upload_success_message: str = "",
 ) -> dict:
     assignment = (
-        HomeworkAssignment.objects.select_related("teacher", "student", "content", "content__course", "content__level", "summary")
-        .annotate(online_question_count=Count("questions", filter=Q(questions__is_active=True), distinct=True))
+        annotate_homework_online_question_counts(
+            HomeworkAssignment.objects.select_related(
+                "teacher",
+                "student",
+                "content",
+                "content__course",
+                "content__level",
+                "summary",
+                "source_import_job",
+            )
+        )
         .filter(id=assignment_id, teacher=portal_user, student_id=student_id, is_active=True)
         .get()
     )
@@ -1918,6 +1954,14 @@ def build_teacher_homework_builder_context(
         .filter(is_active=True)
         .order_by("-created_at", "-id")
     )
+    if assignment.source_import_job_id and all(job.id != assignment.source_import_job_id for job in import_jobs):
+        shared_source_job = (
+            HomeworkImportJob.objects.select_related("teacher")
+            .filter(id=assignment.source_import_job_id, is_active=True)
+            .first()
+        )
+        if shared_source_job is not None:
+            import_jobs.insert(0, shared_source_job)
     serialized_jobs = [
         serialize_homework_import_job(
             job,
@@ -1929,7 +1973,7 @@ def build_teacher_homework_builder_context(
     latest_job = serialized_jobs[0] if serialized_jobs else None
     confirmed_questions = [
         serialize_homework_question(question)
-        for question in assignment.questions.filter(is_active=True).order_by("question_no", "id")
+        for question in get_homework_assignment_questions(assignment)
     ]
     return {
         "student": student,
@@ -3479,13 +3523,6 @@ def build_teacher_homework_batch_create_context(
             raise Course.DoesNotExist(normalized_course_slug)
 
     course_assignments = list(get_teacher_active_assignments(portal_user))
-    if selected_course is not None:
-        course_assignments = [
-            assignment
-            for assignment in course_assignments
-            if assignment.course_id == selected_course.id
-        ]
-
     assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     for assignment in course_assignments:
         assignments_by_student[assignment.student_id].append(assignment)
@@ -3497,16 +3534,26 @@ def build_teacher_homework_batch_create_context(
     selected_student_ids.discard(0)
     selected_import_job_id = normalize_positive_value((form_values or {}).get("import_job_id"), default=0, minimum=1)
 
+    teacher_students = list(
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(teacher_user=portal_user)
+        .order_by("id")
+    )
+
     student_rows = []
-    for student_id in sorted(assignments_by_student):
-        student = assignments_by_student[student_id][0].student
+    for student in teacher_students:
+        student_assignments = assignments_by_student.get(student.id, [])
         student_rows.append(
             {
                 "student_id": student.id,
                 "name": student.display_name,
                 "grade": student.grade or "待补充",
                 "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
-                "scope_text": summarize_teacher_assignment_scope(assignments_by_student[student_id]),
+                "scope_text": (
+                    summarize_teacher_assignment_scope(student_assignments)
+                    if student_assignments
+                    else build_student_learning_path(student)
+                ),
                 "selected": student.id in selected_student_ids,
             }
         )
@@ -3557,8 +3604,8 @@ def build_teacher_homework_batch_create_context(
         "summary_cards": [
             {"label": "当前老师", "value": portal_user.full_name, "hint": portal_user.username},
             {"label": "课程筛选", "value": course_filter_label, "hint": "按钮从课程入口进入时会自动带上当前课程"},
-            {"label": "可选学生", "value": f"{len(student_rows)} 人", "hint": "只显示当前老师 active assignment 覆盖的学生"},
-            {"label": "可选题目记录", "value": f"{len(import_job_rows)} 条", "hint": "只显示当前老师可见的 confirmed HomeworkImportJob"},
+            {"label": "可选学生", "value": f"{len(student_rows)} 人", "hint": "按 Student.teacher_user 列出当前老师名下学生"},
+            {"label": "可选题目记录", "value": f"{len(import_job_rows)} 条", "hint": "显示当前老师可见且已有正式题目或已 confirmed 的 HomeworkImportJob"},
         ],
         "identity_items": [
             {"label": "当前老师", "value": portal_user.full_name},
@@ -3576,7 +3623,7 @@ def build_teacher_homework_batch_create_context(
         "selected_student_ids": sorted(selected_student_ids),
         "batch_create_error_message": error_message,
         "batch_create_success_message": success_message,
-        "import_job_selector_should_open": bool(error_message and not selected_import_job_id),
+        "import_job_selector_should_open": bool(import_job_rows) or bool(error_message and not selected_import_job_id),
         "form_values": {
             "student_ids": sorted(selected_student_ids),
             "import_job_id": selected_import_job_id or "",
@@ -3587,7 +3634,7 @@ def build_teacher_homework_batch_create_context(
         "back_href": f"{reverse('teacher-students')}?tab=students",
         "support_items": [
             {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},
-            {"title": "题目来源", "description": "当前只允许选择已 confirmed 的 HomeworkImportJob，保存时会克隆 import job 和正式题目。"},
+            {"title": "题目来源", "description": "当前允许选择已 confirmed 或已经写入 HomeworkQuestion 的 HomeworkImportJob，保存时会克隆 import job 和正式题目。"},
             {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description，不新增重复字段。"},
             {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
         ],

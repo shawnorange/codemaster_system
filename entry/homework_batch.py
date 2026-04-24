@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from .homework_online import normalize_candidate_editor_rows
@@ -29,8 +29,12 @@ def get_visible_homework_import_jobs(
             is_active=True,
             assignment__is_active=True,
             assignment__content__is_active=True,
-            parse_status=HomeworkImportJob.STATUS_CONFIRMED,
         )
+        .filter(
+            Q(parse_status=HomeworkImportJob.STATUS_CONFIRMED)
+            | Q(questions__is_active=True)
+        )
+        .distinct()
         .order_by("-confirmed_at", "-created_at", "-id")
     )
     if course_id:
@@ -42,7 +46,7 @@ def get_visible_homework_import_jobs(
 
 def build_homework_import_job_question_payloads(import_job: HomeworkImportJob) -> list[dict[str, Any]]:
     stored_questions = list(
-        HomeworkQuestion.objects.filter(import_job=import_job).order_by("question_no", "id")
+        HomeworkQuestion.objects.filter(import_job=import_job, is_active=True).order_by("question_no", "id")
     )
     if stored_questions:
         return [
