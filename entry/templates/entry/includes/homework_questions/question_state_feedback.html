@@ -3,7 +3,9 @@
         {% for item in question.feedback_items %}
             <article class="homework-question__feedback-item">
                 <span class="homework-question__feedback-label">{{ item.label }}</span>
-                <strong class="homework-question__feedback-value">{{ item.value }}</strong>
+                <div class="homework-question__feedback-value{% if item.label == '解析' %} homework-question__feedback-value--blocks{% endif %}">
+                    {% include "entry/includes/homework_questions/rich_text_blocks.html" with blocks=item.blocks %}
+                </div>
             </article>
         {% endfor %}
     </div>

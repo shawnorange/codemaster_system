@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .homework_option_formatting import format_homework_option_display
+from .homework_option_formatting import build_homework_content_display, format_homework_option_display
 from .homework_online import decode_sql_ascii_json_text
 from .models import HomeworkQuestion, HomeworkSubmission, HomeworkSubmissionAnswer
 
@@ -77,6 +77,8 @@ def build_homework_question_view_model(
     selected_answer = str(answer.selected_answer or "").strip().upper() if answer else ""
     correct_answer = str(answer.correct_answer_snapshot or question.correct_answer or "").strip().upper() if answer else str(question.correct_answer or "").strip().upper()
     analysis = str(answer.analysis_snapshot or question.analysis or "当前老师没有补充解析。").strip() if answer else str(question.analysis or "当前老师没有补充解析。").strip()
+    stem_display = build_homework_content_display(question.stem)
+    analysis_display = build_homework_content_display(analysis)
     show_feedback = state not in {QUESTION_STATE_ANSWERING, QUESTION_STATE_PRINT_BLANK}
     is_correct = bool(show_feedback and selected_answer and selected_answer == correct_answer)
     is_wrong = bool(show_feedback and not is_correct)
@@ -103,6 +105,8 @@ def build_homework_question_view_model(
         "question_type_label": question_type_label,
         "question_no": question.question_no,
         "stem": str(question.stem or "").strip(),
+        "stem_blocks": stem_display["blocks"],
+        "stem_is_code_like": stem_display["is_code_content"],
         "state": state,
         "state_label": QUESTION_STATE_LABELS.get(state, state),
         "body_template": QUESTION_BODY_TEMPLATE_MAP.get(question_type, QUESTION_FALLBACK_TEMPLATE),
@@ -120,10 +124,19 @@ def build_homework_question_view_model(
         "correct_answer": correct_answer,
         "correct_answer_text": correct_answer or "暂无",
         "analysis": analysis,
+        "analysis_blocks": analysis_display["blocks"],
         "feedback_items": [
-            {"label": "你的答案", "value": selected_answer or "未作答"},
-            {"label": "正确答案", "value": correct_answer or "暂无"},
-            {"label": "解析", "value": analysis},
+            {
+                "label": "你的答案",
+                "value": selected_answer or "未作答",
+                "blocks": [{"kind": "text", "text": selected_answer or "未作答"}],
+            },
+            {
+                "label": "正确答案",
+                "value": correct_answer or "暂无",
+                "blocks": [{"kind": "text", "text": correct_answer or "暂无"}],
+            },
+            {"label": "解析", "value": analysis, "blocks": analysis_display["blocks"]},
         ],
         "result_text": result_text,
         "badge_text": result_text,

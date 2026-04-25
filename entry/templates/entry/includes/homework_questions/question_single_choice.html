@@ -12,7 +12,7 @@
                 <span class="homework-question__option-key">{{ option.key }}</span>
                 <div class="homework-question__option-copy">
                     {% if option.is_code_like %}
-                        <pre class="homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
+                        <pre class="homework-code-block homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
                     {% else %}
                         <span class="homework-question__option-text">{{ option.rendered_text }}</span>
                     {% endif %}
@@ -23,7 +23,7 @@
                 <span class="homework-question__option-key">{{ option.key }}</span>
                 <div class="homework-question__option-copy">
                     {% if option.is_code_like %}
-                        <pre class="homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
+                        <pre class="homework-code-block homework-question__option-code"><code>{{ option.rendered_text }}</code></pre>
                     {% else %}
                         <span class="homework-question__option-text">{{ option.rendered_text }}</span>
                     {% endif %}

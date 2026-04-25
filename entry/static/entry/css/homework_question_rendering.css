@@ -45,10 +45,23 @@
 .student-homework-detail .homework-question__title,
 .homework-print .homework-question__title {
     margin: 0;
+    display: grid;
+    gap: 10px;
     color: #173a60;
     font-size: 1.02rem;
     line-height: 1.72;
+}
+
+.student-homework-detail .homework-question__text-block,
+.homework-print .homework-question__text-block {
+    color: #173a60;
+    line-height: 1.72;
     white-space: pre-line;
+}
+
+.student-homework-detail .homework-question__title--code,
+.homework-print .homework-question__title--code {
+    gap: 12px;
 }
 
 .student-homework-detail .homework-question__badge,
@@ -169,23 +182,48 @@
     white-space: pre-line;
 }
 
-.student-homework-detail .homework-question__option-code,
-.homework-print .homework-question__option-code {
+.student-homework-detail .homework-code-block,
+.homework-print .homework-code-block {
     margin: 0;
-    padding: 10px 12px;
+    padding: 12px 14px;
     overflow-x: auto;
-    border-radius: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(15, 103, 184, 0.12);
     background: rgba(15, 103, 184, 0.06);
     color: #173a60;
     white-space: pre-wrap;
+    word-break: normal;
     font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 0.91rem;
-    line-height: 1.64;
+    font-size: 0.92rem;
+    line-height: 1.68;
 }
 
-.student-homework-detail .homework-question__option-code code,
-.homework-print .homework-question__option-code code {
+.student-homework-detail .homework-code-block code,
+.homework-print .homework-code-block code {
     font: inherit;
+}
+
+.student-homework-detail .homework-question-code,
+.homework-print .homework-question-code {
+    max-width: 100%;
+}
+
+.student-homework-detail .homework-code-inline,
+.homework-print .homework-code-inline {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(15, 103, 184, 0.08);
+    font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.9em;
+}
+
+.student-homework-detail .homework-question__option-code,
+.homework-print .homework-question__option-code {
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 0.91rem;
+    line-height: 1.64;
 }
 
 .student-homework-detail .homework-question__option--selected,
@@ -281,6 +319,13 @@
     font-size: 0.94rem;
     line-height: 1.68;
     white-space: pre-line;
+}
+
+.student-homework-detail .homework-question__feedback-value--blocks,
+.homework-print .homework-question__feedback-value--blocks {
+    display: grid;
+    gap: 8px;
+    white-space: normal;
 }
 
 .student-homework-detail .homework-question__unsupported,
@@ -381,6 +426,12 @@
     .homework-print .homework-question__option-code {
         padding: 9px 10px;
         font-size: 0.86rem;
+    }
+
+    .student-homework-detail .homework-code-block,
+    .homework-print .homework-code-block {
+        padding: 10px 11px;
+        font-size: 0.85rem;
     }
 
     .student-homework-detail .homework-submission-table table {

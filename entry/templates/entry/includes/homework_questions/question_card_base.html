@@ -5,7 +5,9 @@
     <header class="homework-question__header">
         <div class="homework-question__heading">
             <span class="homework-question__eyebrow">第 {{ question.question_no }} 题</span>
-            <h5 class="homework-question__title">{{ question.stem }}</h5>
+            <div class="homework-question__title{% if question.stem_is_code_like %} homework-question__title--code{% endif %}">
+                {% include "entry/includes/homework_questions/rich_text_blocks.html" with blocks=question.stem_blocks %}
+            </div>
         </div>
         <span class="homework-question__badge homework-question__badge--{{ question.badge_tone }}">{{ question.badge_text }}</span>
     </header>

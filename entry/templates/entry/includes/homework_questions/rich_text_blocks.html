@@ -1,0 +1,7 @@
+{% for block in blocks %}
+    {% if block.kind == "code" %}
+        <pre class="homework-code-block homework-question-code"><code>{{ block.text }}</code></pre>
+    {% else %}
+        <span class="homework-question__text-block">{{ block.text }}</span>
+    {% endif %}
+{% endfor %}

@@ -1389,9 +1389,61 @@ class HomeworkOnlineChoiceTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "homework-question__option-code")
-        self.assertContains(response, "for (int i = 0; i &lt; n; i++) {", html=False)
+        self.assertContains(response, "for (int i = 0; i &lt; n; i++)", html=False)
+        self.assertContains(response, "{", html=False)
         self.assertContains(response, "return 0;", html=False)
         self.assertContains(response, "普通文本选项")
+
+    def test_student_practice_page_formats_cpp_code_stem_into_code_block(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem='for(int i=0;i<n;i++){for(int j=0;j<m;j++){if(a[i][j]==1){cout<<i<<" "<<j<<endl;}}}',
+            correct_answer="A",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-code-block")
+        self.assertContains(response, "<pre", html=False)
+        self.assertContains(response, "for(int i = 0; i &lt; n; i++)", html=False)
+        self.assertContains(response, "    for(int j = 0; j &lt; m; j++)", html=False)
+        self.assertContains(response, "        if(a[i][j] == 1)", html=False)
+
+    def test_student_practice_page_escapes_html_like_code_stem(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem='if(x<y){cout<<"<script>alert(1)</script>"<<endl;}',
+            correct_answer="A",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;", html=False)
+        self.assertNotContains(response, "<script>alert(1)</script>", html=False)
+
+    def test_student_practice_page_keeps_plain_text_stem_out_of_code_block(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem="下面哪个说法是正确的？",
+            correct_answer="A",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "下面哪个说法是正确的？")
+        self.assertNotContains(response, "homework-code-block")
 
     def test_student_result_page_marks_wrong_selected_answer_in_red_state(self) -> None:
         assignment = self.create_assignment()
