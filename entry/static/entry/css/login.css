@@ -146,11 +146,20 @@ body::before {
     text-transform: uppercase;
 }
 
+.eyebrow--preserve-case {
+    text-transform: none;
+}
+
 .showcase-panel__copy h2,
 .login-card h2 {
     margin: 0;
     color: var(--primary-deep);
     line-height: 1.2;
+}
+
+.showcase-panel__title-line {
+    display: block;
+    text-align: left;
 }
 
 .showcase-panel__copy h2 {
