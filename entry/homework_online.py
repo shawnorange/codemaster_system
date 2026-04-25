@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import certifi
+import codecs
 import hashlib
 import io
 import json
@@ -44,6 +45,7 @@ ANALYSIS_RE = re.compile(r"^(?:解析|答案解析)\s*[:：]?\s*(.*)$", re.IGNOR
 WHITESPACE_RE = re.compile(r"\s+")
 HTTP_ERROR_PREVIEW_LIMIT = 240
 TRACE_PREVIEW_LIMIT = 220
+JSON_TEXT_ESCAPE_PREFIX = "__cm_json_text_unicode_escape__:"
 
 
 class HomeworkImportParseError(Exception):
@@ -211,6 +213,45 @@ def normalize_homework_text(value: str) -> str:
 
 def normalize_candidate_text(value: object) -> str:
     return WHITESPACE_RE.sub(" ", str(value or "")).strip()
+
+
+def _needs_sql_ascii_json_escape(value: str) -> bool:
+    return value.startswith(JSON_TEXT_ESCAPE_PREFIX) or any(ord(char) > 127 for char in value)
+
+
+def encode_sql_ascii_json_text(value: object) -> object:
+    if isinstance(value, str):
+        if not _needs_sql_ascii_json_escape(value):
+            return value
+        escaped = value.encode("unicode_escape").decode("ascii")
+        return f"{JSON_TEXT_ESCAPE_PREFIX}{escaped}"
+    if isinstance(value, list):
+        return [encode_sql_ascii_json_text(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): encode_sql_ascii_json_text(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def decode_sql_ascii_json_text(value: object) -> object:
+    if isinstance(value, str):
+        if not value.startswith(JSON_TEXT_ESCAPE_PREFIX):
+            return value
+        escaped = value[len(JSON_TEXT_ESCAPE_PREFIX):]
+        try:
+            return codecs.decode(escaped, "unicode_escape")
+        except UnicodeDecodeError:
+            return escaped
+    if isinstance(value, list):
+        return [decode_sql_ascii_json_text(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: decode_sql_ascii_json_text(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 def count_non_empty_lines(value: str) -> int:
@@ -984,7 +1025,12 @@ def extract_text_with_volc_vision(
         )
     api_key = normalize_candidate_text(getattr(settings, "ARK_API_KEY", ""))
     if not api_key:
-        raise HomeworkImportParseError("火山视觉 provider 未配置 ARK_API_KEY。")
+        raise HomeworkImportParseError(
+            "火山视觉 provider 未配置 ARK_API_KEY。",
+            error_code="missing_ark_api_key",
+            failure_type="配置缺失",
+            user_message="ARK_API_KEY 未配置，无法调用火山视觉识别。",
+        )
 
     model = normalize_candidate_text(getattr(settings, "VOLC_VISION_MODEL", ""))
     api_url = normalize_candidate_text(getattr(settings, "VOLC_VISION_API_URL", ""))
@@ -1144,12 +1190,22 @@ def parse_candidates_with_qwen(
         )
     api_key = normalize_candidate_text(getattr(settings, "DASHSCOPE_API_KEY", ""))
     if not api_key:
-        raise HomeworkImportParseError("qwen-plus provider 未配置 DASHSCOPE_API_KEY。")
+        raise HomeworkImportParseError(
+            "qwen-plus provider 未配置 DASHSCOPE_API_KEY。",
+            error_code="missing_dashscope_api_key",
+            failure_type="配置缺失",
+            user_message="DASHSCOPE_API_KEY 未配置，无法调用 qwen-plus 结构化题目。",
+        )
 
     model = normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_MODEL", ""))
     api_url = normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_API_URL", ""))
     if not model or not api_url:
-        raise HomeworkImportParseError("qwen-plus provider 缺少 HOMEWORK_LLM_MODEL 或 HOMEWORK_LLM_API_URL。")
+        raise HomeworkImportParseError(
+            "qwen-plus provider 缺少 HOMEWORK_LLM_MODEL 或 HOMEWORK_LLM_API_URL。",
+            error_code="missing_qwen_config",
+            failure_type="配置缺失",
+            user_message="qwen-plus 模型或接口地址配置缺失，无法结构化题目。",
+        )
 
     if strict_visual_block:
         system_prompt = (
@@ -1689,7 +1745,7 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
 
         candidates = [sanitize_candidate(item, index=index) for index, item in enumerate(candidates, start=1)]
         trace.candidate_count = len(candidates)
-        import_job.candidates_json = candidates
+        import_job.candidates_json = encode_sql_ascii_json_text(candidates)
         import_job.parse_notes = _finalize_import_job_parse_notes(import_job, trace)
 
         if route.use_vision:
@@ -1723,6 +1779,7 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
 
 
 def normalize_candidate_editor_rows(candidates_json: object) -> list[dict]:
+    candidates_json = decode_sql_ascii_json_text(candidates_json)
     if not isinstance(candidates_json, list):
         return []
     rows = []
@@ -1824,15 +1881,15 @@ def confirm_homework_import_job(
                         question_no=len(created_questions) + 1,
                         question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
                         stem=candidate["stem"],
-                        options_json=candidate["options"],
+                        options_json=encode_sql_ascii_json_text(candidate["options"]),
                         correct_answer=candidate["correct_answer"],
                         analysis=candidate["analysis"],
-                        source_snapshot_json={
+                        source_snapshot_json=encode_sql_ascii_json_text({
                             "import_job_id": locked_import_job.id,
                             "source_filename": locked_import_job.source_filename,
                             "candidate_index": candidate["index"],
                             "notes": candidate["notes"],
-                        },
+                        }),
                         is_active=True,
                     )
                     try:
@@ -1862,7 +1919,7 @@ def confirm_homework_import_job(
                 ]
             )
 
-            locked_import_job.candidates_json = reviewed_candidates
+            locked_import_job.candidates_json = encode_sql_ascii_json_text(reviewed_candidates)
             locked_import_job.parse_status = HomeworkImportJob.STATUS_CONFIRMED
             locked_import_job.confirmed_at = timezone.now()
             locked_import_job.parse_notes = "\n".join(

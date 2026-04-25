@@ -7,7 +7,11 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from .homework_online import normalize_candidate_editor_rows
+from .homework_online import (
+    decode_sql_ascii_json_text,
+    encode_sql_ascii_json_text,
+    normalize_candidate_editor_rows,
+)
 from .models import HomeworkAssignment, HomeworkImportJob, HomeworkQuestion, PortalUser
 from .student_import import teacher_can_import_students
 
@@ -54,12 +58,16 @@ def build_homework_import_job_question_payloads(import_job: HomeworkImportJob) -
                 "question_no": question.question_no,
                 "question_type": question.question_type,
                 "stem": question.stem,
-                "options_json": deepcopy(question.options_json) if isinstance(question.options_json, dict) else {},
+                "options_json": (
+                    deepcopy(decoded_options)
+                    if isinstance((decoded_options := decode_sql_ascii_json_text(question.options_json)), dict)
+                    else {}
+                ),
                 "correct_answer": question.correct_answer,
                 "analysis": question.analysis,
                 "source_snapshot_json": (
-                    deepcopy(question.source_snapshot_json)
-                    if isinstance(question.source_snapshot_json, dict)
+                    deepcopy(decoded_snapshot)
+                    if isinstance((decoded_snapshot := decode_sql_ascii_json_text(question.source_snapshot_json)), dict)
                     else {}
                 ),
             }
@@ -134,7 +142,8 @@ def clone_confirmed_import_job_to_assignment(
     if not question_payloads:
         raise ValidationError("当前导入题目记录里没有可复制的正式题目。")
 
-    cloned_candidates = deepcopy(source_import_job.candidates_json) if isinstance(source_import_job.candidates_json, list) else []
+    decoded_candidates = decode_sql_ascii_json_text(source_import_job.candidates_json)
+    cloned_candidates = deepcopy(decoded_candidates) if isinstance(decoded_candidates, list) else []
     cloned_parse_notes = "\n".join(
         [
             line
@@ -153,7 +162,7 @@ def clone_confirmed_import_job_to_assignment(
         source_sha256=source_import_job.source_sha256,
         source_type=source_import_job.source_type,
         parse_status=HomeworkImportJob.STATUS_CONFIRMED,
-        candidates_json=cloned_candidates,
+        candidates_json=encode_sql_ascii_json_text(cloned_candidates),
         parse_notes=cloned_parse_notes,
         confirmed_at=timezone.now(),
         is_active=True,
@@ -167,10 +176,12 @@ def clone_confirmed_import_job_to_assignment(
             question_no=index,
             question_type=payload["question_type"] or HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
             stem=str(payload["stem"] or "").strip(),
-            options_json=deepcopy(payload["options_json"]) if isinstance(payload["options_json"], dict) else {},
+            options_json=encode_sql_ascii_json_text(
+                deepcopy(payload["options_json"]) if isinstance(payload["options_json"], dict) else {}
+            ),
             correct_answer=str(payload["correct_answer"] or "").strip().upper(),
             analysis=str(payload["analysis"] or "").strip(),
-            source_snapshot_json={
+            source_snapshot_json=encode_sql_ascii_json_text({
                 **(
                     deepcopy(payload["source_snapshot_json"])
                     if isinstance(payload["source_snapshot_json"], dict)
@@ -179,7 +190,7 @@ def clone_confirmed_import_job_to_assignment(
                 "source_import_job_id": source_import_job.id,
                 "source_assignment_id": source_import_job.assignment_id,
                 "cloned_by_teacher_id": teacher.id,
-            },
+            }),
             is_active=True,
         )
         question.full_clean()

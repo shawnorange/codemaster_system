@@ -38,6 +38,7 @@ from .homework_online import (
     compute_uploaded_file_sha256,
     confirm_homework_import_job,
     detect_homework_source_type,
+    encode_sql_ascii_json_text,
     extract_import_job_user_facing_message,
     grade_homework_submission,
     parse_homework_import_job,
@@ -2507,7 +2508,25 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
                     parse_status=HomeworkImportJob.STATUS_UPLOADED,
                     is_active=True,
                 )
-            parse_homework_import_job(import_job)
+            try:
+                parse_homework_import_job(import_job)
+            except Exception as exc:
+                logger.exception(
+                    "homework import parse crashed import_job=%s assignment=%s source_type=%s",
+                    import_job.id,
+                    assignment.id,
+                    source_type,
+                )
+                import_job.parse_status = HomeworkImportJob.STATUS_FAILED
+                import_job.candidates_json = []
+                import_job.parse_notes = "\n".join(
+                    [
+                        "页面提示：文件解析时发生后端异常，未生成候选题，请联系管理员查看日志。",
+                        f"失败步骤：导入解析",
+                        f"失败原因：{type(exc).__name__}: {exc}",
+                    ]
+                )
+                import_job.save(update_fields=["parse_status", "candidates_json", "parse_notes", "updated_at"])
             if import_job.parse_status == HomeworkImportJob.STATUS_FAILED:
                 return render_builder(
                     upload_error_message=extract_import_job_user_facing_message(
@@ -2599,7 +2618,7 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
                     included_count,
                     exc,
                 )
-                import_job.candidates_json = payloads
+                import_job.candidates_json = encode_sql_ascii_json_text(payloads)
                 import_job.parse_status = HomeworkImportJob.STATUS_PARSED
                 import_job.save(update_fields=["candidates_json", "parse_status", "updated_at"])
                 return render_builder(upload_error_message=f"确认失败：{exc}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .homework_option_formatting import format_homework_option_display
+from .homework_online import decode_sql_ascii_json_text
 from .models import HomeworkQuestion, HomeworkSubmission, HomeworkSubmissionAnswer
 
 
@@ -87,8 +88,9 @@ def build_homework_question_view_model(
         is_correct=is_correct,
         selected_answer=selected_answer,
     )
+    decoded_options = decode_sql_ascii_json_text(question.options_json)
     options = _build_question_option_view_models(
-        question.options_json if isinstance(question.options_json, dict) else {},
+        decoded_options if isinstance(decoded_options, dict) else {},
         selected_answer=selected_answer,
         correct_answer=correct_answer,
         show_feedback=show_feedback,

@@ -25,7 +25,7 @@ from .homework_batch import (
     get_visible_homework_import_jobs,
 )
 from .html_sanitizer import sanitize_rich_html
-from .homework_online import normalize_candidate_editor_rows
+from .homework_online import decode_sql_ascii_json_text, normalize_candidate_editor_rows
 from .homework_option_formatting import format_homework_option_display
 from .homework_question_rendering import (
     QUESTION_STATE_ANSWERING,
@@ -1663,6 +1663,9 @@ def build_homework_option_items(
     selected_answer: str = "",
     correct_answer: str = "",
 ) -> list[dict[str, object]]:
+    decoded_options = decode_sql_ascii_json_text(options)
+    if isinstance(decoded_options, dict):
+        options = decoded_options
     normalized_selected_answer = str(selected_answer or "").strip().upper()
     normalized_correct_answer = str(correct_answer or "").strip().upper()
     option_items: list[dict[str, object]] = []
@@ -1690,7 +1693,8 @@ def build_homework_option_items(
 
 
 def serialize_homework_question(question: HomeworkQuestion) -> dict:
-    options = question.options_json if isinstance(question.options_json, dict) else {}
+    decoded_options = decode_sql_ascii_json_text(question.options_json)
+    options = decoded_options if isinstance(decoded_options, dict) else {}
     return {
         "id": question.id,
         "question_no": question.question_no,
