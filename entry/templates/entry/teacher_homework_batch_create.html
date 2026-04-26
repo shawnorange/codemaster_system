@@ -44,7 +44,7 @@
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Batch Assignment</p>
                 <h3>批量选择学生并生成 HomeworkAssignment</h3>
-                <p>当前页面只承接老师批量布置作业：学生多选、题目记录选择、作业要求填写，以及整批创建 assignment。</p>
+                <p>当前页面统一处理老师批量布置作业：学生多选、题目记录选择、作业要求填写，以及可选的课后总结上传/粘贴。</p>
             </div>
 
             <div class="context-list">
@@ -63,7 +63,7 @@
                 <div class="entry-hint-bar">{{ batch_create_error_message }}</div>
             {% endif %}
 
-            <form id="homework-batch-create-form" method="post" action="{{ save_action }}">
+            <form id="homework-batch-create-form" method="post" action="{{ save_action }}" enctype="multipart/form-data">
                 {% csrf_token %}
                 <div id="homework-batch-student-hidden-inputs"></div>
                 <input type="hidden" name="import_job_id" id="homework-import-job-id" value="{{ form_values.import_job_id }}">
@@ -186,6 +186,38 @@
                             <strong>尚未加载题目预览</strong>
                             <span>先从上方选择一条 HomeworkImportJob。</span>
                         </article>
+                    </div>
+                </section>
+
+                <section class="record-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Homework Summary</p>
+                        <h3>课后总结区块</h3>
+                        <p>可上传 `.html / .htm` 文件，或直接粘贴 `summary_html`。如果两者同时填写，保存时优先使用上传文件，并只创建 1 条 HomeworkSummary 供整批作业共用。</p>
+                    </div>
+
+                    <div class="record-form">
+                        <label>
+                            <span>总结标题</span>
+                            <input
+                                type="text"
+                                name="summary_title"
+                                value="{{ form_values.summary_title }}"
+                                placeholder="{{ summary_title_suggestion }}"
+                            >
+                        </label>
+                        <label>
+                            <span>上传 HTML 文件</span>
+                            <input type="file" name="summary_html_file" accept=".html,.htm">
+                        </label>
+                        <label>
+                            <span>直接粘贴 HTML</span>
+                            <textarea
+                                name="summary_html"
+                                rows="10"
+                                placeholder="如果不上传 HTML 文件，可以直接在这里粘贴课后总结 HTML。"
+                            >{{ form_values.summary_html }}</textarea>
+                        </label>
                     </div>
                 </section>
 

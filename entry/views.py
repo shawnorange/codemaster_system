@@ -91,6 +91,7 @@ from .portal_context import (
     build_teacher_page_shell,
     build_teacher_student_assignment_list_context,
     build_teacher_student_detail_context,
+    build_default_batch_homework_summary_title,
     build_default_homework_summary_title,
     ensure_homework_content_access,
     filter_homework_assignments_by_assigned_date,
@@ -1070,7 +1071,10 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
     if request.GET.get("op") == "created":
         created_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
         if created_count:
-            success_message = f"批量布置完成：已为 {created_count} 名学生创建作业。"
+            if request.GET.get("with_summary") == "1":
+                success_message = f"批量布置完成：已为 {created_count} 名学生创建作业，并关联 1 篇课后总结。"
+            else:
+                success_message = f"批量布置完成：已为 {created_count} 名学生创建作业。"
 
     form_values: dict[str, object] | None = None
     error_message = ""
@@ -1080,11 +1084,15 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         selected_import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
         due_date_raw = request.POST.get("due_date", "").strip()
         assignment_requirement = request.POST.get("assignment_requirement", "").strip()
+        summary_title = request.POST.get("summary_title", "").strip()
+        summary_html_text = request.POST.get("summary_html", "").strip()
         form_values = {
             "student_ids": selected_student_ids,
             "import_job_id": selected_import_job_id,
             "assignment_requirement": assignment_requirement,
             "due_date": due_date_raw,
+            "summary_title": summary_title,
+            "summary_html": summary_html_text,
         }
 
         if not selected_student_ids:
@@ -1097,6 +1105,21 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 due_date_value = None
                 error_message = "请选择有效的截止日期。"
+
+            summary_html_value = ""
+            if not error_message:
+                uploaded_summary_file = request.FILES.get("summary_html_file")
+                try:
+                    summary_html_value = (
+                        decode_uploaded_summary_html(uploaded_summary_file)
+                        if uploaded_summary_file
+                        else summary_html_text
+                    ).strip()
+                except ValidationError as exc:
+                    error_message = "；".join(exc.messages) if exc.messages else str(exc)
+                else:
+                    if summary_title and not summary_html_value:
+                        error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容。"
 
             visible_import_job = None
             if due_date_value is not None:
@@ -1111,7 +1134,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 if visible_import_job is None:
                     error_message = "当前老师不能使用这条 HomeworkImportJob 题目记录。"
 
-            if visible_import_job is not None:
+            if not error_message and visible_import_job is not None:
                 allowed_students = list(
                     Student.objects.select_related("user", "parent_user", "teacher_user")
                     .filter(
@@ -1142,8 +1165,21 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                         or visible_import_job.assignment.content.title.strip()
                         or visible_import_job.source_filename.strip()
                     )
+                    created_summary = None
+                    final_summary_title = ""
+                    if summary_html_value:
+                        final_summary_title = summary_title or build_default_batch_homework_summary_title(
+                            course_label=selected_course.title if selected_course is not None else "批量作业",
+                            anchor_date=timezone.localdate(),
+                        )
                     try:
                         with transaction.atomic():
+                            if summary_html_value:
+                                created_summary = HomeworkSummary.objects.create(
+                                    title=final_summary_title,
+                                    summary_html=summary_html_value,
+                                    created_by=portal_user,
+                                )
                             for student in selected_students:
                                 ensure_homework_content_access(
                                     student,
@@ -1158,6 +1194,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                                     description=assignment_requirement,
                                     due_date=due_date_value,
                                     status=HomeworkAssignment.STATUS_ASSIGNED,
+                                    summary=created_summary,
                                     source_import_job=visible_import_job,
                                     assigned_at=timezone.now(),
                                     is_active=True,
@@ -1169,6 +1206,8 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                             "op": "created",
                             "count": len(selected_students),
                         }
+                        if created_summary is not None:
+                            redirect_params["with_summary"] = 1
                         if selected_course_slug:
                             redirect_params["course"] = selected_course_slug
                         return redirect(

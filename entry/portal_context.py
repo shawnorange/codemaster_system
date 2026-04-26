@@ -182,6 +182,13 @@ def filter_homework_assignments_by_assigned_date(
 
 def build_default_homework_summary_title(student: Student, *, start_date: date, end_date: date) -> str:
     return f"{student.display_name} · {start_date.isoformat()} 至 {end_date.isoformat()} 本周总结"
+
+
+def build_default_batch_homework_summary_title(*, course_label: str, anchor_date: date) -> str:
+    normalized_course_label = str(course_label or "").strip() or "批量作业"
+    return f"{normalized_course_label} · {anchor_date.isoformat()} 课后总结"
+
+
 UAV_HOMEWORK_LEVEL_ORDER = [
     ("S1",),
     ("S2",),
@@ -3594,13 +3601,17 @@ def build_teacher_homework_batch_create_context(
         None,
     )
     course_filter_label = selected_course.title if selected_course is not None else "全部课程"
+    default_summary_title = build_default_batch_homework_summary_title(
+        course_label=course_filter_label,
+        anchor_date=timezone.localdate(),
+    )
     save_action = reverse("teacher-homework-batch-create")
     if selected_course is not None:
         save_action += "?" + urlencode({"course": selected_course.slug})
 
     return {
         "page_title": "批量布置作业",
-        "page_description": "先选当前老师名下学生，再选一条已确认的题目导入记录，最后统一生成 HomeworkAssignment。",
+        "page_description": "先选当前老师名下学生，再选题目来源、填写作业要求，并可一次上传同一篇课后总结统一关联到整批作业。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "批量布置作业"},
@@ -3633,13 +3644,17 @@ def build_teacher_homework_batch_create_context(
             "import_job_id": selected_import_job_id or "",
             "assignment_requirement": str((form_values or {}).get("assignment_requirement") or ""),
             "due_date": str((form_values or {}).get("due_date") or timezone.localdate().isoformat()),
+            "summary_title": str((form_values or {}).get("summary_title") or default_summary_title),
+            "summary_html": str((form_values or {}).get("summary_html") or ""),
         },
+        "summary_title_suggestion": default_summary_title,
         "save_action": save_action,
         "back_href": f"{reverse('teacher-students')}?tab=students",
         "support_items": [
             {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},
-            {"title": "题目来源", "description": "当前允许选择已 confirmed 或已经写入 HomeworkQuestion 的 HomeworkImportJob，保存时会克隆 import job 和正式题目。"},
+            {"title": "题目来源", "description": "当前允许选择已 confirmed 或已经写入 HomeworkQuestion 的 HomeworkImportJob，保存时所有 assignment 共享同一条 source_import_job。"},
             {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description，不新增重复字段。"},
+            {"title": "课后总结", "description": "如果上传或粘贴 HTML，只会创建 1 条 HomeworkSummary，并挂到整批 assignment 上复用。"},
             {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
         ],
     }

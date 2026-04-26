@@ -470,20 +470,20 @@ class HomeworkMVPTests(TestCase):
         self.assertContains(response, "对应知识点")
         self.assertContains(response, "当前状态")
 
-    def test_teacher_student_detail_renders_homework_summary_modal(self) -> None:
+    def test_teacher_student_detail_guides_teacher_to_batch_homework_summary_flow(self) -> None:
         self.create_homework(title="本周总结作业")
         self.sign_in(self.teacher)
 
         response = self.client.get(reverse("teacher-student-detail", args=[self.student.id]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id="open-homework-summary-modal"', html=False)
-        self.assertContains(response, 'id="homework-summary-modal"', html=False)
-        self.assertContains(response, 'name="summary_title"', html=False)
-        self.assertContains(response, 'name="summary_start_date"', html=False)
-        self.assertContains(response, 'name="summary_end_date"', html=False)
-        self.assertContains(response, 'name="summary_html_file"', html=False)
-        self.assertContains(response, 'name="summary_html"', html=False)
+        self.assertContains(response, "课后总结统一改到批量布置作业页面处理")
+        self.assertContains(response, reverse("teacher-homework-batch-create"))
+        self.assertContains(response, "单学生上传入口已隐藏")
+        self.assertNotContains(response, 'id="open-homework-summary-modal"', html=False)
+        self.assertNotContains(response, 'id="homework-summary-modal"', html=False)
+        self.assertNotContains(response, 'name="summary_html_file"', html=False)
+        self.assertNotContains(response, 'name="summary_html"', html=False)
 
     def test_teacher_student_detail_shows_c1_scope_contents_under_new_permission_model(self) -> None:
         c1_student_user = PortalUser.objects.create(
@@ -1317,81 +1317,6 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "家长查看")
         self.assertContains(response, "家长周总结")
-
-    def test_teacher_can_upload_homework_summary_and_bind_same_week_assignments(self) -> None:
-        assigned_at = timezone.now()
-        first_assignment = self.create_homework(
-            title="同周作业一",
-            assigned_at=assigned_at,
-        )
-        second_assignment = self.create_homework(
-            title="同周作业二",
-            content=self.binary_search_content,
-            assigned_at=assigned_at,
-        )
-        self.sign_in(self.teacher)
-        upload = SimpleUploadedFile(
-            "weekly-summary.html",
-            b"<h2>\xe6\x9c\xac\xe5\x91\xa8\xe6\x80\xbb\xe7\xbb\x93</h2><p>\xe4\xb8\xa4\xe6\x9d\xa1\xe4\xbd\x9c\xe4\xb8\x9a\xe5\x85\xb1\xe7\x94\xa8\xe3\x80\x82</p>",
-            content_type="text/html",
-        )
-
-        response = self.client.post(
-            reverse("teacher-student-detail", args=[self.student.id]),
-            {
-                "form_action": "create_homework_summary",
-                "summary_title": "第 1 周总结",
-                "summary_start_date": timezone.localdate().isoformat(),
-                "summary_end_date": timezone.localdate().isoformat(),
-                "summary_html_file": upload,
-            },
-            follow=False,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("homework_op=summary_created", response["Location"])
-
-        first_assignment.refresh_from_db()
-        second_assignment.refresh_from_db()
-        self.assertIsNotNone(first_assignment.summary_id)
-        self.assertEqual(first_assignment.summary_id, second_assignment.summary_id)
-        self.assertEqual(first_assignment.summary.title, "第 1 周总结")
-        self.sign_in(self.student_user)
-        self.assertContains(
-            self.client.get(reverse("student-homework-summary", args=[first_assignment.id])),
-            "本周总结",
-        )
-
-    def test_teacher_can_create_homework_summary_from_direct_html_input(self) -> None:
-        assignment = self.create_homework(
-            title="直接录入总结作业",
-            assigned_at=timezone.now(),
-        )
-        self.sign_in(self.teacher)
-
-        response = self.client.post(
-            reverse("teacher-student-detail", args=[self.student.id]),
-            {
-                "form_action": "create_homework_summary",
-                "summary_title": "直接录入总结",
-                "summary_start_date": timezone.localdate().isoformat(),
-                "summary_end_date": timezone.localdate().isoformat(),
-                "summary_html": "<h2>直接录入</h2><p>老师直接粘贴 HTML。</p>",
-            },
-            follow=False,
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("homework_op=summary_created", response["Location"])
-
-        assignment.refresh_from_db()
-        self.assertIsNotNone(assignment.summary_id)
-        self.assertEqual(assignment.summary.title, "直接录入总结")
-        self.sign_in(self.student_user)
-        self.assertContains(
-            self.client.get(reverse("student-homework-summary", args=[assignment.id])),
-            "老师直接粘贴 HTML。",
-        )
 
     def test_student_cannot_complete_cancelled_or_reviewed_homework(self) -> None:
         cancelled = self.create_homework(

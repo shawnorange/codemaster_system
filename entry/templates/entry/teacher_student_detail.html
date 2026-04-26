@@ -321,14 +321,6 @@
                                 >
                                     {% if homework_content_options %}布置作业{% else %}暂无可布置内容{% endif %}
                                 </button>
-                                <button
-                                    type="button"
-                                    class="teacher-anchor-link topic-permission-summary__button"
-                                    id="open-homework-summary-modal"
-                                    {% if not homework_items %}disabled{% endif %}
-                                >
-                                    上传本周总结
-                                </button>
                             </div>
                         </div>
 
@@ -377,10 +369,10 @@
                         <div class="topic-permission-summary__header">
                             <div>
                                 <p class="section-heading__eyebrow">Weekly Summary</p>
-                                <h4>上传或录入一篇总结，批量绑定当周作业</h4>
-                                <p>本轮按作业布置时间 `assigned_at` 的日期范围匹配。命中范围内的多条 assignment 会共用同一篇 summary。</p>
+                                <h4>课后总结统一改到批量布置作业页面处理</h4>
+                                <p>老师应在 Teacher Workbench 的“布置作业”页面里统一选择学生、上传或粘贴一篇课后总结，再让整批 assignment 共享同一条 summary。</p>
                             </div>
-                            <span class="state-pill state-pill--future">按布置时间批量绑定</span>
+                            <a class="teacher-anchor-link" href="{% url 'teacher-homework-batch-create' %}">前往布置作业页</a>
                         </div>
 
                         <div class="topic-work-card__meta">
@@ -389,21 +381,21 @@
                                 <strong>{{ student.display_name }}</strong>
                             </article>
                             <article class="topic-work-card__meta-item">
-                                <span>当前作业总数</span>
-                                <strong>{{ homework_items|length }} 条</strong>
-                                <p>只会绑定当前老师对当前学生的作业记录</p>
+                                <span>当前入口状态</span>
+                                <strong>单学生上传入口已隐藏</strong>
+                                <p>避免和批量布置作业页面的统一 summary 流程冲突</p>
                             </article>
                             <article class="topic-work-card__meta-item">
-                                <span>默认日期范围</span>
-                                <strong>{{ homework_summary_form_values.start_date }} 至 {{ homework_summary_form_values.end_date }}</strong>
-                                <p>优先取最近布置作业所在周，否则回落到当前自然周</p>
+                                <span>建议操作</span>
+                                <strong>从工作台统一上传</strong>
+                                <p>批量布置时会让多名学生的作业共享同一篇本周总结</p>
                             </article>
                         </div>
 
-                        {% if not homework_items %}
+                        {% if homework_summary_error_message %}
                             <div class="entry-hint-bar">
-                                <strong>当前还没有作业</strong>
-                                <span>{{ homework_summary_create_disabled_reason }}</span>
+                                <strong>单学生总结入口已停用</strong>
+                                <span>{{ homework_summary_error_message }}</span>
                             </div>
                         {% endif %}
                     </section>
@@ -712,89 +704,6 @@
         </form>
     </dialog>
 
-    <dialog class="topic-access-modal" id="homework-summary-modal">
-        <form method="post" class="topic-access-modal__panel" enctype="multipart/form-data">
-            {% csrf_token %}
-            <input type="hidden" name="form_action" value="create_homework_summary">
-
-            <div class="topic-access-modal__header">
-                <div>
-                    <p class="section-heading__eyebrow">Weekly Summary</p>
-                    <h3>创建并绑定本周总结</h3>
-                    <p>支持上传 HTML 文件，或直接粘贴 HTML 正文。提交后会把当前日期范围内的多条作业统一绑定到这篇总结。</p>
-                </div>
-                <button type="button" class="teacher-modal-close" id="close-homework-summary-modal" aria-label="关闭弹窗">×</button>
-            </div>
-
-            <div class="context-list">
-                <div class="context-list__item">
-                    <span>当前学生</span>
-                    <strong>{{ student.display_name }}</strong>
-                </div>
-                <div class="context-list__item">
-                    <span>匹配依据</span>
-                    <strong>作业布置时间 assigned_at</strong>
-                </div>
-                <div class="context-list__item">
-                    <span>当前命中</span>
-                    <strong>{{ homework_summary_scope_count }} 条</strong>
-                </div>
-            </div>
-
-            {% if homework_summary_error_message %}
-                <div class="entry-hint-bar">{{ homework_summary_error_message }}</div>
-            {% endif %}
-
-            <div class="record-form">
-                <input
-                    type="text"
-                    name="summary_title"
-                    id="homework-summary-title-input"
-                    value="{{ homework_summary_form_values.title }}"
-                    placeholder="默认自动带出学生 + 日期范围标题，可自行修改"
-                >
-                <input type="date" name="summary_start_date" value="{{ homework_summary_form_values.start_date }}" required>
-                <input type="date" name="summary_end_date" value="{{ homework_summary_form_values.end_date }}" required>
-                <label>
-                    <span>上传 HTML 文件</span>
-                    <input type="file" name="summary_html_file" accept=".html,.htm">
-                </label>
-                <textarea
-                    name="summary_html"
-                    rows="10"
-                    placeholder="如果不上传 HTML 文件，可以直接在这里粘贴 summary_html。"
-                >{{ homework_summary_form_values.summary_html }}</textarea>
-            </div>
-
-            <section class="record-panel record-panel--recent">
-                <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">Matched Assignments</p>
-                    <h3>当前日期范围命中的作业</h3>
-                    <p>这些作业提交后会统一指向同一篇 summary。</p>
-                </div>
-
-                <div class="record-list">
-                    {% for item in homework_summary_scope_rows %}
-                        <article class="record-list-item">
-                            <strong>{{ item.title }}</strong>
-                            <span>{{ item.content_title }} · {{ item.assigned_at_text }} · {{ item.status_text }}</span>
-                            {% if item.summary_title %}
-                                <span>当前已绑定：{{ item.summary_title }}</span>
-                            {% endif %}
-                        </article>
-                    {% empty %}
-                        <div class="entry-hint-bar">当前日期范围内还没有命中的作业，提交前请先调整日期范围。</div>
-                    {% endfor %}
-                </div>
-            </section>
-
-            <div class="topic-access-modal__footer">
-                <button type="button" class="teacher-anchor-link" id="cancel-homework-summary-modal">取消</button>
-                <button type="submit" class="login-button" {% if not homework_items %}disabled{% endif %}>创建并绑定总结</button>
-            </div>
-        </form>
-    </dialog>
-
     <dialog class="topic-access-modal" id="content-restriction-modal">
         <form method="post" class="topic-access-modal__panel">
             {% csrf_token %}
@@ -905,12 +814,6 @@
             const homeworkCreateCloseButton = document.getElementById("close-homework-create-modal");
             const homeworkCreateCancelButton = document.getElementById("cancel-homework-create-modal");
             const homeworkCreateShouldOpen = {{ homework_modal_should_open|yesno:"true,false" }};
-            const homeworkSummaryDialog = document.getElementById("homework-summary-modal");
-            const homeworkSummaryOpenButton = document.getElementById("open-homework-summary-modal");
-            const homeworkSummaryCloseButton = document.getElementById("close-homework-summary-modal");
-            const homeworkSummaryCancelButton = document.getElementById("cancel-homework-summary-modal");
-            const homeworkSummaryShouldOpen = {{ homework_summary_modal_should_open|yesno:"true,false" }};
-            const homeworkSummaryTitleInput = document.getElementById("homework-summary-title-input");
             const homeworkReviewDialog = document.getElementById("homework-review-modal");
             const homeworkReviewCloseButton = document.getElementById("close-homework-review-modal");
             const homeworkReviewCancelButton = document.getElementById("cancel-homework-review-modal");
@@ -1071,27 +974,6 @@
                     }
                 });
             }
-            if (homeworkSummaryOpenButton) {
-                homeworkSummaryOpenButton.addEventListener("click", () => {
-                    showDialog(homeworkSummaryDialog);
-                    if (homeworkSummaryTitleInput) {
-                        homeworkSummaryTitleInput.focus();
-                    }
-                });
-            }
-            if (homeworkSummaryCloseButton) {
-                homeworkSummaryCloseButton.addEventListener("click", () => hideDialog(homeworkSummaryDialog));
-            }
-            if (homeworkSummaryCancelButton) {
-                homeworkSummaryCancelButton.addEventListener("click", () => hideDialog(homeworkSummaryDialog));
-            }
-            if (homeworkSummaryDialog) {
-                homeworkSummaryDialog.addEventListener("click", (event) => {
-                    if (event.target === homeworkSummaryDialog) {
-                        hideDialog(homeworkSummaryDialog);
-                    }
-                });
-            }
 
             if (homeworkContentSearch && homeworkContentSelect) {
                 homeworkContentSearch.addEventListener("input", (event) => {
@@ -1169,12 +1051,6 @@
                 showDialog(homeworkCreateDialog);
                 if (homeworkContentSearch) {
                     homeworkContentSearch.focus();
-                }
-            }
-            if (homeworkSummaryShouldOpen) {
-                showDialog(homeworkSummaryDialog);
-                if (homeworkSummaryTitleInput) {
-                    homeworkSummaryTitleInput.focus();
                 }
             }
         })();

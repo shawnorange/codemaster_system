@@ -32,6 +32,7 @@ from entry.models import (
     HomeworkAssignment,
     HomeworkImportJob,
     HomeworkQuestion,
+    HomeworkSummary,
     HomeworkSubmission,
     HomeworkSubmissionAnswer,
     PortalUser,
@@ -1989,15 +1990,22 @@ class HomeworkBatchCreateTests(TestCase):
         import_job_id: int | None = None,
         requirement: str = "先完成选择题，再口头讲解。",
         due_date: str | None = None,
+        summary_title: str = "",
+        summary_html: str = "",
+        summary_file: SimpleUploadedFile | None = None,
         follow: bool = False,
     ):
         payload = {
             "student_ids": student_ids or [],
             "assignment_requirement": requirement,
             "due_date": due_date or (timezone.localdate() + timedelta(days=5)).isoformat(),
+            "summary_title": summary_title,
+            "summary_html": summary_html,
         }
         if import_job_id is not None:
             payload["import_job_id"] = str(import_job_id)
+        if summary_file is not None:
+            payload["summary_html_file"] = summary_file
         return self.client.post(self.batch_create_url, payload, follow=follow)
 
     def test_teacher_workbench_shows_batch_homework_button(self) -> None:
@@ -2018,6 +2026,10 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "批量布置作业")
         self.assertContains(response, "选择题目")
+        self.assertContains(response, "课后总结区块")
+        self.assertContains(response, 'name="summary_title"', html=False)
+        self.assertContains(response, 'name="summary_html_file"', html=False)
+        self.assertContains(response, 'name="summary_html"', html=False)
 
     def test_batch_homework_page_opens_question_source_panel_when_import_jobs_exist(self) -> None:
         self.sign_in(self.teacher)
@@ -2170,6 +2182,82 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(assignment.description, "口头复述二维数组遍历，再完成 2 题。")
         self.assertEqual(assignment.source_import_job_id, self.source_import_job.id)
         self.assertEqual(assignment.import_jobs.count(), 0)
+
+    def test_batch_create_creates_single_shared_summary_for_multiple_assignments(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id, self.second_target_student.id],
+            import_job_id=self.source_import_job.id,
+            summary_title="二维数组课后总结",
+            summary_file=SimpleUploadedFile(
+                "weekly-summary.html",
+                "<h2>本周总结</h2><p>两位同学共用同一篇总结。</p>".encode("utf-8"),
+                content_type="text/html",
+            ),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("with_summary=1", response["Location"])
+        created_assignments = list(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student_id__in=[self.target_student.id, self.second_target_student.id],
+                title="二维数组批量题单",
+            ).order_by("student_id")
+        )
+        self.assertEqual(len(created_assignments), 2)
+        self.assertEqual(HomeworkSummary.objects.count(), 1)
+        self.assertIsNotNone(created_assignments[0].summary_id)
+        self.assertEqual(created_assignments[0].summary_id, created_assignments[1].summary_id)
+        self.assertEqual(created_assignments[0].source_import_job_id, self.source_import_job.id)
+        self.assertEqual(created_assignments[1].source_import_job_id, self.source_import_job.id)
+        self.assertEqual(created_assignments[0].summary.title, "二维数组课后总结")
+
+        self.sign_in(self.target_student_user)
+        list_response = self.client.get(reverse("student-homework-list"))
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, reverse("student-homework-summary", args=[created_assignments[0].id]), html=False)
+
+        detail_response = self.client.get(reverse("student-homework-summary", args=[created_assignments[0].id]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "二维数组课后总结")
+        self.assertContains(detail_response, "两位同学共用同一篇总结。")
+
+    def test_batch_create_without_summary_keeps_assignment_summary_empty(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.source_import_job.id,
+            summary_title="只填标题不应创建总结",
+            summary_html="",
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "已填写课后总结标题，但还没有上传或粘贴 HTML 内容。")
+        self.assertEqual(HomeworkSummary.objects.count(), 0)
+        self.assertFalse(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student=self.target_student,
+                title="二维数组批量题单",
+            ).exists()
+        )
+
+        retry_response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=self.source_import_job.id,
+        )
+
+        self.assertEqual(retry_response.status_code, 302)
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title="二维数组批量题单",
+        )
+        self.assertIsNone(assignment.summary_id)
 
     def test_batch_created_assignments_share_questions_for_practice_and_grading(self) -> None:
         self.sign_in(self.teacher)
