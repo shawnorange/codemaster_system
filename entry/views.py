@@ -87,6 +87,7 @@ from .portal_context import (
     build_teacher_course_detail_context,
     build_teacher_course_level_detail_context,
     build_teacher_course_workflow_placeholder_context,
+    build_teacher_homework_stats_context,
     build_teacher_homework_builder_context,
     build_teacher_page_shell,
     build_teacher_student_assignment_list_context,
@@ -1054,6 +1055,24 @@ def teacher_students(request: HttpRequest) -> HttpResponse:
         request,
         "teacher",
         build_teacher_page_shell(get_portal_user_from_request(request), active_tab=active_tab),
+    )
+
+
+@role_required("teacher")
+def teacher_homework_stats(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    context = build_teacher_homework_stats_context(
+        portal_user,
+        period=request.GET.get("period", "week"),
+    )
+    return render(
+        request,
+        "entry/teacher_homework_stats.html",
+        {
+            "role_label": ROLE_CONFIG["teacher"]["label"],
+            **build_shell_identity_context(request),
+            **context,
+        },
     )
 
 

@@ -638,6 +638,50 @@
     justify-content: flex-start;
 }
 
+.teacher-homework-stats-shell {
+    gap: 20px;
+}
+
+.teacher-homework-stats-toolbar {
+    display: grid;
+    gap: 18px;
+}
+
+.teacher-homework-stats-periods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.teacher-homework-stats-period {
+    min-width: 88px;
+}
+
+.teacher-homework-stats-period--active {
+    background: rgba(240, 248, 255, 0.94);
+    border-color: rgba(15, 103, 184, 0.28);
+    box-shadow: 0 12px 24px rgba(15, 103, 184, 0.08);
+}
+
+.teacher-homework-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.teacher-homework-chart {
+    width: 100%;
+    min-height: 320px;
+}
+
+.teacher-homework-stats__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+    text-align: center;
+}
+
 .portal-stack-spacing-sm {
     margin-bottom: 16px;
 }
@@ -696,6 +740,7 @@
     .teacher-overview-card__grid,
     .portal-workbench-grid,
     .teacher-workbench-grid,
+    .teacher-homework-stats-grid,
     .portal-topic-grid,
     .topic-work-grid,
     .portal-recent-grid,
@@ -751,7 +796,7 @@
     .teacher-tab-bar {
         display: grid;
         width: 100%;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     }
 
     .portal-tab,

@@ -1,0 +1,334 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/teacher_homework_stats.css' %}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Teacher Homework Stats</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid portal-content-grid--single">
+        <section class="surface-panel surface-panel--primary">
+            <div class="portal-workspace-shell teacher-workspace-shell teacher-homework-stats-shell">
+                <nav class="portal-tab-bar teacher-tab-bar" aria-label="教师工作台标签页">
+                    {% for tab in tabs %}
+                        <a class="portal-tab teacher-tab {{ tab.is_active|yesno:'portal-tab--active teacher-tab--active,' }}" href="{{ tab.href }}">{{ tab.label }}</a>
+                    {% endfor %}
+                </nav>
+
+                <section class="workbench-panel teacher-homework-stats-toolbar">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Period Filter</p>
+                        <h3>{{ period_label }}统计</h3>
+                        <p>当前按{{ period_field_label }}落在统计周期内的作业实时聚合，只统计你当前负责学生的作业记录。</p>
+                    </div>
+
+                    <div class="teacher-homework-stats-periods">
+                        {% for option in period_options %}
+                            <a class="teacher-anchor-link teacher-homework-stats-period {{ option.is_active|yesno:'teacher-homework-stats-period--active,' }}" href="{{ option.href }}">{{ option.label }}</a>
+                        {% endfor %}
+                    </div>
+
+                    <div class="topic-work-card__meta">
+                        <article class="topic-work-card__meta-item">
+                            <span>统计窗口</span>
+                            <strong>{{ period_range_text }}</strong>
+                        </article>
+                        <article class="topic-work-card__meta-item">
+                            <span>数据范围</span>
+                            <strong>{{ managed_student_count }} 名当前负责学生</strong>
+                        </article>
+                        <article class="topic-work-card__meta-item">
+                            <span>提交去重规则</span>
+                            <strong>同一份作业多次提交只算 1 次完成</strong>
+                        </article>
+                        <article class="topic-work-card__meta-item">
+                            <span>未交榜排除条件</span>
+                            <strong>应交作业数为 0 的学生不进入榜单</strong>
+                        </article>
+                    </div>
+                </section>
+
+                <div class="teacher-homework-stats-grid">
+                    <section class="topic-work-card topic-work-card--open">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Done Top 10</p>
+                            <h3>完成作业数量 Top10</h3>
+                            <p>筛选条件：已交作业数大于 0。排序补充规则：已交作业数降序，其次完成率降序，再按正确率降序，最后按学生姓名升序。</p>
+                        </div>
+
+                        {% if done_top10 %}
+                            <div id="teacher-homework-stats-done-chart" class="teacher-homework-chart"></div>
+                        {% else %}
+                            <div class="entry-hint-bar teacher-homework-stats__empty">当前周期还没有已提交作业记录。</div>
+                        {% endif %}
+                    </section>
+
+                    <section class="topic-work-card topic-work-card--locked">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Missing Top 10</p>
+                            <h3>未完成作业 Top10</h3>
+                            <p>筛选条件：未交作业数大于 0。排序补充规则：未交作业数降序，其次完成率降序，再按正确率降序，最后按学生姓名升序。</p>
+                        </div>
+
+                        {% if missing_top10 %}
+                            <div id="teacher-homework-stats-missing-chart" class="teacher-homework-chart"></div>
+                        {% else %}
+                            <div class="entry-hint-bar teacher-homework-stats__empty">当前周期没有进入“未完成作业 Top10”的学生。</div>
+                        {% endif %}
+                    </section>
+                </div>
+
+                <section class="workbench-panel workbench-panel--recent">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Student Detail</p>
+                        <h3>学生明细表</h3>
+                        <p>这里按当前教师负责学生逐个展示应交、已交、未交、完成率，以及 `HomeworkSubmission.correct_count / wrong_count` 汇总结果。</p>
+                    </div>
+
+                    {% if students %}
+                        <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
+                            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                    <label for="teacher-homework-stats-student-search">按姓名 / 级别 / 知识点 / 统计查找</label>
+                                    <input
+                                        id="teacher-homework-stats-student-search"
+                                        class="portal-grid-search teacher-tabulator-search"
+                                        type="text"
+                                        placeholder="输入学生姓名、级别、知识点名或正确率 / 错误率"
+                                    >
+                                </div>
+                                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                    <div class="teacher-tabulator-filter-field">
+                                        <label for="teacher-homework-stats-level-filter">级别分组筛选</label>
+                                        <select id="teacher-homework-stats-level-filter" class="portal-grid-filter-control teacher-tabulator-filter-control">
+                                            {% for option in student_level_filter_options %}
+                                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <span class="portal-grid-note teacher-tabulator-note">完成率 = 已交作业数 ÷ 应交作业数。同一份作业多次提交只计 1 次。周度按学生 + 知识点汇总，月度 / 季度按学生汇总全部知识点。</span>
+                                </div>
+                            </div>
+                            <div id="teacher-homework-stats-students-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
+                            <div id="teacher-homework-stats-students-fallback">
+                                {% for item in students %}
+                                    <article class="entry-hint-bar">
+                                        <strong>{{ item.student_name }}</strong>
+                                        <span>级别 {{ item.level_code_display }}，应交 {{ item.assigned_count }}，已交 {{ item.submitted_count }}，未交 {{ item.missing_count }}，完成率 {{ item.completion_rate_text }}</span>
+                                        {% if item.has_answer_rate_details %}
+                                            {% for detail in item.answer_rate_details %}
+                                                <div>
+                                                    {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point_name }}：{% endif %}
+                                                    正确 {{ detail.correct_count }}，错误 {{ detail.wrong_count }}，正确率 {{ detail.correct_rate_text }}，错误率 {{ detail.wrong_rate_text }}
+                                                </div>
+                                            {% endfor %}
+                                        {% else %}
+                                            <div>暂无答题统计</div>
+                                        {% endif %}
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="entry-hint-bar">当前老师还没有生效中的学生关系，暂时没有可统计的作业数据。</div>
+                    {% endif %}
+                </section>
+            </div>
+        </section>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ student_table_rows|json_script:"teacher-homework-stats-students-data" }}
+    {{ done_top10|json_script:"teacher-homework-stats-done-data" }}
+    {{ missing_top10|json_script:"teacher-homework-stats-missing-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            var studentFallback = document.getElementById("teacher-homework-stats-students-fallback");
+            try {
+                if (
+                    window.CodeMasterTeacherTabulator &&
+                    typeof window.CodeMasterTeacherTabulator.initTeacherHomeworkStatsStudents === "function" &&
+                    document.getElementById("teacher-homework-stats-students-table") &&
+                    document.getElementById("teacher-homework-stats-students-data")
+                ) {
+                    var table = window.CodeMasterTeacherTabulator.initTeacherHomeworkStatsStudents({
+                        tableId: "teacher-homework-stats-students-table",
+                        dataScriptId: "teacher-homework-stats-students-data",
+                        searchInputId: "teacher-homework-stats-student-search",
+                        levelFilterId: "teacher-homework-stats-level-filter"
+                    });
+                    if (table && studentFallback) {
+                        studentFallback.hidden = true;
+                    }
+                }
+            } catch (error) {
+                console.error("Teacher Homework Stats student grid init failed", error);
+            }
+
+            function readChartData(scriptId) {
+                var node = document.getElementById(scriptId);
+                if (!node) {
+                    return [];
+                }
+                try {
+                    return JSON.parse(node.textContent) || [];
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            function renderRankingChart(containerId, items, metricKey, color) {
+                var container = document.getElementById(containerId);
+                if (!container || !window.echarts || !items.length) {
+                    return null;
+                }
+
+                container.style.height = Math.max(320, items.length * 48) + "px";
+                var chart = window.echarts.init(container);
+                chart.setOption({
+                    animationDuration: 500,
+                    grid: {
+                        top: 20,
+                        right: 24,
+                        bottom: 20,
+                        left: 90,
+                        containLabel: true
+                    },
+                    tooltip: {
+                        trigger: "axis",
+                        axisPointer: {
+                            type: "shadow"
+                        },
+                        formatter: function (params) {
+                            if (!params.length) {
+                                return "";
+                            }
+                            var item = items[params[0].dataIndex];
+                            return [
+                                item.student_name,
+                                "应交：" + item.assigned_count,
+                                "已交：" + item.submitted_count,
+                                "未交：" + item.missing_count,
+                                "完成率：" + item.completion_rate_text,
+                                "整体正确率：" + (item.overall_correct_rate_text || "0%")
+                            ].join("<br>");
+                        }
+                    },
+                    xAxis: {
+                        type: "value",
+                        axisLabel: {
+                            color: "#5b738f"
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: "rgba(15, 103, 184, 0.08)"
+                            }
+                        }
+                    },
+                    yAxis: {
+                        type: "category",
+                        inverse: true,
+                        data: items.map(function (item) {
+                            return item.student_name;
+                        }),
+                        axisTick: {
+                            show: false
+                        },
+                        axisLine: {
+                            show: false
+                        },
+                        axisLabel: {
+                            color: "#1f3653"
+                        }
+                    },
+                    series: [
+                        {
+                            type: "bar",
+                            data: items.map(function (item) {
+                                return item[metricKey];
+                            }),
+                            barWidth: 18,
+                            itemStyle: {
+                                color: color,
+                                borderRadius: [0, 10, 10, 0]
+                            },
+                            label: {
+                                show: true,
+                                position: "right",
+                                color: "#1f3653",
+                                formatter: function (params) {
+                                    return String(params.value);
+                                }
+                            }
+                        }
+                    ]
+                });
+                return chart;
+            }
+
+            var charts = [];
+            charts.push(
+                renderRankingChart(
+                    "teacher-homework-stats-done-chart",
+                    readChartData("teacher-homework-stats-done-data"),
+                    "submitted_count",
+                    "#0f67b8"
+                )
+            );
+            charts.push(
+                renderRankingChart(
+                    "teacher-homework-stats-missing-chart",
+                    readChartData("teacher-homework-stats-missing-data"),
+                    "missing_count",
+                    "#6e8198"
+                )
+            );
+
+            window.addEventListener("resize", function () {
+                charts.forEach(function (chart) {
+                    if (chart) {
+                        chart.resize();
+                    }
+                });
+            });
+        })();
+    </script>
+{% endblock %}

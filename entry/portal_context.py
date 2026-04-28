@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+import re
 from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, F, Q, QuerySet, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.safestring import mark_safe
@@ -121,6 +122,14 @@ HOMEWORK_SUBMISSION_STATUS_TONES = {
     HomeworkSubmission.STATUS_AUTO_CHECKED: "future",
     HomeworkSubmission.STATUS_REVIEWED: "future",
 }
+HOMEWORK_COMPLETION_STATUSES = {
+    HomeworkSubmission.STATUS_SUBMITTED,
+    HomeworkSubmission.STATUS_AUTO_CHECKED,
+    HomeworkSubmission.STATUS_REVIEWED,
+}
+TEACHER_HOMEWORK_ALL_LEVEL_FILTER_VALUE = "all"
+TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE = "__ungrouped__"
+TEACHER_HOMEWORK_UNGROUPED_LEVEL_LABEL = "未分组"
 CPP_HOMEWORK_LEVEL_ORDER = [
     ("C1", "GESP1"),
     ("C2", "GESP2"),
@@ -1070,6 +1079,287 @@ def format_delta_hours(value: int) -> str:
     if value < 0:
         return str(value)
     return "0"
+
+
+def format_completion_rate(rate: float) -> str:
+    normalized = round(float(rate or 0), 1)
+    if normalized.is_integer():
+        return f"{int(normalized)}%"
+    return f"{normalized:.1f}%"
+
+
+def build_teacher_workbench_tabs(active_key: str) -> list[dict[str, object]]:
+    return [
+        {
+            "key": "students",
+            "label": "学生",
+            "href": f"{reverse('teacher-students')}?tab=students",
+            "is_active": active_key == "students",
+        },
+        {
+            "key": "courses",
+            "label": "课程",
+            "href": f"{reverse('teacher-students')}?tab=courses",
+            "is_active": active_key == "courses",
+        },
+        {
+            "key": "homework-stats",
+            "label": "学生作业统计",
+            "href": reverse("teacher-homework-stats"),
+            "is_active": active_key == "homework-stats",
+        },
+    ]
+
+
+def normalize_teacher_homework_stats_period(period: str) -> str:
+    normalized = (period or "").strip().lower()
+    return normalized if normalized in {"week", "month", "quarter"} else "week"
+
+
+def resolve_teacher_homework_stats_period_bounds(period: str) -> tuple[datetime, datetime, str]:
+    normalized_period = normalize_teacher_homework_stats_period(period)
+    tz = timezone.get_current_timezone()
+    current_date = timezone.localdate()
+
+    if normalized_period == "month":
+        start_date = current_date.replace(day=1)
+        if start_date.month == 12:
+            end_date = start_date.replace(year=start_date.year + 1, month=1, day=1)
+        else:
+            end_date = start_date.replace(month=start_date.month + 1, day=1)
+        label = "本月"
+    elif normalized_period == "quarter":
+        quarter_start_month = ((current_date.month - 1) // 3) * 3 + 1
+        start_date = current_date.replace(month=quarter_start_month, day=1)
+        if quarter_start_month == 10:
+            end_date = start_date.replace(year=start_date.year + 1, month=1, day=1)
+        else:
+            end_date = start_date.replace(month=quarter_start_month + 3, day=1)
+        label = "本季度"
+    else:
+        start_date = current_date - timedelta(days=current_date.weekday())
+        end_date = start_date + timedelta(days=7)
+        label = "本周"
+
+    start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), tz)
+    end_at = timezone.make_aware(datetime.combine(end_date, datetime.min.time()), tz)
+    return start_at, end_at, label
+
+
+def filter_teacher_homework_stats_assignments(
+    queryset: QuerySet[HomeworkAssignment],
+    *,
+    start_at: datetime,
+    end_at: datetime,
+) -> tuple[QuerySet[HomeworkAssignment], str]:
+    field_map = {field.name for field in HomeworkAssignment._meta.fields}
+    if "due_at" in field_map:
+        return queryset.filter(due_at__gte=start_at, due_at__lt=end_at), "截止时间"
+    return queryset.filter(created_at__gte=start_at, created_at__lt=end_at), "创建时间"
+
+
+def normalize_homework_knowledge_point_name(source_filename: str) -> str:
+    filename = str(source_filename or "").strip()
+    normalized = re.sub(r"\.(txt|xlsx)$", "", filename, flags=re.IGNORECASE).strip()
+    return normalized or "未命名知识点"
+
+
+def normalize_teacher_homework_level_code(level_code: str) -> str:
+    return str(level_code or "").strip()
+
+
+def format_teacher_homework_level_code_display(level_code: str) -> str:
+    normalized = normalize_teacher_homework_level_code(level_code)
+    return normalized or TEACHER_HOMEWORK_UNGROUPED_LEVEL_LABEL
+
+
+def build_teacher_homework_student_level_code_map(
+    *,
+    portal_user: PortalUser,
+    managed_student_ids: list[int],
+) -> dict[int, str]:
+    if not managed_student_ids:
+        return {}
+
+    rows = (
+        TeacherStudentAssignment.objects.filter(
+            teacher=portal_user,
+            student_id__in=managed_student_ids,
+        )
+        .order_by("student_id", "-is_active", "-updated_at", "-assigned_at", "-id")
+        .values("student_id", "level_code")
+    )
+
+    level_code_by_student_id: dict[int, str] = {}
+    for row in rows:
+        student_id = int(row["student_id"])
+        if student_id in level_code_by_student_id:
+            continue
+        level_code_by_student_id[student_id] = normalize_teacher_homework_level_code(str(row["level_code"] or ""))
+    return level_code_by_student_id
+
+
+def build_teacher_homework_level_filter_options(*, student_rows: list[dict[str, object]]) -> list[dict[str, str]]:
+    level_codes = sorted(
+        {
+            normalize_teacher_homework_level_code(str(row.get("level_code") or ""))
+            for row in student_rows
+            if normalize_teacher_homework_level_code(str(row.get("level_code") or ""))
+        },
+        key=lambda value: value.upper(),
+    )
+    has_ungrouped = any(not normalize_teacher_homework_level_code(str(row.get("level_code") or "")) for row in student_rows)
+
+    options = [{"value": TEACHER_HOMEWORK_ALL_LEVEL_FILTER_VALUE, "label": "全部"}]
+    options.extend({"value": level_code, "label": level_code} for level_code in level_codes)
+    if has_ungrouped:
+        options.append(
+            {
+                "value": TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE,
+                "label": TEACHER_HOMEWORK_UNGROUPED_LEVEL_LABEL,
+            }
+        )
+    return options
+
+
+def build_teacher_homework_stats_scored_submission_queryset(
+    *,
+    assignment_queryset: QuerySet[HomeworkAssignment],
+    managed_student_ids: list[int],
+) -> QuerySet[HomeworkSubmission]:
+    if not managed_student_ids:
+        return HomeworkSubmission.objects.none()
+    return HomeworkSubmission.objects.select_related(
+        "student",
+        "assignment",
+        "assignment__source_import_job",
+    ).filter(
+        assignment__in=assignment_queryset,
+        student_id__in=managed_student_ids,
+        student_id=F("assignment__student_id"),
+        is_active=True,
+        status__in=HOMEWORK_COMPLETION_STATUSES,
+        submitted_at__isnull=False,
+    )
+
+
+def build_correct_wrong_rate_summary(*, correct_count: int, wrong_count: int) -> dict[str, object]:
+    total_answered = max(int(correct_count or 0), 0) + max(int(wrong_count or 0), 0)
+    correct_rate = round((correct_count / total_answered) * 100, 1) if total_answered else 0.0
+    wrong_rate = round((wrong_count / total_answered) * 100, 1) if total_answered else 0.0
+    return {
+        "correct_count": int(correct_count or 0),
+        "wrong_count": int(wrong_count or 0),
+        "total_answered": total_answered,
+        "correct_rate": correct_rate,
+        "wrong_rate": wrong_rate,
+        "correct_rate_text": format_completion_rate(correct_rate),
+        "wrong_rate_text": format_completion_rate(wrong_rate),
+    }
+
+
+def build_teacher_homework_student_overall_rate_summaries(
+    *,
+    managed_students: list[Student],
+    submissions: list[HomeworkSubmission],
+) -> dict[int, dict[str, object]]:
+    counts_by_student: dict[int, dict[str, int]] = {
+        student.id: {"correct_count": 0, "wrong_count": 0}
+        for student in managed_students
+    }
+    for submission in submissions:
+        bucket = counts_by_student.setdefault(submission.student_id, {"correct_count": 0, "wrong_count": 0})
+        bucket["correct_count"] += int(submission.correct_count or 0)
+        bucket["wrong_count"] += int(submission.wrong_count or 0)
+
+    return {
+        student.id: build_correct_wrong_rate_summary(
+            correct_count=counts_by_student.get(student.id, {}).get("correct_count", 0),
+            wrong_count=counts_by_student.get(student.id, {}).get("wrong_count", 0),
+        )
+        for student in managed_students
+    }
+
+
+def format_teacher_homework_answer_rate_detail_text(detail: dict[str, object]) -> str:
+    knowledge_point_name = str(detail.get("knowledge_point_name") or "")
+    knowledge_point_prefix = f"{knowledge_point_name}：" if detail.get("show_knowledge_point_name") and knowledge_point_name else ""
+    return (
+        f"{knowledge_point_prefix}正确 {int(detail.get('correct_count') or 0)}，"
+        f"错误 {int(detail.get('wrong_count') or 0)}，"
+        f"正确率 {detail.get('correct_rate_text') or '0%'}，"
+        f"错误率 {detail.get('wrong_rate_text') or '0%'}"
+    )
+
+
+def build_teacher_homework_student_answer_rate_details(
+    *,
+    selected_period: str,
+    managed_students: list[Student],
+    submissions: list[HomeworkSubmission],
+) -> dict[int, list[dict[str, object]]]:
+    details_by_student_id: dict[int, list[dict[str, object]]] = {
+        student.id: []
+        for student in managed_students
+    }
+
+    if selected_period == "week":
+        counts_by_student_and_knowledge_point: dict[tuple[int, str], dict[str, int]] = defaultdict(
+            lambda: {"correct_count": 0, "wrong_count": 0}
+        )
+        for submission in submissions:
+            import_job = submission.assignment.source_import_job
+            if not import_job or not import_job.is_active:
+                continue
+            knowledge_point_name = normalize_homework_knowledge_point_name(import_job.source_filename)
+            bucket = counts_by_student_and_knowledge_point[(submission.student_id, knowledge_point_name)]
+            bucket["correct_count"] += int(submission.correct_count or 0)
+            bucket["wrong_count"] += int(submission.wrong_count or 0)
+
+        for (student_id, knowledge_point_name), bucket in counts_by_student_and_knowledge_point.items():
+            rate_summary = build_correct_wrong_rate_summary(
+                correct_count=bucket["correct_count"],
+                wrong_count=bucket["wrong_count"],
+            )
+            if int(rate_summary["total_answered"]) <= 0:
+                continue
+            details_by_student_id.setdefault(student_id, []).append(
+                {
+                    "knowledge_point_name": knowledge_point_name,
+                    "show_knowledge_point_name": True,
+                    **rate_summary,
+                }
+            )
+        for student_id, items in details_by_student_id.items():
+            items.sort(
+                key=lambda item: (
+                    str(item["knowledge_point_name"]),
+                    -int(item["total_answered"]),
+                )
+            )
+        return details_by_student_id
+
+    counts_by_student: dict[int, dict[str, int]] = defaultdict(lambda: {"correct_count": 0, "wrong_count": 0})
+    for submission in submissions:
+        bucket = counts_by_student[submission.student_id]
+        bucket["correct_count"] += int(submission.correct_count or 0)
+        bucket["wrong_count"] += int(submission.wrong_count or 0)
+
+    for student_id, bucket in counts_by_student.items():
+        rate_summary = build_correct_wrong_rate_summary(
+            correct_count=bucket["correct_count"],
+            wrong_count=bucket["wrong_count"],
+        )
+        if int(rate_summary["total_answered"]) <= 0:
+            continue
+        details_by_student_id.setdefault(student_id, []).append(
+            {
+                "knowledge_point_name": "",
+                "show_knowledge_point_name": False,
+                **rate_summary,
+            }
+        )
+    return details_by_student_id
 
 
 def build_lesson_hour_summary(student: Student) -> dict:
@@ -3181,20 +3471,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     page_shell["section_eyebrow"] = "Teacher Workbench"
     page_shell["section_title"] = "学生与课程工作入口"
     page_shell["section_description"] = "教师首页现在按“学生 / 课程”两条工作流组织。先从学生详情进入日常操作，再从课程页进入分类入口。"
-    page_shell["tabs"] = [
-        {
-            "key": "students",
-            "label": "学生",
-            "href": f"{reverse('teacher-students')}?tab=students",
-            "is_active": active_tab == "students",
-        },
-        {
-            "key": "courses",
-            "label": "课程",
-            "href": f"{reverse('teacher-students')}?tab=courses",
-            "is_active": active_tab == "courses",
-        },
-    ]
+    page_shell["tabs"] = build_teacher_workbench_tabs(active_tab)
     page_shell["active_tab"] = active_tab
     page_shell["students"] = student_rows
     page_shell["courses"] = course_rows
@@ -3230,6 +3507,199 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
                 },
             )
     return page_shell
+
+
+def build_teacher_homework_stats_context(
+    portal_user: PortalUser,
+    *,
+    period: str = "week",
+) -> dict:
+    selected_period = normalize_teacher_homework_stats_period(period)
+    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
+    managed_students = list(
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(teacher_user=portal_user)
+        .order_by("display_name", "id")
+    )
+    managed_student_ids = [student.id for student in managed_students]
+
+    assignment_queryset = HomeworkAssignment.objects.filter(
+        teacher=portal_user,
+        is_active=True,
+    ).exclude(status=HomeworkAssignment.STATUS_CANCELLED)
+    if managed_student_ids:
+        assignment_queryset = assignment_queryset.filter(student_id__in=managed_student_ids)
+    else:
+        assignment_queryset = assignment_queryset.none()
+    assignment_queryset, period_field_label = filter_teacher_homework_stats_assignments(
+        assignment_queryset,
+        start_at=period_start,
+        end_at=period_end,
+    )
+    scored_submissions = list(
+        build_teacher_homework_stats_scored_submission_queryset(
+            assignment_queryset=assignment_queryset,
+            managed_student_ids=managed_student_ids,
+        )
+    )
+    answer_rate_details_by_student_id = build_teacher_homework_student_answer_rate_details(
+        selected_period=selected_period,
+        managed_students=managed_students,
+        submissions=scored_submissions,
+    )
+    student_level_code_by_student_id = build_teacher_homework_student_level_code_map(
+        portal_user=portal_user,
+        managed_student_ids=managed_student_ids,
+    )
+    overall_rate_summaries_by_student_id = build_teacher_homework_student_overall_rate_summaries(
+        managed_students=managed_students,
+        submissions=scored_submissions,
+    )
+
+    assigned_count_by_student = {
+        row["student_id"]: row["assigned_count"]
+        for row in assignment_queryset.values("student_id").annotate(assigned_count=Count("id"))
+    }
+    submitted_count_by_student = {
+        row["student_id"]: row["submitted_count"]
+        for row in HomeworkSubmission.objects.filter(
+            assignment__in=assignment_queryset,
+            student_id__in=managed_student_ids,
+            student_id=F("assignment__student_id"),
+            is_active=True,
+            status__in=HOMEWORK_COMPLETION_STATUSES,
+            submitted_at__isnull=False,
+        )
+        .values("student_id")
+        .annotate(submitted_count=Count("assignment_id", distinct=True))
+    }
+
+    student_rows: list[dict[str, object]] = []
+    for student in managed_students:
+        assigned_count = int(assigned_count_by_student.get(student.id, 0) or 0)
+        submitted_count = min(int(submitted_count_by_student.get(student.id, 0) or 0), assigned_count)
+        missing_count = max(assigned_count - submitted_count, 0)
+        completion_rate = round((submitted_count / assigned_count) * 100, 1) if assigned_count else 0.0
+        answer_rate_details = answer_rate_details_by_student_id.get(student.id, [])
+        level_code = student_level_code_by_student_id.get(student.id, "")
+        level_code_display = format_teacher_homework_level_code_display(level_code)
+        overall_rate_summary = overall_rate_summaries_by_student_id.get(
+            student.id,
+            build_correct_wrong_rate_summary(correct_count=0, wrong_count=0),
+        )
+        answer_rate_search_text = " | ".join(
+            format_teacher_homework_answer_rate_detail_text(detail)
+            for detail in answer_rate_details
+        ) or "暂无答题统计"
+        student_rows.append(
+            {
+                "student_id": student.id,
+                "student_name": student.display_name,
+                "level_code": level_code,
+                "level_code_display": level_code_display,
+                "level_code_filter_value": level_code or TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE,
+                "assigned_count": assigned_count,
+                "submitted_count": submitted_count,
+                "missing_count": missing_count,
+                "completion_rate": completion_rate,
+                "completion_rate_text": format_completion_rate(completion_rate),
+                "overall_correct_count": int(overall_rate_summary["correct_count"]),
+                "overall_wrong_count": int(overall_rate_summary["wrong_count"]),
+                "overall_total_answered": int(overall_rate_summary["total_answered"]),
+                "overall_correct_rate": float(overall_rate_summary["correct_rate"]),
+                "overall_correct_rate_text": str(overall_rate_summary["correct_rate_text"]),
+                "overall_wrong_rate": float(overall_rate_summary["wrong_rate"]),
+                "overall_wrong_rate_text": str(overall_rate_summary["wrong_rate_text"]),
+                "answer_rate_details": answer_rate_details,
+                "has_answer_rate_details": bool(answer_rate_details),
+                "answer_rate_search_text": answer_rate_search_text,
+            }
+        )
+
+    student_rows = sorted(
+        student_rows,
+        key=lambda row: (
+            -float(row["completion_rate"]),
+            -float(row["overall_correct_rate"]),
+            str(row["student_name"]),
+            int(row["student_id"]),
+        ),
+    )
+
+    student_level_filter_options = build_teacher_homework_level_filter_options(student_rows=student_rows)
+
+    done_top10 = sorted(
+        [row for row in student_rows if row["submitted_count"] > 0],
+        key=lambda row: (
+            -int(row["submitted_count"]),
+            -float(row["completion_rate"]),
+            -float(row["overall_correct_rate"]),
+            str(row["student_name"]),
+            int(row["student_id"]),
+        ),
+    )[:10]
+    missing_top10 = sorted(
+        [row for row in student_rows if row["assigned_count"] > 0 and row["missing_count"] > 0],
+        key=lambda row: (
+            -int(row["missing_count"]),
+            -float(row["completion_rate"]),
+            -float(row["overall_correct_rate"]),
+            str(row["student_name"]),
+            int(row["student_id"]),
+        ),
+    )[:10]
+
+    assigned_count = sum(int(row["assigned_count"]) for row in student_rows)
+    submitted_count = sum(int(row["submitted_count"]) for row in student_rows)
+    missing_count = max(assigned_count - submitted_count, 0)
+    completion_rate = round((submitted_count / assigned_count) * 100, 1) if assigned_count else 0.0
+    summary = {
+        "assigned_count": assigned_count,
+        "submitted_count": submitted_count,
+        "missing_count": missing_count,
+        "completion_rate": completion_rate,
+        "completion_rate_text": format_completion_rate(completion_rate),
+    }
+
+    return {
+        "page_title": "学生作业统计",
+        "page_description": "按当前教师负责学生实时聚合应交、已交和未交情况，先提供周 / 月 / 季度三个最小统计口径。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "学生作业统计"},
+        ],
+        "summary_cards": [
+            {"label": "应交作业数", "value": str(summary["assigned_count"]), "hint": f"按{period_field_label}落在当前周期"},
+            {"label": "已提交作业数", "value": str(summary["submitted_count"]), "hint": "同一份作业多次提交只算 1 次完成"},
+            {"label": "未提交作业数", "value": str(summary["missing_count"]), "hint": "应交减已交的实时结果"},
+            {"label": "整体完成率", "value": summary["completion_rate_text"], "hint": f"{period_label}老师名下学生整体完成情况"},
+        ],
+        "tabs": build_teacher_workbench_tabs("homework-stats"),
+        "selected_period": selected_period,
+        "period_label": period_label,
+        "period_range_text": f"{period_start.strftime('%Y-%m-%d %H:%M')} 至 {period_end.strftime('%Y-%m-%d %H:%M')}",
+        "period_field_label": period_field_label,
+        "period_options": [
+            {
+                "key": option_key,
+                "label": option_label,
+                "href": f"{reverse('teacher-homework-stats')}?period={option_key}",
+                "is_active": selected_period == option_key,
+            }
+            for option_key, option_label in (
+                ("week", "本周"),
+                ("month", "本月"),
+                ("quarter", "本季度"),
+            )
+        ],
+        "managed_student_count": len(managed_students),
+        "summary": summary,
+        "done_top10": done_top10,
+        "missing_top10": missing_top10,
+        "students": student_rows,
+        "student_table_rows": student_rows,
+        "student_level_filter_options": student_level_filter_options,
+    }
 
 
 def get_teacher_course_category(course: Course, category_slug: str) -> CourseCategory:

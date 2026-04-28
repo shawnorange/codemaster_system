@@ -49,6 +49,7 @@ from .views import (
     teacher_course_level_detail,
     teacher_course_level_export,
     teacher_course_students_detail,
+    teacher_homework_stats,
     teacher_homework_batch_create,
     teacher_question_manual_override,
     teacher_assignment_new,
@@ -132,6 +133,7 @@ urlpatterns = [
         name="parent-homework-print-blank",
     ),
     path("teacher/students", teacher_students, name="teacher-students"),
+    path("teacher/homework-stats", teacher_homework_stats, name="teacher-homework-stats"),
     path("teacher/homework/batch-create", teacher_homework_batch_create, name="teacher-homework-batch-create"),
     path(
         "teacher/homework/import-jobs/<int:import_job_id>/preview",

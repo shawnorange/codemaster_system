@@ -377,6 +377,162 @@
         return table;
     }
 
+    function attachTeacherHomeworkStatsFilters(table, config) {
+        var searchInput = document.getElementById(config.searchInputId);
+        var levelInput = document.getElementById(config.levelFilterId);
+        var searchFields = [
+            "student_name",
+            "level_code_display",
+            "completion_rate_text",
+            "overall_correct_rate_text",
+            "answer_rate_search_text",
+        ];
+
+        function matchesSearch(rowData, keyword) {
+            if (!keyword) {
+                return true;
+            }
+            return searchFields.some(function (field) {
+                return String(rowData[field] || "").toLowerCase().indexOf(keyword) > -1;
+            });
+        }
+
+        function applyFilters(resetPage) {
+            var keyword = searchInput ? String(searchInput.value || "").trim().toLowerCase() : "";
+            var selectedLevel = levelInput ? String(levelInput.value || "all") : "all";
+            if (!keyword && (!selectedLevel || selectedLevel === "all")) {
+                table.clearFilter(true);
+            } else {
+                table.setFilter(function (rowData) {
+                    var matchesLevel =
+                        !selectedLevel || selectedLevel === "all"
+                            ? true
+                            : String(rowData.level_code_filter_value || "__ungrouped__") === selectedLevel;
+                    return matchesLevel && matchesSearch(rowData, keyword);
+                });
+            }
+
+            if (resetPage && typeof table.setPage === "function") {
+                try {
+                    table.setPage(1);
+                } catch (error) {
+                    // Ignore pagination reset issues when the table is rebuilding.
+                }
+            }
+        }
+
+        var applySearchFilter = debounce(function () {
+            applyFilters(true);
+        }, 120);
+
+        if (searchInput) {
+            searchInput.addEventListener("input", applySearchFilter);
+        }
+        if (levelInput) {
+            levelInput.addEventListener("change", function () {
+                applyFilters(true);
+            });
+        }
+
+        table.on("tableBuilt", function () {
+            applyFilters(false);
+        });
+
+        return function () {
+            applyFilters(false);
+        };
+    }
+
+    function renderTeacherHomeworkStatsRateCell(rowData) {
+        var details = Array.isArray(rowData.answer_rate_details) ? rowData.answer_rate_details : [];
+        if (!details.length) {
+            return '<div class="teacher-homework-stats-datagrid__empty">暂无答题统计</div>';
+        }
+
+        return (
+            '<div class="teacher-homework-stats-datagrid__rates">' +
+            details
+                .map(function (detail) {
+                    var knowledgePointPrefix =
+                        detail.show_knowledge_point_name && detail.knowledge_point_name
+                            ? escapeHtml(detail.knowledge_point_name) + "："
+                            : "";
+                    return (
+                        '<div class="teacher-homework-stats-datagrid__rate-item">' +
+                        knowledgePointPrefix +
+                        "正确 " +
+                        escapeHtml(detail.correct_count || 0) +
+                        "，错误 " +
+                        escapeHtml(detail.wrong_count || 0) +
+                        "，正确率 " +
+                        escapeHtml(detail.correct_rate_text || "0%") +
+                        "，错误率 " +
+                        escapeHtml(detail.wrong_rate_text || "0%") +
+                        "</div>"
+                    );
+                })
+                .join("") +
+            "</div>"
+        );
+    }
+
+    function buildTeacherHomeworkStatsStudentsTable(config) {
+        var container = document.getElementById(config.tableId);
+        if (!container || typeof Tabulator !== "function") {
+            return null;
+        }
+
+        var rawData = readJsonScript(config.dataScriptId);
+        var data = Array.isArray(rawData) ? rawData : [];
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    { title: "学生姓名", field: "student_name", minWidth: 140 },
+                    { title: "级别", field: "level_code_display", hozAlign: "center", width: 108 },
+                    { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112 },
+                    { title: "已交作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112 },
+                    { title: "未交作业数", field: "missing_count", sorter: "number", hozAlign: "center", width: 112 },
+                    {
+                        title: "完成率",
+                        field: "completion_rate",
+                        sorter: "number",
+                        hozAlign: "center",
+                        width: 112,
+                        formatter: function (cell) {
+                            return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
+                        },
+                    },
+                    {
+                        title: "正确率 / 错误率",
+                        field: "answer_rate_search_text",
+                        minWidth: 280,
+                        widthGrow: 2.4,
+                        headerSort: false,
+                        cssClass: "teacher-homework-stats-datagrid__cell--rates",
+                        formatter: function (cell) {
+                            return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
+                        },
+                    },
+                ],
+                {
+                    paginationSize: 15,
+                }
+            )
+        );
+
+        var searchFilter = attachTeacherHomeworkStatsFilters(table, config);
+        wirePersistentState(
+            "teacher-homework-stats-students",
+            table,
+            container,
+            config.searchInputId,
+            searchFilter
+        );
+        return table;
+    }
+
     function buildTeacherWorkbenchCoursesTable(config) {
         var data = readJsonScript(config.dataScriptId);
         var table = new Tabulator(
@@ -1298,6 +1454,7 @@
         initHomeworkBatchStudentGrid: buildHomeworkBatchStudentGrid,
         initHomeworkImportJobGrid: buildHomeworkImportJobGrid,
         initKnowledgeLevelSelector: buildKnowledgeLevelSelector,
+        initTeacherHomeworkStatsStudents: buildTeacherHomeworkStatsStudentsTable,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,
         initStudentAssignmentGrid: buildStudentAssignmentsTable,

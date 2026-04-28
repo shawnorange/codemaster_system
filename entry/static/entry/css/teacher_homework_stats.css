@@ -1,0 +1,41 @@
+.teacher-homework-stats-grid-shell {
+    gap: 18px;
+}
+
+.teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--rates {
+    display: flex;
+    align-items: flex-start;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    line-height: 1.5;
+}
+
+.teacher-homework-stats-datagrid__rates {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+}
+
+.teacher-homework-stats-datagrid__rate-item,
+.teacher-homework-stats-datagrid__empty {
+    overflow-wrap: anywhere;
+}
+
+.teacher-homework-stats-datagrid__rate-item {
+    color: #1f3653;
+}
+
+.teacher-homework-stats-datagrid__empty {
+    color: #6e8198;
+}
+
+@media (max-width: 960px) {
+    .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--rates {
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+}
