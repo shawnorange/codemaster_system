@@ -115,11 +115,11 @@
                 </div>
 
                 <section class="workbench-panel workbench-panel--recent">
-                    <div class="section-heading section-heading--compact">
-                        <p class="section-heading__eyebrow">Student Detail</p>
-                        <h3>学生明细表</h3>
-                        <p>这里按当前教师负责学生逐个展示应交、已交、未交、完成率，以及 `HomeworkSubmission.correct_count / wrong_count` 汇总结果。</p>
-                    </div>
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Student Detail</p>
+                            <h3>学生明细表</h3>
+                            <p>这里按当前教师负责学生逐个展示应交、已交、未交、完成率，以及 `HomeworkSubmission.correct_count / wrong_count` 汇总结果。周度详情入口会按具体 assignment 下钻。</p>
+                        </div>
 
                     {% if students %}
                         <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
@@ -142,24 +142,30 @@
                                             {% endfor %}
                                         </select>
                                     </div>
-                                    <span class="portal-grid-note teacher-tabulator-note">完成率 = 已交作业数 ÷ 应交作业数。同一份作业多次提交只计 1 次。周度按学生 + 知识点汇总，月度 / 季度按学生汇总全部知识点。</span>
+                                    <span class="portal-grid-note teacher-tabulator-note">完成率 = 已交作业数 ÷ 应交作业数。同一份作业多次提交只计 1 次。周度按学生 + assignment 知识点展示，详情入口会进入该 assignment 的提交记录列表；月度 / 季度按学生汇总全部知识点。</span>
                                 </div>
                             </div>
                             <div id="teacher-homework-stats-students-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
                             <div id="teacher-homework-stats-students-fallback">
-                                {% for item in students %}
+                                {% for item in student_table_rows %}
                                     <article class="entry-hint-bar">
                                         <strong>{{ item.student_name }}</strong>
-                                        <span>级别 {{ item.level_code_display }}，应交 {{ item.assigned_count }}，已交 {{ item.submitted_count }}，未交 {{ item.missing_count }}，完成率 {{ item.completion_rate_text }}</span>
+                                        <span>级别 {{ item.level_code_display }}，应交 {{ item.assigned_count }}，已交 {{ item.submitted_count }}，待完成 {{ item.pending_count }}，超期未完成 {{ item.overdue_missing_count }}，完成率 {{ item.completion_rate_text }}</span>
                                         {% if item.has_answer_rate_details %}
                                             {% for detail in item.answer_rate_details %}
                                                 <div>
-                                                    {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point_name }}：{% endif %}
+                                                    {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point|default:detail.knowledge_point_name }}：{% endif %}
                                                     正确 {{ detail.correct_count }}，错误 {{ detail.wrong_count }}，正确率 {{ detail.correct_rate_text }}，错误率 {{ detail.wrong_rate_text }}
                                                 </div>
                                             {% endfor %}
                                         {% else %}
                                             <div>暂无答题统计</div>
+                                        {% endif %}
+                                        {% if item.detail_href %}
+                                            <div>
+                                                {{ item.submission_record_count_text }}
+                                                <a class="system-header__link" href="{{ item.detail_href }}">{{ item.detail_label|default:"查看详情" }}</a>
+                                            </div>
                                         {% endif %}
                                     </article>
                                 {% endfor %}
@@ -175,6 +181,7 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {{ student_table_column_titles|json_script:"teacher-homework-stats-student-columns" }}
     {{ student_table_rows|json_script:"teacher-homework-stats-students-data" }}
     {{ done_top10|json_script:"teacher-homework-stats-done-data" }}
     {{ missing_top10|json_script:"teacher-homework-stats-missing-data" }}
@@ -193,7 +200,8 @@
                         tableId: "teacher-homework-stats-students-table",
                         dataScriptId: "teacher-homework-stats-students-data",
                         searchInputId: "teacher-homework-stats-student-search",
-                        levelFilterId: "teacher-homework-stats-level-filter"
+                        levelFilterId: "teacher-homework-stats-level-filter",
+                        period: "{{ selected_period }}"
                     });
                     if (table && studentFallback) {
                         studentFallback.hidden = true;

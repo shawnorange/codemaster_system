@@ -1,0 +1,116 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/teacher_homework_stats.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Homework Submission Detail</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="system-content-grid portal-content-grid--single">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading section-heading--compact">
+                <p class="section-heading__eyebrow">Week Submission Records</p>
+                <h3>本周提交记录列表</h3>
+                <p>这里只展示当前教师学生在本周按作业创建时间命中的 HomeworkSubmission 记录，每一行代表一次提交。</p>
+            </div>
+
+            <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
+                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                        <label for="teacher-homework-submission-detail-search">按时间 / 知识点 / 正误统计查找</label>
+                        <input
+                            id="teacher-homework-submission-detail-search"
+                            class="portal-grid-search teacher-tabulator-search"
+                            type="text"
+                            placeholder="输入知识点、正确题数、错误题数或正确率"
+                        >
+                    </div>
+                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                        <span class="portal-grid-note teacher-tabulator-note">{{ period_label }}窗口：{{ period_range_text }}</span>
+                        <a class="system-header__link" href="{{ back_href }}">返回 Student Detail</a>
+                    </div>
+                </div>
+                <div id="teacher-homework-submission-detail-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
+                <div id="teacher-homework-submission-detail-fallback">
+                    {% if submission_rows %}
+                        {% for item in submission_rows %}
+                            <article class="entry-hint-bar">
+                                <strong>{{ item.submitted_at_text }}</strong>
+                                <span>知识点 {{ item.knowledge_point }}，正确 {{ item.correct_count }}，错误 {{ item.wrong_count }}，正确率 {{ item.correct_rate_text }}</span>
+                                {% if item.detail_answer_href %}
+                                    <div><a class="system-header__link" href="{{ item.detail_answer_href }}">查看做题详情</a></div>
+                                {% endif %}
+                            </article>
+                        {% endfor %}
+                    {% else %}
+                        <div class="entry-hint-bar">当前周度窗口内还没有可展示的提交记录。</div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </div>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ submission_rows|json_script:"teacher-homework-submission-detail-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            var fallback = document.getElementById("teacher-homework-submission-detail-fallback");
+            try {
+                if (
+                    window.CodeMasterTeacherTabulator &&
+                    typeof window.CodeMasterTeacherTabulator.initTeacherHomeworkSubmissionDetail === "function" &&
+                    document.getElementById("teacher-homework-submission-detail-table") &&
+                    document.getElementById("teacher-homework-submission-detail-data")
+                ) {
+                    var table = window.CodeMasterTeacherTabulator.initTeacherHomeworkSubmissionDetail({
+                        tableId: "teacher-homework-submission-detail-table",
+                        dataScriptId: "teacher-homework-submission-detail-data",
+                        searchInputId: "teacher-homework-submission-detail-search"
+                    });
+                    if (table && fallback) {
+                        fallback.hidden = true;
+                    }
+                }
+            } catch (error) {
+                console.error("Teacher Homework Submission Detail grid init failed", error);
+            }
+        }());
+    </script>
+{% endblock %}

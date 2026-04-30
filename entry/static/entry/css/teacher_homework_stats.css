@@ -13,6 +13,16 @@
     line-height: 1.5;
 }
 
+.teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--submission-detail,
+.teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--multiline {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.55;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
 .teacher-homework-stats-datagrid__rates {
     display: grid;
     gap: 6px;
@@ -33,8 +43,20 @@
     color: #6e8198;
 }
 
+.teacher-homework-stats-datagrid__submission-count,
+.teacher-homework-stats-datagrid__multiline {
+    overflow-wrap: anywhere;
+}
+
+.teacher-homework-stats-datagrid__submission-count {
+    margin-bottom: 8px;
+    color: #1f3653;
+}
+
 @media (max-width: 960px) {
-    .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--rates {
+    .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--rates,
+    .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--submission-detail,
+    .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--multiline {
         padding-top: 10px;
         padding-bottom: 10px;
     }

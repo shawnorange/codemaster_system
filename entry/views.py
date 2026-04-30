@@ -4,7 +4,7 @@ from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import F, Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
@@ -49,6 +49,7 @@ from .models import (
     CourseContent,
     HomeworkAssignment,
     HomeworkImportJob,
+    HomeworkSubmission,
     HomeworkSummary,
     LessonHourLedger,
     PortalUser,
@@ -61,6 +62,7 @@ from .models import (
 from .portal_context import (
     build_gesp2_reserved_topic_page,
     build_gesp4_reserved_topic_page,
+    build_teacher_homework_assignment_submission_detail_context,
     build_parent_homework_detail_context,
     build_parent_homework_list_context,
     build_parent_homework_print_context,
@@ -80,6 +82,8 @@ from .portal_context import (
     build_teacher_course_students_detail_context,
     build_teacher_course_structure_export_payload,
     build_teacher_homework_batch_create_context,
+    build_teacher_homework_submission_answer_detail_context,
+    build_teacher_homework_submission_detail_context,
     build_parent_page_shell,
     build_principal_page_shell,
     build_student_portal_page,
@@ -1074,6 +1078,92 @@ def teacher_homework_stats(request: HttpRequest) -> HttpResponse:
             **context,
         },
     )
+
+
+@role_required("teacher")
+def teacher_homework_submission_detail(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id, teacher_user=portal_user)
+        .first()
+    )
+    if student is None:
+        raise Http404("未找到该学生")
+
+    context = build_teacher_homework_submission_detail_context(
+        portal_user,
+        student=student,
+    )
+    return render_shell_page(request, "teacher", "entry/teacher_homework_submission_detail.html", context)
+
+
+@role_required("teacher")
+def teacher_homework_assignment_submission_detail(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
+    assignment_id = normalize_positive_int(request.GET.get("assignment_id"), default=0, minimum=1)
+    selected_period = request.GET.get("period") or "month"
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id, teacher_user=portal_user)
+        .first()
+    )
+    if student is None:
+        raise Http404("未找到该学生")
+
+    assignment = (
+        HomeworkAssignment.objects.select_related("student", "source_import_job")
+        .filter(
+            id=assignment_id,
+            teacher=portal_user,
+            student=student,
+            is_active=True,
+        )
+        .first()
+    )
+    if assignment is None:
+        raise Http404("未找到该作业")
+
+    context = build_teacher_homework_assignment_submission_detail_context(
+        portal_user,
+        student=student,
+        assignment=assignment,
+        period=selected_period,
+    )
+    return render_shell_page(request, "teacher", "entry/teacher_homework_assignment_submission_detail.html", context)
+
+
+@role_required("teacher")
+def teacher_homework_submission_answer_detail(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    submission_id = normalize_positive_int(request.GET.get("submission_id"), default=0, minimum=1)
+    selected_period = request.GET.get("period") or "month"
+    submission = (
+        HomeworkSubmission.objects.select_related(
+            "student",
+            "assignment",
+            "assignment__source_import_job",
+        )
+        .filter(
+            id=submission_id,
+            student__teacher_user=portal_user,
+            student_id=F("assignment__student_id"),
+            assignment__teacher=portal_user,
+            assignment__is_active=True,
+            is_active=True,
+        )
+        .first()
+    )
+    if submission is None:
+        raise Http404("未找到该提交记录")
+
+    context = build_teacher_homework_submission_answer_detail_context(
+        submission=submission,
+        period=selected_period,
+    )
+    return render_shell_page(request, "teacher", "entry/teacher_homework_submission_answer_detail.html", context)
 
 
 @role_required("teacher")

@@ -383,6 +383,7 @@
         var searchFields = [
             "student_name",
             "level_code_display",
+            "knowledge_point",
             "completion_rate_text",
             "overall_correct_rate_text",
             "answer_rate_search_text",
@@ -453,9 +454,11 @@
             '<div class="teacher-homework-stats-datagrid__rates">' +
             details
                 .map(function (detail) {
+                    var knowledgePoint =
+                        detail.knowledge_point || detail.knowledge_point_name || "";
                     var knowledgePointPrefix =
-                        detail.show_knowledge_point_name && detail.knowledge_point_name
-                            ? escapeHtml(detail.knowledge_point_name) + "："
+                        detail.show_knowledge_point_name && knowledgePoint
+                            ? escapeHtml(knowledgePoint) + "："
                             : "";
                     return (
                         '<div class="teacher-homework-stats-datagrid__rate-item">' +
@@ -476,7 +479,100 @@
         );
     }
 
+    function renderMultilineText(value) {
+        return escapeHtml(value || "").replace(/\n/g, "<br>");
+    }
+
     function buildTeacherHomeworkStatsStudentsTable(config) {
+        var container = document.getElementById(config.tableId);
+        if (!container || typeof Tabulator !== "function") {
+            return null;
+        }
+
+        var rawData = readJsonScript(config.dataScriptId);
+        var data = Array.isArray(rawData) ? rawData : [];
+        var period = String(config.period || "week").toLowerCase();
+        var isWeek = period === "week";
+        var hasSubmissionDetail = isWeek || period === "month";
+        var columns = [
+            { title: "学生姓名", field: "student_name", minWidth: 140 },
+            { title: "级别", field: "level_code_display", hozAlign: "center", width: 108 },
+        ];
+        if (isWeek) {
+            columns.push({ title: "知识点", field: "knowledge_point", minWidth: 148 });
+        }
+        columns = columns.concat([
+            { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112 },
+            { title: "已完成作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112 },
+            { title: "待完成作业数", field: "pending_count", sorter: "number", hozAlign: "center", width: 118 },
+            { title: "超期未完成作业数", field: "overdue_missing_count", sorter: "number", hozAlign: "center", width: 132 },
+            {
+                title: "完成率",
+                field: "completion_rate",
+                sorter: "number",
+                hozAlign: "center",
+                width: 112,
+                formatter: function (cell) {
+                    return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
+                },
+            },
+            {
+                title: "正确率 / 错误率",
+                field: "answer_rate_search_text",
+                minWidth: 280,
+                widthGrow: 2.4,
+                headerSort: false,
+                cssClass: "teacher-homework-stats-datagrid__cell--rates",
+                formatter: function (cell) {
+                    return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
+                },
+            },
+        ]);
+        if (hasSubmissionDetail) {
+            columns.push(
+                {
+                    title: "Homework Submission Detail",
+                    field: "submission_record_count_text",
+                    minWidth: 188,
+                    headerSort: false,
+                    cssClass: "teacher-homework-stats-datagrid__cell--submission-detail",
+                    formatter: function (cell) {
+                        var row = cell.getRow().getData();
+                        var parts = [];
+                        if (row.submission_record_count_text) {
+                            parts.push('<div class="teacher-homework-stats-datagrid__submission-count">' + escapeHtml(row.submission_record_count_text) + "</div>");
+                        }
+                        if (row.detail_href) {
+                            parts.push(actionButton(row.detail_label || "查看详情", row.detail_href, "primary"));
+                        }
+                        return parts.join("");
+                    },
+                }
+            );
+        }
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                columns,
+                {
+                    paginationSize: 15,
+                }
+            )
+        );
+
+        var searchFilter = attachTeacherHomeworkStatsFilters(table, config);
+        wirePersistentState(
+            "teacher-homework-stats-students",
+            table,
+            container,
+            config.searchInputId,
+            searchFilter
+        );
+        return table;
+    }
+
+    function buildTeacherHomeworkSubmissionDetailTable(config) {
         var container = document.getElementById(config.tableId);
         if (!container || typeof Tabulator !== "function") {
             return null;
@@ -489,42 +585,179 @@
             defaultOptions(
                 data,
                 [
-                    { title: "学生姓名", field: "student_name", minWidth: 140 },
-                    { title: "级别", field: "level_code_display", hozAlign: "center", width: 108 },
-                    { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112 },
-                    { title: "已交作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112 },
-                    { title: "未交作业数", field: "missing_count", sorter: "number", hozAlign: "center", width: 112 },
+                    { title: "提交时间", field: "submitted_at_text", minWidth: 172 },
+                    { title: "知识点", field: "knowledge_point", minWidth: 148 },
+                    { title: "correct_count", field: "correct_count", sorter: "number", hozAlign: "center", width: 96 },
+                    { title: "wrong_count", field: "wrong_count", sorter: "number", hozAlign: "center", width: 96 },
                     {
-                        title: "完成率",
-                        field: "completion_rate",
+                        title: "正确率",
+                        field: "correct_rate",
                         sorter: "number",
                         hozAlign: "center",
                         width: 112,
                         formatter: function (cell) {
-                            return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
+                            return escapeHtml(cell.getRow().getData().correct_rate_text || "暂无统计");
                         },
                     },
                     {
-                        title: "正确率 / 错误率",
-                        field: "answer_rate_search_text",
-                        minWidth: 280,
-                        widthGrow: 2.4,
+                        title: "查看做题详情",
+                        field: "detail_answer_href",
+                        hozAlign: "center",
+                        width: 132,
                         headerSort: false,
-                        cssClass: "teacher-homework-stats-datagrid__cell--rates",
                         formatter: function (cell) {
-                            return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
+                            var row = cell.getRow().getData();
+                            return row.detail_answer_href ? actionButton("查看做题详情", row.detail_answer_href, "primary") : "";
                         },
                     },
                 ],
                 {
+                    index: "row_key",
                     paginationSize: 15,
                 }
             )
         );
 
-        var searchFilter = attachTeacherHomeworkStatsFilters(table, config);
+        var searchFilter = attachSearch(
+            table,
+            config.searchInputId,
+            [
+                "submitted_at_text",
+                "knowledge_point",
+                "correct_count",
+                "wrong_count",
+                "correct_rate_text",
+                "submission_rate_search_text",
+            ]
+        );
         wirePersistentState(
-            "teacher-homework-stats-students",
+            "teacher-homework-submission-detail",
+            table,
+            container,
+            config.searchInputId,
+            searchFilter
+        );
+        return table;
+    }
+
+    function buildTeacherHomeworkAssignmentSubmissionDetailTable(config) {
+        var container = document.getElementById(config.tableId);
+        if (!container || typeof Tabulator !== "function") {
+            return null;
+        }
+
+        var rawData = readJsonScript(config.dataScriptId);
+        var data = Array.isArray(rawData) ? rawData : [];
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    { title: "提交记录 ID", field: "submission_id", sorter: "number", hozAlign: "center", width: 108 },
+                    { title: "assignment_id", field: "assignment_id", sorter: "number", hozAlign: "center", width: 112 },
+                    { title: "作业 / 知识点名称", field: "knowledge_point", minWidth: 160, widthGrow: 1.4 },
+                    { title: "status", field: "status_text", minWidth: 112, hozAlign: "center" },
+                    { title: "total_count", field: "total_count", sorter: "number", hozAlign: "center", width: 98 },
+                    { title: "correct_count", field: "correct_count", sorter: "number", hozAlign: "center", width: 102 },
+                    { title: "wrong_count", field: "wrong_count", sorter: "number", hozAlign: "center", width: 102 },
+                    { title: "score", field: "score_text", hozAlign: "center", width: 96 },
+                    { title: "started_at", field: "started_at_text", minWidth: 152 },
+                    { title: "submitted_at", field: "submitted_at_text", minWidth: 152 },
+                    { title: "checked_at", field: "checked_at_text", minWidth: 152 },
+                    { title: "created_at", field: "created_at_text", minWidth: 152 },
+                    {
+                        title: "操作",
+                        field: "detail_answer_href",
+                        hozAlign: "center",
+                        width: 138,
+                        headerSort: false,
+                        formatter: function (cell) {
+                            var row = cell.getRow().getData();
+                            return row.detail_answer_href ? actionButton("查看逐题详情", row.detail_answer_href, "primary") : "";
+                        },
+                    },
+                ],
+                {
+                    index: "row_key",
+                    paginationSize: 15,
+                }
+            )
+        );
+
+        var searchFilter = attachSearch(
+            table,
+            config.searchInputId,
+            [
+                "submission_id",
+                "assignment_id",
+                "knowledge_point",
+                "status_text",
+                "total_count",
+                "correct_count",
+                "wrong_count",
+                "score_text",
+                "started_at_text",
+                "submitted_at_text",
+                "checked_at_text",
+                "created_at_text",
+                "submission_search_text",
+            ]
+        );
+        wirePersistentState(
+            "teacher-homework-assignment-submission-detail",
+            table,
+            container,
+            config.searchInputId,
+            searchFilter
+        );
+        return table;
+    }
+
+    function buildTeacherHomeworkSubmissionAnswerDetailTable(config) {
+        var container = document.getElementById(config.tableId);
+        if (!container || typeof Tabulator !== "function") {
+            return null;
+        }
+
+        var rawData = readJsonScript(config.dataScriptId);
+        var data = Array.isArray(rawData) ? rawData : [];
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    { title: "提交时间", field: "submitted_at_text", minWidth: 172 },
+                    { title: "知识点", field: "knowledge_point", minWidth: 148 },
+                    {
+                        title: "题目详情",
+                        field: "question_detail",
+                        minWidth: 420,
+                        widthGrow: 2.6,
+                        headerSort: false,
+                        cssClass: "teacher-homework-stats-datagrid__cell--multiline",
+                        formatter: function (cell) {
+                            return '<div class="teacher-homework-stats-datagrid__multiline">' + renderMultilineText(cell.getValue()) + "</div>";
+                        },
+                    },
+                ],
+                {
+                    index: "row_key",
+                    paginationSize: 15,
+                }
+            )
+        );
+
+        var searchFilter = attachSearch(
+            table,
+            config.searchInputId,
+            [
+                "submitted_at_text",
+                "knowledge_point",
+                "question_detail_search_text",
+            ]
+        );
+        wirePersistentState(
+            "teacher-homework-submission-answer-detail",
             table,
             container,
             config.searchInputId,
@@ -1454,6 +1687,9 @@
         initHomeworkBatchStudentGrid: buildHomeworkBatchStudentGrid,
         initHomeworkImportJobGrid: buildHomeworkImportJobGrid,
         initKnowledgeLevelSelector: buildKnowledgeLevelSelector,
+        initTeacherHomeworkAssignmentSubmissionDetail: buildTeacherHomeworkAssignmentSubmissionDetailTable,
+        initTeacherHomeworkSubmissionAnswerDetail: buildTeacherHomeworkSubmissionAnswerDetailTable,
+        initTeacherHomeworkSubmissionDetail: buildTeacherHomeworkSubmissionDetailTable,
         initTeacherHomeworkStatsStudents: buildTeacherHomeworkStatsStudentsTable,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,

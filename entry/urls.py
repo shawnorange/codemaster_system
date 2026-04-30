@@ -55,6 +55,9 @@ from .views import (
     teacher_assignment_new,
     teacher_homework_builder,
     teacher_homework_import_job_preview,
+    teacher_homework_assignment_submission_detail,
+    teacher_homework_submission_answer_detail,
+    teacher_homework_submission_detail,
     teacher_student_assignment_edit,
     teacher_student_assignment_remove,
     teacher_student_assignments,
@@ -134,6 +137,21 @@ urlpatterns = [
     ),
     path("teacher/students", teacher_students, name="teacher-students"),
     path("teacher/homework-stats", teacher_homework_stats, name="teacher-homework-stats"),
+    path(
+        "teacher/homework-stats/submissions",
+        teacher_homework_submission_detail,
+        name="teacher-homework-stats-submissions",
+    ),
+    path(
+        "teacher/homework-stats/assignment-submissions",
+        teacher_homework_assignment_submission_detail,
+        name="teacher-homework-stats-assignment-submissions",
+    ),
+    path(
+        "teacher/homework-stats/submission-answer-detail",
+        teacher_homework_submission_answer_detail,
+        name="teacher-homework-stats-submission-answer-detail",
+    ),
     path("teacher/homework/batch-create", teacher_homework_batch_create, name="teacher-homework-batch-create"),
     path(
         "teacher/homework/import-jobs/<int:import_job_id>/preview",
