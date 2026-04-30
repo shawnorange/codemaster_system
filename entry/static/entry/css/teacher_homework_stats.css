@@ -2,6 +2,14 @@
     gap: 18px;
 }
 
+.teacher-homework-stats-table {
+    overflow-x: auto;
+}
+
+.teacher-homework-stats-table .tabulator-cell {
+    overflow: visible;
+}
+
 .teacher-homework-stats-table .tabulator-cell.teacher-homework-stats-datagrid__cell--rates {
     display: flex;
     align-items: flex-start;

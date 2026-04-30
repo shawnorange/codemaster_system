@@ -117,6 +117,27 @@
         );
     }
 
+    function teacherHomeworkResponsiveGridOptions(extraOptions) {
+        return Object.assign(
+            {
+                layout: "fitColumns",
+                responsiveLayout: "hide",
+                columnMinWidth: 80,
+                columnDefaults: {
+                    headerHozAlign: "left",
+                    vertAlign: "middle",
+                    resizable: true,
+                    minWidth: 80,
+                    tooltip: function (e, cell) {
+                        var value = cell.getValue();
+                        return typeof value === "string" && value ? value : false;
+                    },
+                },
+            },
+            extraOptions || {}
+        );
+    }
+
     function buildSingleSelectTable(config) {
         var data = readJsonScript(config.dataScriptId);
         var hiddenInput = document.getElementById(config.hiddenInputId);
@@ -495,23 +516,24 @@
         var isWeek = period === "week";
         var hasSubmissionDetail = isWeek || period === "month";
         var columns = [
-            { title: "学生姓名", field: "student_name", minWidth: 140 },
-            { title: "级别", field: "level_code_display", hozAlign: "center", width: 108 },
+            { title: "学生姓名", field: "student_name", minWidth: 140, responsive: 0 },
+            { title: "级别", field: "level_code_display", hozAlign: "center", width: 108, responsive: 2 },
         ];
         if (isWeek) {
-            columns.push({ title: "知识点", field: "knowledge_point", minWidth: 148 });
+            columns.push({ title: "知识点", field: "knowledge_point", minWidth: 148, responsive: 3 });
         }
         columns = columns.concat([
-            { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112 },
-            { title: "已完成作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112 },
-            { title: "待完成作业数", field: "pending_count", sorter: "number", hozAlign: "center", width: 118 },
-            { title: "超期未完成作业数", field: "overdue_missing_count", sorter: "number", hozAlign: "center", width: 132 },
+            { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112, responsive: 4 },
+            { title: "已完成作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112, responsive: 3 },
+            { title: "待完成作业数", field: "pending_count", sorter: "number", hozAlign: "center", width: 118, responsive: 5 },
+            { title: "超期未完成作业数", field: "overdue_missing_count", sorter: "number", hozAlign: "center", width: 132, responsive: 6 },
             {
                 title: "完成率",
                 field: "completion_rate",
                 sorter: "number",
                 hozAlign: "center",
                 width: 112,
+                responsive: 2,
                 formatter: function (cell) {
                     return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
                 },
@@ -522,6 +544,7 @@
                 minWidth: 280,
                 widthGrow: 2.4,
                 headerSort: false,
+                responsive: 3,
                 cssClass: "teacher-homework-stats-datagrid__cell--rates",
                 formatter: function (cell) {
                     return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
@@ -533,8 +556,11 @@
                 {
                     title: "Homework Submission Detail",
                     field: "submission_record_count_text",
-                    minWidth: 188,
+                    width: 120,
+                    minWidth: 100,
                     headerSort: false,
+                    responsive: 0,
+                    hozAlign: "center",
                     cssClass: "teacher-homework-stats-datagrid__cell--submission-detail",
                     formatter: function (cell) {
                         var row = cell.getRow().getData();
@@ -555,9 +581,9 @@
             defaultOptions(
                 data,
                 columns,
-                {
+                teacherHomeworkResponsiveGridOptions({
                     paginationSize: 15,
-                }
+                })
             )
         );
 
@@ -653,34 +679,36 @@
             defaultOptions(
                 data,
                 [
-                    { title: "提交记录 ID", field: "submission_id", sorter: "number", hozAlign: "center", width: 108 },
-                    { title: "assignment_id", field: "assignment_id", sorter: "number", hozAlign: "center", width: 112 },
-                    { title: "作业 / 知识点名称", field: "knowledge_point", minWidth: 160, widthGrow: 1.4 },
-                    { title: "status", field: "status_text", minWidth: 112, hozAlign: "center" },
-                    { title: "total_count", field: "total_count", sorter: "number", hozAlign: "center", width: 98 },
-                    { title: "correct_count", field: "correct_count", sorter: "number", hozAlign: "center", width: 102 },
-                    { title: "wrong_count", field: "wrong_count", sorter: "number", hozAlign: "center", width: 102 },
-                    { title: "score", field: "score_text", hozAlign: "center", width: 96 },
-                    { title: "started_at", field: "started_at_text", minWidth: 152 },
-                    { title: "submitted_at", field: "submitted_at_text", minWidth: 152 },
-                    { title: "checked_at", field: "checked_at_text", minWidth: 152 },
-                    { title: "created_at", field: "created_at_text", minWidth: 152 },
+                    { title: "提交记录 ID", field: "submission_id", sorter: "number", hozAlign: "center", width: 108, responsive: 2 },
+                    { title: "assignment_id", field: "assignment_id", sorter: "number", hozAlign: "center", width: 112, responsive: 4 },
+                    { title: "作业 / 知识点名称", field: "knowledge_point", minWidth: 160, widthGrow: 1.4, responsive: 1 },
+                    { title: "status", field: "status_text", minWidth: 112, hozAlign: "center", responsive: 2 },
+                    { title: "total_count", field: "total_count", sorter: "number", hozAlign: "center", width: 98, responsive: 3 },
+                    { title: "correct_count", field: "correct_count", sorter: "number", hozAlign: "center", width: 102, responsive: 3 },
+                    { title: "wrong_count", field: "wrong_count", sorter: "number", hozAlign: "center", width: 102, responsive: 3 },
+                    { title: "score", field: "score_text", hozAlign: "center", width: 96, responsive: 4 },
+                    { title: "started_at", field: "started_at_text", minWidth: 152, responsive: 5 },
+                    { title: "submitted_at", field: "submitted_at_text", minWidth: 152, responsive: 1 },
+                    { title: "checked_at", field: "checked_at_text", minWidth: 152, responsive: 6 },
+                    { title: "created_at", field: "created_at_text", minWidth: 152, responsive: 7 },
                     {
                         title: "操作",
                         field: "detail_answer_href",
                         hozAlign: "center",
-                        width: 138,
+                        width: 120,
+                        minWidth: 100,
                         headerSort: false,
+                        responsive: 0,
                         formatter: function (cell) {
                             var row = cell.getRow().getData();
                             return row.detail_answer_href ? actionButton("查看逐题详情", row.detail_answer_href, "primary") : "";
                         },
                     },
                 ],
-                {
+                teacherHomeworkResponsiveGridOptions({
                     index: "row_key",
                     paginationSize: 15,
-                }
+                })
             )
         );
 
