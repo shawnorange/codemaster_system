@@ -58,7 +58,7 @@
             {% endif %}
 
             {% if question_source_empty_message %}
-                <div class="entry-hint-bar">
+                <div class="entry-hint-bar" data-question-source-empty-state>
                     <strong>当前不可导入</strong>
                     <span>{{ question_source_empty_message }}</span>
                 </div>
@@ -68,16 +68,30 @@
                 <form method="post" enctype="multipart/form-data" class="record-form" data-upload-form>
                     {% csrf_token %}
                     <input type="hidden" name="form_action" value="upload_choice_file">
-                    <div class="record-form__row">
-                        <select name="content_id" {% if not content_options %}disabled{% endif %} required>
+                    <div class="record-form__row" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                        <select name="content_id" data-content-select {% if not content_options %}disabled{% endif %} required>
                             <option value="">选择知识点</option>
                             {% for item in content_options %}
                                 <option value="{{ item.id }}" {% if item.id == selected_content_id %}selected{% endif %}>{{ item.label }}</option>
                             {% endfor %}
                         </select>
+                        <button
+                            type="button"
+                            class="teacher-anchor-link"
+                            id="open-question-source-content-modal"
+                            {% if not content_create_level_options %}disabled{% endif %}
+                        >
+                            新增知识点
+                        </button>
                     </div>
+                    {% if content_create_disabled_message %}
+                        <div class="record-inline-feedback">
+                            <strong>新增知识点</strong>
+                            <span>{{ content_create_disabled_message }}</span>
+                        </div>
+                    {% endif %}
                     <div class="record-form__row">
-                        <input type="file" name="source_file" accept="{{ upload_accept }}" {% if not content_options %}disabled{% endif %} required>
+                        <input type="file" name="source_file" data-source-file-input accept="{{ upload_accept }}" {% if not content_options %}disabled{% endif %} required>
                     </div>
                     <div class="record-inline-feedback">
                         <strong>支持格式</strong>
@@ -98,6 +112,58 @@
                     </button>
                 </form>
             </section>
+
+            <dialog class="topic-access-modal" id="question-source-content-modal">
+                <form method="post" class="topic-access-modal__panel" data-create-content-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="course" value="{{ selected_course_slug }}">
+                    <div class="topic-access-modal__header">
+                        <div>
+                            <p class="section-heading__eyebrow">Create Knowledge Point</p>
+                            <h3>新增知识点</h3>
+                            <p>这里会创建 CourseContent，并立刻加入当前“选择知识点”下拉框；不会创建 HomeworkAssignment，也不会绑定 student_id。</p>
+                        </div>
+                        <button type="button" class="teacher-modal-close" id="close-question-source-content-modal" aria-label="关闭弹窗">×</button>
+                    </div>
+
+                    <div class="context-list" style="margin-bottom: 16px;">
+                        <div class="context-list__item">
+                            <span>当前课程</span>
+                            <strong>{{ selected_course_label }}</strong>
+                        </div>
+                    </div>
+
+                    <div class="entry-hint-bar" id="question-source-content-error" hidden></div>
+
+                    <div class="record-form">
+                        <input type="text" name="title" maxlength="128" placeholder="知识点名称" required>
+                        <select name="level_id" required>
+                            <option value="">选择 Level</option>
+                            {% for item in content_create_level_options %}
+                                <option value="{{ item.id }}">{{ item.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="record-inline-feedback" style="margin-top: 14px;">
+                        <strong>创建规则</strong>
+                        <span>phase、permission_code、slug、route_path 会沿用当前项目现有 CourseContent 创建规则自动生成。</span>
+                    </div>
+
+                    <div class="topic-access-modal__footer">
+                        <button type="button" class="teacher-anchor-link" id="cancel-question-source-content-modal">取消</button>
+                        <button
+                            type="submit"
+                            class="login-button"
+                            id="submit-question-source-content-modal"
+                            data-create-content-url="{{ content_create_href }}"
+                            {% if not content_create_level_options %}disabled{% endif %}
+                        >
+                            创建知识点
+                        </button>
+                    </div>
+                </form>
+            </dialog>
 
             {% if latest_import_job %}
                 <section class="record-panel record-panel--recent" id="candidate-editor" style="margin-top: 20px;">
@@ -309,12 +375,133 @@
 
             var submitButton = uploadForm.querySelector("[data-upload-submit]");
             var submitLabel = uploadForm.querySelector("[data-upload-submit-label]");
+            var contentSelect = uploadForm.querySelector("[data-content-select]");
+            var sourceFileInput = uploadForm.querySelector("[data-source-file-input]");
+            var emptyStateHint = document.querySelector("[data-question-source-empty-state]");
             var progressRoot = uploadForm.querySelector("[data-upload-progress]");
             var progressTrack = uploadForm.querySelector("[data-upload-progress-track]");
             var progressBar = uploadForm.querySelector("[data-upload-progress-bar]");
             var progressText = uploadForm.querySelector("[data-upload-progress-text]");
             if (!submitButton || !submitLabel || !progressRoot || !progressTrack || !progressBar || !progressText) {
                 return;
+            }
+
+            var contentDialog = document.getElementById("question-source-content-modal");
+            var openContentDialogButton = document.getElementById("open-question-source-content-modal");
+            var closeContentDialogButton = document.getElementById("close-question-source-content-modal");
+            var cancelContentDialogButton = document.getElementById("cancel-question-source-content-modal");
+            var createContentForm = document.querySelector("[data-create-content-form]");
+            var createContentError = document.getElementById("question-source-content-error");
+            var createContentSubmitButton = document.getElementById("submit-question-source-content-modal");
+
+            function showDialog(dialog) {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+            }
+
+            function hideDialog(dialog) {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            }
+
+            function setCreateContentError(message) {
+                if (!createContentError) {
+                    return;
+                }
+                if (!message) {
+                    createContentError.hidden = true;
+                    createContentError.textContent = "";
+                    return;
+                }
+                createContentError.hidden = false;
+                createContentError.textContent = message;
+            }
+
+            if (openContentDialogButton && contentDialog) {
+                openContentDialogButton.addEventListener("click", function () {
+                    setCreateContentError("");
+                    showDialog(contentDialog);
+                });
+            }
+            if (closeContentDialogButton && contentDialog) {
+                closeContentDialogButton.addEventListener("click", function () {
+                    hideDialog(contentDialog);
+                });
+            }
+            if (cancelContentDialogButton && contentDialog) {
+                cancelContentDialogButton.addEventListener("click", function () {
+                    hideDialog(contentDialog);
+                });
+            }
+            if (contentDialog) {
+                contentDialog.addEventListener("click", function (event) {
+                    if (event.target === contentDialog) {
+                        hideDialog(contentDialog);
+                    }
+                });
+            }
+
+            if (createContentForm && createContentSubmitButton && contentSelect) {
+                createContentForm.addEventListener("submit", async function (event) {
+                    event.preventDefault();
+                    setCreateContentError("");
+                    createContentSubmitButton.disabled = true;
+                    createContentSubmitButton.setAttribute("aria-busy", "true");
+
+                    try {
+                        var response = await window.fetch(createContentSubmitButton.dataset.createContentUrl, {
+                            method: "POST",
+                            headers: {
+                                "X-CSRFToken": createContentForm.querySelector("[name=csrfmiddlewaretoken]").value,
+                                "X-Requested-With": "XMLHttpRequest"
+                            },
+                            body: new window.FormData(createContentForm),
+                            credentials: "same-origin"
+                        });
+                        var payload = await response.json();
+                        if (!response.ok) {
+                            setCreateContentError(payload.error || "新增知识点失败。");
+                            return;
+                        }
+
+                        var option = document.createElement("option");
+                        option.value = String(payload.id);
+                        option.textContent = payload.label || payload.title || "新知识点";
+                        option.selected = true;
+                        contentSelect.appendChild(option);
+                        contentSelect.value = String(payload.id);
+                        contentSelect.disabled = false;
+                        if (sourceFileInput) {
+                            sourceFileInput.disabled = false;
+                        }
+                        if (emptyStateHint) {
+                            emptyStateHint.hidden = true;
+                        }
+                        submitButton.disabled = false;
+                        if (openContentDialogButton) {
+                            openContentDialogButton.disabled = false;
+                        }
+                        createContentForm.reset();
+                        hideDialog(contentDialog);
+                    } catch (error) {
+                        setCreateContentError("新增知识点失败，请稍后重试。");
+                    } finally {
+                        createContentSubmitButton.disabled = false;
+                        createContentSubmitButton.removeAttribute("aria-busy");
+                    }
+                });
             }
 
             var isSubmitting = false;

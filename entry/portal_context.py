@@ -1870,9 +1870,42 @@ def serialize_homework_content_option(content: CourseContent) -> dict:
         "title": content.title,
         "summary": content.summary or "当前知识点未补充额外说明。",
         "route_path": content.route_path,
+        "phase": (content.phase or "").strip(),
+        "level_id": content.level_id or 0,
         "level_label": get_homework_content_level_label(content),
         "label": format_homework_content_label(content),
     }
+
+
+def get_teacher_question_source_level_options(portal_user: PortalUser, course_slug: str) -> list[dict]:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    visible_level_codes: set[str] = set()
+    for assignment in scope["course_assignments"]:
+        if course.slug == "cpp":
+            visible_level_codes.update(get_visible_cpp_stage_codes(assignment.level_code))
+        else:
+            visible_level_codes.update(get_homework_level_codes(course.slug, assignment.level_code))
+
+    if not visible_level_codes:
+        return []
+
+    level_queryset = (
+        CourseLevel.objects.select_related("category", "category__course")
+        .filter(category__course=course, is_active=True, code__in=visible_level_codes)
+        .order_by("category__sort_order", "category__id", "sort_order", "id")
+    )
+    return [
+        {
+            "id": level.id,
+            "code": level.code,
+            "title": level.title,
+            "category_slug": level.category.slug,
+            "category_title": level.category.title,
+            "label": f"{level.category.title} / {level.title}",
+        }
+        for level in level_queryset
+    ]
 
 
 def annotate_homework_online_question_counts(queryset: QuerySet[HomeworkAssignment]) -> QuerySet[HomeworkAssignment]:
@@ -2756,6 +2789,7 @@ def build_teacher_question_source_import_context(
         serialize_homework_content_option(content)
         for content in get_teacher_course_homework_contents(portal_user, normalized_course_slug)
     ]
+    content_create_level_options = get_teacher_question_source_level_options(portal_user, normalized_course_slug)
     content_option_ids = {item["id"] for item in content_options}
     normalized_content_id = selected_content_id if selected_content_id in content_option_ids else 0
     if not normalized_content_id and content_options:
@@ -2833,6 +2867,13 @@ def build_teacher_question_source_import_context(
         "selected_content_id": normalized_content_id,
         "selected_content_option": selected_content_option,
         "content_options": content_options,
+        "content_create_level_options": content_create_level_options,
+        "content_create_href": reverse("teacher-question-source-create-content"),
+        "content_create_disabled_message": (
+            "当前课程下还没有可创建知识点的 Level，请先检查 TeacherStudentAssignment 的课程 / 级别范围。"
+            if not content_create_level_options
+            else ""
+        ),
         "latest_import_job": latest_job,
         "import_jobs": serialized_jobs,
         "confirmed_questions": confirmed_questions,

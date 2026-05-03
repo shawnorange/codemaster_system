@@ -2141,6 +2141,9 @@ class HomeworkBatchCreateTests(TestCase):
     def get_expected_question_source_import_href(self) -> str:
         return reverse("teacher-question-source-import") + "?course=cpp"
 
+    def get_question_source_create_content_url(self) -> str:
+        return reverse("teacher-question-source-create-content")
+
     def post_question_source_import_upload(
         self,
         *,
@@ -2156,6 +2159,24 @@ class HomeworkBatchCreateTests(TestCase):
                 "form_action": "upload_choice_file",
                 "content_id": str(content_id or self.array_content.id),
                 "source_file": SimpleUploadedFile(filename, content, content_type=content_type),
+            },
+            follow=follow,
+        )
+
+    def post_question_source_create_content(
+        self,
+        *,
+        title: str,
+        level_id: int | None = None,
+        course_slug: str = "cpp",
+        follow: bool = False,
+    ):
+        return self.client.post(
+            self.get_question_source_create_content_url(),
+            {
+                "course": course_slug,
+                "title": title,
+                "level_id": str(level_id or self.gesp4_level.id),
             },
             follow=follow,
         )
@@ -2286,7 +2307,84 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "上传文件生成公共题池选择题候选")
         self.assertContains(response, 'name="content_id"', html=False)
+        self.assertContains(response, f"{self.cpp_course.title} / {self.gesp4_level.title} / {self.array_content.title}")
+        self.assertContains(response, "新增知识点")
+        self.assertContains(response, self.get_question_source_create_content_url())
         self.assertNotContains(response, f"/teacher/students/{self.source_student.id}/homework/")
+
+    def test_question_source_import_page_shows_add_knowledge_point_button_next_to_content_select(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.get_expected_question_source_import_href())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="open-question-source-content-modal"', html=False)
+        self.assertContains(response, "新增知识点")
+        self.assertContains(response, 'name="content_id"', html=False)
+
+    def test_teacher_can_create_question_source_course_content(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_count_before = HomeworkAssignment.objects.count()
+
+        response = self.post_question_source_create_content(title="循环结构")
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        created_content = CourseContent.objects.get(id=payload["id"])
+        self.assertEqual(created_content.course_id, self.cpp_course.id)
+        self.assertEqual(created_content.level_id, self.gesp4_level.id)
+        self.assertEqual(created_content.title, "循环结构")
+        self.assertEqual(created_content.phase, self.gesp4_level.code)
+        self.assertFalse(created_content.has_real_content)
+        self.assertEqual(payload["label"], f"{self.cpp_course.title} / {self.gesp4_level.title} / 循环结构")
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
+
+        page_response = self.client.get(self.get_expected_question_source_import_href())
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "循环结构")
+
+    def test_non_teacher_cannot_create_question_source_course_content(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_question_source_content",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="校长知识点",
+            phone="13800000208",
+        )
+        cases = [
+            (self.target_student_user, reverse("student-courses")),
+            (self.parent, reverse("parent-student-profile")),
+            (principal, reverse("principal-dashboard")),
+        ]
+        for user, expected_location in cases:
+            with self.subTest(role=user.role):
+                self.sign_in(user)
+                response = self.post_question_source_create_content(title="越权知识点")
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response["Location"], expected_location)
+
+    def test_question_source_create_content_requires_non_empty_title(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_question_source_create_content(title="")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "请输入知识点名称。")
+
+    def test_question_source_create_content_rejects_invalid_level(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_question_source_create_content(title="新知识点", level_id=999999)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "请选择有效的 Level。")
+
+    def test_question_source_create_content_rejects_duplicate_title_in_same_course_level(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_question_source_create_content(title=self.array_content.title)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "该知识点已存在")
 
     def test_question_source_text_import_creates_public_import_job_and_questions_without_assignment(self) -> None:
         self.sign_in(self.teacher)
@@ -2323,6 +2421,31 @@ class HomeworkBatchCreateTests(TestCase):
         )
         self.assertGreaterEqual(len(created_questions), 1)
         self.assertTrue(all(question.assignment_id is None for question in created_questions))
+
+    def test_question_source_import_can_bind_newly_created_content_to_import_job(self) -> None:
+        self.sign_in(self.teacher)
+        create_response = self.post_question_source_create_content(title="循环结构")
+        self.assertEqual(create_response.status_code, 201)
+        created_content_id = create_response.json()["id"]
+
+        with patch(
+            "entry.homework_online.parse_candidates_with_qwen",
+            return_value=([self.build_candidate(stem="循环结构题", correct_answer="A")], "Qwen Public Text"),
+        ):
+            upload_response = self.post_question_source_import_upload(
+                filename="loop-public-bank.txt",
+                content=(
+                    "1. 哪个结构适合重复执行？\n"
+                    "A. 循环结构\nB. 条件结构\nC. 输入结构\nD. 输出结构\n参考答案：A\n"
+                ).encode("utf-8"),
+                content_type="text/plain",
+                content_id=created_content_id,
+            )
+
+        self.assertEqual(upload_response.status_code, 302)
+        import_job = HomeworkImportJob.objects.get(source_filename="loop-public-bank.txt")
+        self.assertIsNone(import_job.assignment_id)
+        self.assertEqual(import_job.content_id, created_content_id)
 
     def test_question_source_image_import_creates_public_import_job_and_questions_without_assignment(self) -> None:
         self.sign_in(self.teacher)

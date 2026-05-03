@@ -48,6 +48,7 @@ from .manual_overrides import update_question_manual_override
 from .models import (
     Course,
     CourseContent,
+    CourseLevel,
     HomeworkAssignment,
     HomeworkImportJob,
     HomeworkSubmission,
@@ -108,6 +109,7 @@ from .portal_context import (
     get_teacher_course_content,
     get_teacher_course_level,
     get_teacher_course_levels,
+    get_teacher_question_source_level_options,
     get_teacher_course_scope,
     get_gesp4_topic_access_items,
     get_gesp4_topic_content,
@@ -200,6 +202,18 @@ def get_portal_user_from_request(request: HttpRequest) -> PortalUser:
 
 def build_knowledge_point_default_route_path(course_slug: str, category_slug: str, level_code: str, slug: str) -> str:
     return f"/student/{course_slug}/{category_slug}/{level_code.lower()}/{slug}"
+
+
+def build_auto_course_content_slug(course: Course, level: CourseLevel, title: str) -> str:
+    base_slug = slugify(title)
+    if not base_slug:
+        base_slug = f"{course.slug}-{level.code.lower()}-knowledge-point"
+    candidate_slug = base_slug
+    suffix = 2
+    while CourseContent.objects.filter(slug=candidate_slug).exists():
+        candidate_slug = f"{base_slug}-{suffix}"
+        suffix += 1
+    return candidate_slug
 
 
 def normalize_positive_int(value: object, *, default: int = 0, minimum: int = 0) -> int:
@@ -1390,6 +1404,101 @@ def teacher_homework_import_job_preview(request: HttpRequest, import_job_id: int
     if import_job is None:
         raise Http404("未找到该题目记录")
     return JsonResponse(build_homework_import_job_preview_payload(import_job))
+
+
+@role_required("teacher")
+def teacher_question_source_create_content(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "仅支持 POST 提交。"}, status=405)
+
+    portal_user = get_portal_user_from_request(request)
+    course_slug = (request.POST.get("course") or request.GET.get("course") or "").strip().lower()
+    title = (request.POST.get("title") or "").strip()
+    level_id = normalize_positive_int(request.POST.get("level_id"), default=0, minimum=1)
+
+    if not course_slug:
+        return JsonResponse({"error": "请选择有效课程。"}, status=400)
+    if not title:
+        return JsonResponse({"error": "请输入知识点名称。"}, status=400)
+
+    try:
+        scope = get_teacher_course_scope(portal_user, course_slug)
+    except ObjectDoesNotExist:
+        return JsonResponse({"error": "当前课程不存在，或你没有该课程权限。"}, status=400)
+
+    available_level_options = get_teacher_question_source_level_options(portal_user, course_slug)
+    available_level_ids = {item["id"] for item in available_level_options}
+    if level_id not in available_level_ids:
+        return JsonResponse({"error": "请选择有效的 Level。"}, status=400)
+
+    selected_level = (
+        CourseLevel.objects.select_related("category", "category__course")
+        .filter(id=level_id, is_active=True, category__course=scope["course"])
+        .first()
+    )
+    if selected_level is None:
+        return JsonResponse({"error": "请选择有效的 Level。"}, status=400)
+
+    duplicate_exists = CourseContent.objects.filter(
+        course=scope["course"],
+        level=selected_level,
+        title__iexact=title,
+        is_active=True,
+    ).exists()
+    if duplicate_exists:
+        return JsonResponse({"error": "该知识点已存在"}, status=400)
+
+    generated_slug = build_auto_course_content_slug(scope["course"], selected_level, title)
+    route_path = build_knowledge_point_default_route_path(
+        scope["course"].slug,
+        selected_level.category.slug,
+        selected_level.code,
+        generated_slug,
+    )
+    existing_type = (
+        CourseContent.objects.filter(course=scope["course"])
+        .exclude(content_type="")
+        .order_by("id")
+        .values_list("content_type", flat=True)
+        .first()
+    ) or f"{scope['course'].title}{selected_level.category.title}"
+    next_sort_order = (
+        (CourseContent.objects.filter(level=selected_level).aggregate(max_sort=Max("sort_order"))["max_sort"] or 0)
+        + 1
+    )
+
+    with transaction.atomic():
+        created_content = CourseContent.objects.create(
+            course=scope["course"],
+            level=selected_level,
+            content_type=existing_type,
+            slug=generated_slug,
+            title=title,
+            phase=selected_level.code,
+            permission_code=infer_content_permission_code(
+                scope["course"].slug,
+                level_code=selected_level.code,
+                phase=selected_level.code,
+            ),
+            sort_order=next_sort_order,
+            route_path=route_path,
+            summary="",
+            has_real_content=False,
+            is_active=True,
+        )
+
+    payload = {
+        "id": created_content.id,
+        "value": created_content.id,
+        "slug": created_content.slug,
+        "title": created_content.title,
+        "phase": created_content.phase,
+        "level_id": selected_level.id,
+        "level_label": selected_level.title,
+        "category_title": selected_level.category.title,
+        "label": f"{scope['course'].title} / {selected_level.title} / {created_content.title}",
+    }
+    return JsonResponse(payload, status=201)
 
 
 @role_required("teacher")
