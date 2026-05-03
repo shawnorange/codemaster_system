@@ -2040,6 +2040,46 @@ def get_teacher_course_homework_contents(portal_user: PortalUser, course_slug: s
     )
 
 
+def get_teacher_batch_homework_contents(
+    portal_user: PortalUser,
+    *,
+    course_slug: str = "",
+) -> list[CourseContent]:
+    normalized_course_slug = str(course_slug or "").strip().lower()
+    if normalized_course_slug:
+        return get_teacher_course_homework_contents(portal_user, normalized_course_slug)
+
+    content_map: dict[int, CourseContent] = {}
+    for assignment in get_teacher_active_assignments(portal_user):
+        queryset = CourseContent.objects.select_related("course", "level").filter(course=assignment.course, is_active=True)
+        if assignment.course.slug == "cpp":
+            visible_permission_codes = get_visible_permission_codes(assignment.level_code)
+            visible_stage_codes = get_visible_cpp_stage_codes(assignment.level_code)
+            queryset = queryset.filter(
+                Q(permission_code__in=visible_permission_codes)
+                | (
+                    Q(permission_code="")
+                    & (Q(level__code__in=visible_stage_codes) | Q(phase__in=visible_stage_codes))
+                )
+            )
+        else:
+            level_codes = get_homework_level_codes(assignment.course.slug, assignment.level_code)
+            if level_codes:
+                queryset = queryset.filter(Q(level__code__in=level_codes) | Q(phase__in=level_codes))
+        for content in queryset.order_by("course_id", "phase", "sort_order", "id"):
+            content_map.setdefault(content.id, content)
+
+    return sorted(
+        content_map.values(),
+        key=lambda item: (
+            item.course.title.lower(),
+            get_homework_content_level_label(item).lower(),
+            item.sort_order,
+            item.id,
+        ),
+    )
+
+
 def build_teacher_student_homework_empty_state(
     portal_user: PortalUser,
     student: Student,
@@ -4829,6 +4869,14 @@ def build_teacher_homework_batch_create_context(
     }
     selected_student_ids.discard(0)
     selected_import_job_id = normalize_positive_value((form_values or {}).get("import_job_id"), default=0, minimum=1)
+    batch_content_options = [
+        serialize_homework_content_option(content)
+        for content in get_teacher_batch_homework_contents(
+            portal_user,
+            course_slug=normalized_course_slug,
+        )
+    ]
+    batch_content_option_ids = {item["id"] for item in batch_content_options}
 
     teacher_students = list(
         Student.objects.select_related("user", "parent_user", "teacher_user")
@@ -4882,6 +4930,15 @@ def build_teacher_homework_batch_create_context(
         (item for item in import_job_rows if item["import_job_id"] == selected_import_job_id),
         None,
     )
+    selected_content_id = normalize_positive_value((form_values or {}).get("content_id"), default=0, minimum=1)
+    if selected_import_job_row and selected_import_job_row.get("content_id") in batch_content_option_ids:
+        selected_content_id = int(selected_import_job_row["content_id"])
+    elif selected_content_id not in batch_content_option_ids:
+        selected_content_id = int(batch_content_options[0]["id"]) if batch_content_options else 0
+    selected_content_option = next(
+        (item for item in batch_content_options if item["id"] == selected_content_id),
+        None,
+    )
     course_filter_label = selected_course.title if selected_course is not None else "全部课程"
     default_summary_title = build_default_batch_homework_summary_title(
         course_label=course_filter_label,
@@ -4921,6 +4978,8 @@ def build_teacher_homework_batch_create_context(
         "selected_course_slug": selected_course.slug if selected_course is not None else "",
         "selected_course_label": course_filter_label,
         "selected_import_job_row": selected_import_job_row,
+        "batch_content_options": batch_content_options,
+        "batch_selected_content_option": selected_content_option,
         "selected_student_ids": sorted(selected_student_ids),
         "batch_create_error_message": error_message,
         "batch_create_success_message": success_message,
@@ -4928,6 +4987,7 @@ def build_teacher_homework_batch_create_context(
         "form_values": {
             "student_ids": sorted(selected_student_ids),
             "import_job_id": selected_import_job_id or "",
+            "content_id": selected_content_id or "",
             "assignment_requirement": str((form_values or {}).get("assignment_requirement") or ""),
             "due_date": str((form_values or {}).get("due_date") or timezone.localdate().isoformat()),
             "summary_title": str((form_values or {}).get("summary_title") or ""),
@@ -4940,8 +5000,9 @@ def build_teacher_homework_batch_create_context(
         "back_href": f"{reverse('teacher-students')}?tab=students",
         "support_items": [
             {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},
-            {"title": "题目来源", "description": "当前允许选择已 confirmed 或已经写入 HomeworkQuestion 的 HomeworkImportJob，保存时所有 assignment 共享同一条 source_import_job。"},
-            {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description，不新增重复字段。"},
+            {"title": "题目来源", "description": "HomeworkImportJob 现在是可选项；如果选了题源，整批 assignment 会共享同一条 source_import_job。"},
+            {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description；如果不选题源，也可以作为纯要求型作业保存。"},
+            {"title": "目标知识点", "description": "纯要求型作业仍需绑定一个 CourseContent，因为 HomeworkAssignment.content 是现有必填字段。"},
             {"title": "课后总结", "description": "如果上传或粘贴 HTML，只会创建 1 条 HomeworkSummary，并挂到整批 assignment 上复用。"},
             {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
         ],

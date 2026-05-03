@@ -720,6 +720,22 @@
     text-decoration: underline;
 }
 
+.homework-requirement-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    line-height: 1.6;
+    color: #17345a;
+}
+
+.page-title-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
 @media (max-width: 960px) {
     .portal-hero-panel,
     .hero-panel,
@@ -751,9 +767,9 @@
     }
 
     .portal-action-row--spaced,
-    .homework-action-row--spaced {
-        column-gap: 18px;
-    }
+.homework-action-row--spaced {
+    column-gap: 18px;
+}
 
     .portal-workbench-sidebar,
     .teacher-workbench-sidebar {

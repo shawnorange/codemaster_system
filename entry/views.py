@@ -1,14 +1,17 @@
 import logging
 import json
 from datetime import date
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
@@ -105,6 +108,7 @@ from .portal_context import (
     filter_homework_assignments_by_assigned_date,
     get_gesp2_knowledge_content,
     get_teacher_student_homework_queryset,
+    get_teacher_batch_homework_contents,
     get_teacher_course_category,
     get_teacher_course_content,
     get_teacher_course_level,
@@ -234,6 +238,11 @@ def normalize_positive_int_list(values: list[object]) -> list[int]:
         seen.add(normalized)
         normalized_values.append(normalized)
     return normalized_values
+
+
+def normalize_preserved_multiline_text(value: object) -> str:
+    normalized = str(value or "")
+    return normalized.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def parse_iso_date(value: object) -> date | None:
@@ -1198,10 +1207,13 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
     if request.GET.get("op") == "created":
         created_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
         if created_count:
-            if request.GET.get("with_summary") == "1":
-                success_message = f"批量布置完成：已为 {created_count} 名学生创建作业，并关联 1 篇课后总结。"
+            created_mode = (request.GET.get("mode") or "with_source").strip()
+            if created_mode == "requirement_only":
+                success_message = f"已为 {created_count} 名学生布置要求型作业。"
             else:
-                success_message = f"批量布置完成：已为 {created_count} 名学生创建作业。"
+                success_message = f"已为 {created_count} 名学生布置作业。"
+            if request.GET.get("with_summary") == "1":
+                success_message += " 已关联 1 篇课后总结。"
             batch_result = {
                 "status": "success",
                 "title": "批量布置成功",
@@ -1218,14 +1230,20 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST":
         selected_student_ids = normalize_positive_int_list(request.POST.getlist("student_ids"))
-        selected_import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
+        selected_import_job_ids = normalize_positive_int_list(request.POST.getlist("import_job_id"))
+        selected_import_job_id = selected_import_job_ids[0] if len(selected_import_job_ids) == 1 else 0
+        selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
         due_date_raw = request.POST.get("due_date", "").strip()
-        assignment_requirement = request.POST.get("assignment_requirement", "").strip()
+        assignment_requirement = normalize_preserved_multiline_text(
+            request.POST.get("assignment_requirement", "")
+        )
+        assignment_requirement_text = assignment_requirement.strip()
         summary_title = request.POST.get("summary_title", "").strip()
         summary_html_text = request.POST.get("summary_html", "").strip()
         form_values = {
             "student_ids": selected_student_ids,
             "import_job_id": selected_import_job_id,
+            "content_id": selected_content_id,
             "assignment_requirement": assignment_requirement,
             "due_date": due_date_raw,
             "summary_title": summary_title,
@@ -1233,9 +1251,11 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         }
 
         if not selected_student_ids:
-            error_message = "请至少选择 1 名学生。"
-        elif not selected_import_job_id:
-            error_message = "请先选择 1 条 HomeworkImportJob 题目记录。"
+            error_message = "请选择学生"
+        elif len(selected_import_job_ids) > 1:
+            error_message = "一次只能选择1条题源"
+        elif not selected_import_job_id and not assignment_requirement_text:
+            error_message = "请选择题源或填写作业要求"
         else:
             try:
                 due_date_value = date.fromisoformat(due_date_raw)
@@ -1259,19 +1279,52 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                         error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容。"
 
             visible_import_job = None
+            source_content = None
+            assignment_title = ""
+            creation_mode = "with_source"
             if due_date_value is not None:
-                visible_import_job = (
-                    get_visible_homework_import_jobs(
-                        portal_user,
-                        course_id=selected_course.id if selected_course is not None else None,
+                if selected_import_job_id:
+                    visible_import_job = (
+                        get_visible_homework_import_jobs(
+                            portal_user,
+                            course_id=selected_course.id if selected_course is not None else None,
+                        )
+                        .filter(id=selected_import_job_id)
+                        .first()
                     )
-                    .filter(id=selected_import_job_id)
-                    .first()
-                )
-                if visible_import_job is None:
-                    error_message = "当前老师不能使用这条 HomeworkImportJob 题目记录。"
+                    if visible_import_job is None:
+                        error_message = "题源不存在或无权访问"
+                    else:
+                        source_content = (
+                            visible_import_job.assignment.content
+                            if visible_import_job.assignment_id and visible_import_job.assignment
+                            else visible_import_job.content
+                        )
+                        if source_content is None:
+                            error_message = "当前题目记录没有绑定有效知识点，暂时不能用于批量布置作业。"
+                        else:
+                            assignment_title = (
+                                visible_import_job.assignment.title.strip()
+                                if visible_import_job.assignment_id and visible_import_job.assignment
+                                else ""
+                            )
+                            if not assignment_title:
+                                assignment_title = source_content.title.strip()
+                            assignment_title = assignment_title or visible_import_job.source_filename.strip()
+                else:
+                    creation_mode = "requirement_only"
+                    available_contents = get_teacher_batch_homework_contents(
+                        portal_user,
+                        course_slug=selected_course_slug,
+                    )
+                    content_map = {content.id: content for content in available_contents}
+                    source_content = content_map.get(selected_content_id)
+                    if source_content is None:
+                        error_message = "请选择当前老师负责范围内的知识点作为作业目标。"
+                    else:
+                        assignment_title = source_content.title.strip() or "课后作业要求"
 
-            if not error_message and visible_import_job is not None:
+            if not error_message and source_content is not None:
                 allowed_students = list(
                     Student.objects.select_related("user", "parent_user", "teacher_user")
                     .filter(
@@ -1297,24 +1350,6 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                         for student_id in selected_student_ids
                         if student_id in allowed_student_map
                     ]
-                    source_content = (
-                        visible_import_job.assignment.content
-                        if visible_import_job.assignment_id and visible_import_job.assignment
-                        else visible_import_job.content
-                    )
-                    if source_content is None:
-                        error_message = "当前题目记录没有绑定有效知识点，暂时不能用于批量布置作业。"
-                    assignment_title = (
-                        visible_import_job.assignment.title.strip()
-                        if visible_import_job.assignment_id and visible_import_job.assignment
-                        else ""
-                    )
-                    if not assignment_title and source_content is not None:
-                        assignment_title = source_content.title.strip()
-                    assignment_title = (
-                        assignment_title
-                        or visible_import_job.source_filename.strip()
-                    )
                     if not error_message:
                         created_summary = None
                         final_summary_title = ""
@@ -1346,7 +1381,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                                         due_date=due_date_value,
                                         status=HomeworkAssignment.STATUS_ASSIGNED,
                                         summary=created_summary,
-                                        source_import_job=visible_import_job,
+                                        source_import_job=visible_import_job if creation_mode == "with_source" else None,
                                         assigned_at=timezone.now(),
                                         is_active=True,
                                     )
@@ -1356,6 +1391,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                             redirect_params: dict[str, object] = {
                                 "op": "created",
                                 "count": len(selected_students),
+                                "mode": creation_mode,
                             }
                             if created_summary is not None:
                                 redirect_params["with_summary"] = 1
@@ -1385,6 +1421,11 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         )
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该课程") from exc
+
+    batch_title_icon_relative_path = "entry/images/batch-homework-title.png"
+    batch_title_icon_disk_path = Path(settings.BASE_DIR) / "entry" / "static" / "entry" / "images" / "batch-homework-title.png"
+    context["batch_title_icon_href"] = static(batch_title_icon_relative_path) if batch_title_icon_disk_path.exists() else ""
+    context["batch_title_icon_relative_path"] = batch_title_icon_relative_path
 
     return render(
         request,
@@ -2743,7 +2784,7 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
             content_map = {content.id: content for content in available_contents}
             selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
             title = request.POST.get("title", "").strip()
-            description = request.POST.get("description", "").strip()
+            description = normalize_preserved_multiline_text(request.POST.get("description", ""))
             due_date_raw = request.POST.get("due_date", "").strip()
             form_values = {
                 "content_id": selected_content_id,

@@ -24,7 +24,12 @@
         <div class="hero-panel__copy">
             <p class="eyebrow">Batch Homework</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
-            <h2>{{ page_title }}</h2>
+            <h2>
+                {% if batch_title_icon_href %}
+                    <img src="{{ batch_title_icon_href }}" alt="Batch Homework 标题图标" class="page-title-icon">
+                {% endif %}
+                {{ page_title }}
+            </h2>
             <p class="role-description">{{ page_description }}</p>
         </div>
 
@@ -107,7 +112,7 @@
                     <div class="section-heading section-heading--compact">
                         <p class="section-heading__eyebrow">Requirement</p>
                         <h3>作业要求填写区</h3>
-                        <p>作业要求复用 `HomeworkAssignment.description`。截止日期沿用现有 HomeworkAssignment 必填字段。</p>
+                        <p>作业要求复用 `HomeworkAssignment.description`。如果不选题源，这里可以直接创建纯要求型作业；但仍需指定目标知识点，因为 HomeworkAssignment.content 是现有必填字段。</p>
                     </div>
 
                     <div class="record-form">
@@ -116,17 +121,36 @@
                             <input type="date" name="due_date" value="{{ form_values.due_date }}" required>
                         </label>
                         <label>
+                            <span>目标知识点</span>
+                            {% if batch_content_options %}
+                                <select name="content_id" id="homework-batch-content-select">
+                                    {% for option in batch_content_options %}
+                                        <option value="{{ option.id }}" {% if option.id == form_values.content_id %}selected{% endif %}>{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            {% else %}
+                                <input type="text" value="当前没有可选知识点" disabled>
+                            {% endif %}
+                        </label>
+                        <label>
                             <span>作业要求</span>
                             <textarea name="assignment_requirement" rows="5" placeholder="例如：先独立完成 10 道选择题，再口头说明错题原因和二维数组遍历思路。">{{ form_values.assignment_requirement }}</textarea>
                         </label>
                     </div>
+                    {% if batch_selected_content_option %}
+                        <div class="record-inline-feedback">
+                            <strong id="homework-batch-content-preview-title">{{ batch_selected_content_option.title }}</strong>
+                            <span id="homework-batch-content-preview-level">{{ batch_selected_content_option.level_label }}</span>
+                            <span id="homework-batch-content-preview-summary">{{ batch_selected_content_option.summary }}</span>
+                        </div>
+                    {% endif %}
                 </section>
 
                 <section class="record-panel">
                     <div class="section-heading section-heading--compact">
                         <p class="section-heading__eyebrow">Question Source</p>
                         <h3>题目选择区</h3>
-                        <p>这里选择一条当前老师可见的 HomeworkImportJob。已 confirmed 或已经写入正式 HomeworkQuestion 的记录都可以选择。</p>
+                        <p>这里的 HomeworkImportJob 现在是可选项。选 1 条题源时会创建带题目的作业；不选题源时，只要填写作业要求，也可以创建纯要求型作业。</p>
                     </div>
 
                     <div class="portal-action-row portal-action-row--leading">
@@ -223,7 +247,7 @@
                 </section>
 
                 <div class="topic-access-modal__footer topic-access-modal__footer--course">
-                    <button type="submit" class="login-button" {% if not student_rows or not import_job_rows %}disabled{% endif %}>保存并批量布置作业</button>
+                    <button type="submit" class="login-button" {% if not student_rows or not import_job_rows and not batch_content_options %}disabled{% endif %}>保存并批量布置作业</button>
                     <a class="system-header__link" href="{{ back_href }}">返回教师工作台</a>
                 </div>
             </form>
@@ -313,6 +337,7 @@
             const importJobPanel = document.getElementById("homework-import-job-selector-panel");
             const importJobOpenButton = document.getElementById("open-homework-import-job-selector");
             const importJobCloseButton = document.getElementById("close-homework-import-job-selector");
+            const batchContentSelect = document.getElementById("homework-batch-content-select");
             const previewFilename = document.getElementById("selected-import-job-filename");
             const previewAssignment = document.getElementById("selected-import-job-assignment");
             const previewCourse = document.getElementById("selected-import-job-course");
@@ -506,7 +531,11 @@
             }
             if (importJobTableElement) {
                 importJobTableElement.addEventListener("codemaster:import-job-selected", function (event) {
-                    loadImportJobPreview(event.detail ? event.detail.row : null);
+                    const row = event.detail ? event.detail.row : null;
+                    if (row && batchContentSelect && row.content_id) {
+                        batchContentSelect.value = String(row.content_id);
+                    }
+                    loadImportJobPreview(row);
                 });
                 importJobTableElement.addEventListener("codemaster:import-job-preview-requested", function (event) {
                     loadImportJobPreview(event.detail ? event.detail.row : null, { openModal: true });

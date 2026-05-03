@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+from pathlib import Path
 import shutil
 import tempfile
 import zipfile
@@ -2118,6 +2119,8 @@ class HomeworkBatchCreateTests(TestCase):
         *,
         student_ids: list[int] | None = None,
         import_job_id: int | None = None,
+        import_job_ids: list[int] | None = None,
+        content_id: int | None = None,
         requirement: str = "先完成选择题，再口头讲解。",
         due_date: str | None = None,
         summary_title: str = "",
@@ -2127,12 +2130,15 @@ class HomeworkBatchCreateTests(TestCase):
     ):
         payload = {
             "student_ids": student_ids or [],
+            "content_id": str(content_id or self.array_content.id),
             "assignment_requirement": requirement,
             "due_date": due_date or (timezone.localdate() + timedelta(days=5)).isoformat(),
             "summary_title": summary_title,
             "summary_html": summary_html,
         }
-        if import_job_id is not None:
+        if import_job_ids is not None:
+            payload["import_job_id"] = [str(item) for item in import_job_ids]
+        elif import_job_id is not None:
             payload["import_job_id"] = str(import_job_id)
         if summary_file is not None:
             payload["summary_html_file"] = summary_file
@@ -2270,10 +2276,12 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertContains(response, "批量布置作业")
         self.assertContains(response, "选择题目")
         self.assertContains(response, "课后总结区块")
+        self.assertContains(response, 'name="content_id"', html=False)
         self.assertContains(response, 'name="summary_title"', html=False)
         self.assertContains(response, 'name="summary_html_file"', html=False)
         self.assertContains(response, 'name="summary_html"', html=False)
         self.assertContains(response, 'enctype="multipart/form-data"', html=False)
+        self.assertContains(response, '<textarea name="assignment_requirement"', html=False)
         self.assertContains(response, "保存并批量布置作业")
         self.assertEqual(response.context["form_values"]["summary_title"], "")
 
@@ -2611,7 +2619,132 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(response.context["batch_result"]["status"], "success")
         self.assertEqual(response.context["batch_result"]["title"], "批量布置成功")
         self.assertContains(response, "homework-batch-result-data")
-        self.assertContains(response, "已为 2 名学生创建作业")
+        self.assertContains(response, "已为 2 名学生布置作业")
+
+    def test_batch_create_supports_requirement_only_mode_without_import_job(self) -> None:
+        self.sign_in(self.teacher)
+        import_job_count_before = HomeworkImportJob.objects.count()
+        question_count_before = HomeworkQuestion.objects.count()
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id, self.second_target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement="先阅读知识点，再完成课后思考题。",
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        created_assignments = list(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student_id__in=[self.target_student.id, self.second_target_student.id],
+                title=self.array_content.title,
+            ).order_by("student_id")
+        )
+        self.assertEqual(len(created_assignments), 2)
+        self.assertTrue(all(item.source_import_job_id is None for item in created_assignments))
+        self.assertTrue(all(item.description == "先阅读知识点，再完成课后思考题。" for item in created_assignments))
+        self.assertTrue(all(item.content_id == self.array_content.id for item in created_assignments))
+        self.assertEqual(HomeworkImportJob.objects.count(), import_job_count_before)
+        self.assertEqual(HomeworkQuestion.objects.count(), question_count_before)
+        self.assertEqual(response.context["batch_result"]["status"], "success")
+        self.assertContains(response, "已为 2 名学生布置要求型作业")
+
+    def test_batch_create_requirement_only_mode_uses_no_summary_or_import_side_effects(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement="完成知识点页复习并整理错题。",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title=self.array_content.title,
+        )
+        self.assertIsNone(assignment.source_import_job_id)
+        self.assertEqual(assignment.questions.count(), 0)
+        self.assertEqual(assignment.get_effective_online_question_count(), 0)
+
+    def test_batch_create_requirement_only_mode_requires_requirement_when_import_job_missing(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement="",
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "请选择题源或填写作业要求")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
+        self.assertContains(response, "homework-batch-result-data")
+
+    def test_requirement_only_mode_preserves_multiline_and_indentation_in_description(self) -> None:
+        self.sign_in(self.teacher)
+        requirement = "第一行\nfor i in range(3):\n    print(i)\n\treturn"
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement=requirement,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title=self.array_content.title,
+        )
+        self.assertEqual(assignment.description, requirement)
+
+    def test_requirement_only_mode_normalizes_windows_newlines_without_losing_lines(self) -> None:
+        self.sign_in(self.teacher)
+        requirement = "第一行\r\n第二行\r\n    第三行"
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement=requirement,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title=self.array_content.title,
+        )
+        self.assertEqual(assignment.description, "第一行\n第二行\n    第三行")
+
+    def test_batch_create_rejects_multiple_import_job_ids(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_ids=[self.source_import_job.id, self.question_backed_import_job.id],
+            content_id=self.array_content.id,
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "一次只能选择1条题源")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
+        self.assertFalse(
+            HomeworkAssignment.objects.filter(
+                teacher=self.teacher,
+                student=self.target_student,
+                title="二维数组批量题单",
+            ).exists()
+        )
 
     def test_batch_create_still_works_when_teacher_student_assignment_is_missing(self) -> None:
         TeacherStudentAssignment.objects.filter(
@@ -2645,7 +2778,7 @@ class HomeworkBatchCreateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "请至少选择 1 名学生。")
+        self.assertContains(response, "请选择学生")
         self.assertEqual(response.context["batch_result"]["status"], "error")
         self.assertEqual(response.context["batch_result"]["title"], "批量布置失败")
         self.assertContains(response, "homework-batch-result-data")
@@ -2657,17 +2790,19 @@ class HomeworkBatchCreateTests(TestCase):
             ).exists()
         )
 
-    def test_batch_create_requires_import_job_selection(self) -> None:
+    def test_batch_create_without_import_job_and_requirement_is_rejected(self) -> None:
         self.sign_in(self.teacher)
 
         response = self.post_batch_create(
             student_ids=[self.target_student.id],
             import_job_id=None,
+            content_id=self.array_content.id,
+            requirement="",
             follow=True,
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "请先选择 1 条 HomeworkImportJob 题目记录。")
+        self.assertContains(response, "请选择题源或填写作业要求")
         self.assertEqual(response.context["batch_result"]["status"], "error")
         self.assertContains(response, "homework-batch-result-data")
 
@@ -2852,7 +2987,7 @@ class HomeworkBatchCreateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "当前老师不能使用这条 HomeworkImportJob 题目记录。")
+        self.assertContains(response, "题源不存在或无权访问")
         self.assertEqual(response.context["batch_result"]["status"], "error")
         self.assertFalse(
             HomeworkAssignment.objects.filter(
@@ -2911,6 +3046,96 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "二维数组批量题单")
+
+    def test_student_homework_detail_handles_requirement_only_assignment_without_source_import_job(self) -> None:
+        self.sign_in(self.teacher)
+        self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement="先完成知识点页复习，再整理本节错题。",
+        )
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title=self.array_content.title,
+        )
+
+        self.sign_in(self.target_student_user)
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "先完成知识点页复习，再整理本节错题。")
+        self.assertNotContains(response, "开始第一次练习")
+        self.assertContains(response, "标记已完成")
+        self.assertContains(response, "homework-requirement-text")
+
+    def test_student_homework_detail_escapes_requirement_html_and_preserves_format_class(self) -> None:
+        self.sign_in(self.teacher)
+        requirement = "第一行\n<script>alert(1)</script>\n    print('safe')"
+        self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement=requirement,
+        )
+        assignment = HomeworkAssignment.objects.get(
+            teacher=self.teacher,
+            student=self.target_student,
+            title=self.array_content.title,
+        )
+
+        self.sign_in(self.target_student_user)
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-requirement-text")
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;", html=False)
+        self.assertNotContains(response, "<script>alert(1)</script>", html=False)
+
+    def test_teacher_student_detail_shows_formatted_requirement_text(self) -> None:
+        self.sign_in(self.teacher)
+        requirement = "第一行\n第二行\n    缩进代码"
+        self.post_batch_create(
+            student_ids=[self.target_student.id],
+            import_job_id=None,
+            content_id=self.array_content.id,
+            requirement=requirement,
+        )
+
+        response = self.client.get(reverse("teacher-student-detail", args=[self.target_student.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-requirement-text")
+        self.assertContains(response, "第一行")
+        self.assertContains(response, "第二行")
+        self.assertContains(response, "缩进代码")
+
+    def test_shared_portal_css_exposes_requirement_whitespace_rule_globally(self) -> None:
+        css_path = Path("/Users/apple/coding/python/codemaster_system/entry/static/entry/css/shared_portal.css")
+        css_text = css_path.read_text()
+
+        requirement_rule_index = css_text.find(".homework-requirement-text")
+        desktop_media_index = css_text.find("@media (max-width: 960px)")
+
+        self.assertGreaterEqual(requirement_rule_index, 0)
+        self.assertGreaterEqual(desktop_media_index, 0)
+        self.assertLess(requirement_rule_index, desktop_media_index)
+        self.assertIn("white-space: pre-wrap;", css_text)
+
+    def test_batch_homework_title_icon_uses_static_images_directory_when_file_exists(self) -> None:
+        self.sign_in(self.teacher)
+        icon_path = Path("/Users/apple/coding/python/codemaster_system/entry/static/entry/images/batch-homework-title.png")
+        try:
+            icon_path.write_bytes(b"fake-png")
+            response = self.client.get(self.batch_create_url)
+        finally:
+            if icon_path.exists():
+                icon_path.unlink()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "/static/entry/images/batch-homework-title.png")
+        self.assertNotContains(response, "/media/", html=False)
 
     def test_existing_direct_assignment_questions_remain_compatible(self) -> None:
         source_assignment = self.source_import_job.assignment
