@@ -22,6 +22,7 @@ from .content_visibility import (
 )
 from .course_identity import resolve_course_slug, summarize_course_level_labels
 from .homework_batch import (
+    build_homework_import_job_source_metadata,
     build_homework_import_job_question_payloads,
     get_visible_homework_import_jobs,
 )
@@ -1146,6 +1147,24 @@ def resolve_teacher_homework_stats_period_bounds(period: str) -> tuple[datetime,
     return start_at, end_at, label
 
 
+def resolve_homework_assignment_week_window(assignment: HomeworkAssignment) -> tuple[datetime, datetime, str]:
+    start_at = assignment.created_at
+    end_at = assignment.created_at + timedelta(days=7)
+    return start_at, end_at, "本周"
+
+
+def get_homework_submission_effective_submitted_at(submission: HomeworkSubmission) -> datetime | None:
+    return submission.submitted_at or submission.created_at
+
+
+def is_homework_submission_within_assignment_week_window(submission: HomeworkSubmission) -> bool:
+    effective_submitted_at = get_homework_submission_effective_submitted_at(submission)
+    if effective_submitted_at is None:
+        return False
+    assignment_start_at, assignment_end_at, _ = resolve_homework_assignment_week_window(submission.assignment)
+    return assignment_start_at <= effective_submitted_at < assignment_end_at
+
+
 def filter_teacher_homework_stats_assignments(
     queryset: QuerySet[HomeworkAssignment],
     *,
@@ -1226,10 +1245,11 @@ def build_teacher_homework_stats_scored_submission_queryset(
     *,
     assignment_queryset: QuerySet[HomeworkAssignment],
     managed_student_ids: list[int],
+    include_missing_submitted_at: bool = False,
 ) -> QuerySet[HomeworkSubmission]:
     if not managed_student_ids:
         return HomeworkSubmission.objects.none()
-    return HomeworkSubmission.objects.select_related(
+    queryset = HomeworkSubmission.objects.select_related(
         "student",
         "assignment",
         "assignment__source_import_job",
@@ -1239,8 +1259,10 @@ def build_teacher_homework_stats_scored_submission_queryset(
         student_id=F("assignment__student_id"),
         is_active=True,
         status__in=HOMEWORK_COMPLETION_STATUSES,
-        submitted_at__isnull=False,
     )
+    if not include_missing_submitted_at:
+        queryset = queryset.filter(submitted_at__isnull=False)
+    return queryset
 
 
 def build_correct_wrong_rate_summary(*, correct_count: int, wrong_count: int) -> dict[str, object]:
@@ -1617,29 +1639,37 @@ def build_teacher_homework_assignment_submission_detail_rows(
     period_end: datetime,
     period: str = "month",
 ) -> list[dict[str, object]]:
-    raw_submissions = list(
-        HomeworkSubmission.objects.select_related(
-            "assignment",
-            "assignment__source_import_job",
-            "student",
-        ).filter(
-            student=student,
-            assignment=assignment,
-            student__teacher_user=portal_user,
-            student_id=F("assignment__student_id"),
-            assignment__teacher=portal_user,
-            assignment__student=student,
-            assignment__is_active=True,
-            is_active=True,
-        ).filter(
-            Q(submitted_at__gte=period_start, submitted_at__lt=period_end)
-            | Q(created_at__gte=period_start, created_at__lt=period_end)
-        )
+    base_queryset = HomeworkSubmission.objects.select_related(
+        "assignment",
+        "assignment__source_import_job",
+        "student",
+    ).filter(
+        student=student,
+        assignment=assignment,
+        student__teacher_user=portal_user,
+        student_id=F("assignment__student_id"),
+        assignment__teacher=portal_user,
+        assignment__student=student,
+        assignment__is_active=True,
+        is_active=True,
     )
+    if period == "week":
+        raw_submissions = [
+            submission
+            for submission in base_queryset.filter(status__in=HOMEWORK_COMPLETION_STATUSES)
+            if is_homework_submission_within_assignment_week_window(submission)
+        ]
+    else:
+        raw_submissions = list(
+            base_queryset.filter(
+                Q(submitted_at__gte=period_start, submitted_at__lt=period_end)
+                | Q(created_at__gte=period_start, created_at__lt=period_end)
+            )
+        )
     submissions = sorted(
         raw_submissions,
         key=lambda item: (
-            item.submitted_at or item.created_at or timezone.now(),
+            get_homework_submission_effective_submitted_at(item) or timezone.now(),
             item.created_at,
             item.id,
         ),
@@ -1923,6 +1953,44 @@ def get_teacher_student_homework_contents(portal_user: PortalUser, student: Stud
             )
         else:
             level_codes = get_homework_level_codes(assignment.course.slug, assignment.level_code)
+            if level_codes:
+                queryset = queryset.filter(Q(level__code__in=level_codes) | Q(phase__in=level_codes))
+        for content in queryset.order_by("course_id", "phase", "sort_order", "id"):
+            content_map.setdefault(content.id, content)
+
+    return sorted(
+        content_map.values(),
+        key=lambda item: (
+            item.course.title.lower(),
+            get_homework_content_level_label(item).lower(),
+            item.sort_order,
+            item.id,
+        ),
+    )
+
+
+def get_teacher_course_homework_contents(portal_user: PortalUser, course_slug: str) -> list[CourseContent]:
+    scope = get_teacher_course_scope(portal_user, course_slug)
+    course = scope["course"]
+    course_assignments = scope["course_assignments"]
+    if not course_assignments:
+        return []
+
+    content_map: dict[int, CourseContent] = {}
+    for assignment in course_assignments:
+        queryset = CourseContent.objects.select_related("course", "level").filter(course=course, is_active=True)
+        if course.slug == "cpp":
+            visible_permission_codes = get_visible_permission_codes(assignment.level_code)
+            visible_stage_codes = get_visible_cpp_stage_codes(assignment.level_code)
+            queryset = queryset.filter(
+                Q(permission_code__in=visible_permission_codes)
+                | (
+                    Q(permission_code="")
+                    & (Q(level__code__in=visible_stage_codes) | Q(phase__in=visible_stage_codes))
+                )
+            )
+        else:
+            level_codes = get_homework_level_codes(course.slug, assignment.level_code)
             if level_codes:
                 queryset = queryset.filter(Q(level__code__in=level_codes) | Q(phase__in=level_codes))
         for content in queryset.order_by("course_id", "phase", "sort_order", "id"):
@@ -2662,6 +2730,118 @@ def build_teacher_homework_builder_context(
         "confirmed_questions": confirmed_questions,
         "question_builder_href": reverse("teacher-homework-builder", args=[student.id, assignment.id]),
         "back_href": reverse("teacher-student-detail", args=[student.id]),
+    }
+
+
+def build_teacher_question_source_import_context(
+    portal_user: PortalUser,
+    *,
+    selected_course_slug: str = "",
+    selected_content_id: int = 0,
+    upload_error_message: str = "",
+    upload_success_message: str = "",
+) -> dict:
+    normalized_course_slug = str(selected_course_slug or "").strip().lower()
+    if normalized_course_slug:
+        scope = get_teacher_course_scope(portal_user, normalized_course_slug)
+        selected_course = scope["course"]
+    else:
+        first_assignment = get_teacher_active_assignments(portal_user).order_by("course_id", "id").first()
+        if first_assignment is None:
+            raise Course.DoesNotExist("teacher-question-source-import")
+        selected_course = first_assignment.course
+        normalized_course_slug = selected_course.slug
+
+    content_options = [
+        serialize_homework_content_option(content)
+        for content in get_teacher_course_homework_contents(portal_user, normalized_course_slug)
+    ]
+    content_option_ids = {item["id"] for item in content_options}
+    normalized_content_id = selected_content_id if selected_content_id in content_option_ids else 0
+    if not normalized_content_id and content_options:
+        normalized_content_id = int(content_options[0]["id"])
+    selected_content_option = next(
+        (item for item in content_options if item["id"] == normalized_content_id),
+        None,
+    )
+
+    public_import_jobs = list(
+        HomeworkImportJob.objects.select_related("teacher", "content", "content__course")
+        .filter(
+            teacher=portal_user,
+            assignment__isnull=True,
+            is_active=True,
+            content__course=selected_course,
+        )
+        .order_by("-created_at", "-id")
+    )
+    serialized_jobs = [
+        {
+            **serialize_homework_import_job(
+                job,
+                can_confirm=job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(normalize_candidate_editor_rows(job.candidates_json)),
+            ),
+            **build_homework_import_job_source_metadata(job),
+        }
+        for job in public_import_jobs
+    ]
+    latest_job = serialized_jobs[0] if serialized_jobs else None
+    latest_job_object = public_import_jobs[0] if public_import_jobs else None
+    confirmed_questions = (
+        [serialize_homework_question(question) for question in HomeworkQuestion.objects.filter(import_job=latest_job_object, is_active=True).order_by("question_no", "id")]
+        if latest_job_object is not None
+        else []
+    )
+
+    batch_ready_import_job = (
+        get_visible_homework_import_jobs(
+            portal_user,
+            course_id=selected_course.id,
+        )
+        .filter(assignment__isnull=True)
+        .first()
+    )
+
+    back_href = reverse("teacher-homework-batch-create")
+    back_params: dict[str, object] = {}
+    if normalized_course_slug:
+        back_params["course"] = normalized_course_slug
+    if batch_ready_import_job is not None:
+        back_params["import_job_id"] = batch_ready_import_job.id
+    if back_params:
+        back_href = f"{back_href}?{urlencode(back_params)}"
+
+    return {
+        "page_title": "导入练习题",
+        "page_description": "公共题池导入：上传源文件后进入统一解析和确认流程，只创建 HomeworkImportJob 与 HomeworkQuestion，不绑定具体学生作业。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "批量布置作业", "href": back_href},
+            {"label": "导入练习题"},
+        ],
+        "summary_cards": [
+            {"label": "当前老师", "value": portal_user.full_name, "hint": portal_user.username},
+            {"label": "当前课程", "value": selected_course.title, "hint": selected_course.slug},
+            {"label": "可选知识点", "value": f"{len(content_options)} 个", "hint": "按当前老师在该课程下的负责范围汇总"},
+            {"label": "公共导入任务", "value": f"{len(serialized_jobs)} 个", "hint": latest_job["parse_status_text"] if latest_job else "还没有公共导入任务"},
+        ],
+        "upload_accept": ".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.html,.htm,.txt,.docx,.xlsx",
+        "upload_error_message": upload_error_message,
+        "upload_success_message": upload_success_message,
+        "selected_course_slug": normalized_course_slug,
+        "selected_course_label": selected_course.title,
+        "selected_content_id": normalized_content_id,
+        "selected_content_option": selected_content_option,
+        "content_options": content_options,
+        "latest_import_job": latest_job,
+        "import_jobs": serialized_jobs,
+        "confirmed_questions": confirmed_questions,
+        "question_source_empty_message": (
+            "当前课程下还没有可用知识点。先检查 TeacherStudentAssignment 的课程 / 级别范围。"
+            if not content_options
+            else ""
+        ),
+        "back_href": back_href,
     }
 
 
@@ -3893,17 +4073,29 @@ def build_teacher_homework_stats_context(
         assignment_queryset = assignment_queryset.filter(student_id__in=managed_student_ids)
     else:
         assignment_queryset = assignment_queryset.none()
-    assignment_queryset, period_field_label = filter_teacher_homework_stats_assignments(
-        assignment_queryset,
-        start_at=period_start,
-        end_at=period_end,
-    )
-    scored_submissions = list(
-        build_teacher_homework_stats_scored_submission_queryset(
-            assignment_queryset=assignment_queryset,
-            managed_student_ids=managed_student_ids,
+    if selected_period == "week":
+        period_field_label = "创建时间"
+        scored_submissions = [
+            submission
+            for submission in build_teacher_homework_stats_scored_submission_queryset(
+                assignment_queryset=assignment_queryset,
+                managed_student_ids=managed_student_ids,
+                include_missing_submitted_at=True,
+            )
+            if is_homework_submission_within_assignment_week_window(submission)
+        ]
+    else:
+        assignment_queryset, period_field_label = filter_teacher_homework_stats_assignments(
+            assignment_queryset,
+            start_at=period_start,
+            end_at=period_end,
         )
-    )
+        scored_submissions = list(
+            build_teacher_homework_stats_scored_submission_queryset(
+                assignment_queryset=assignment_queryset,
+                managed_student_ids=managed_student_ids,
+            )
+        )
     answer_rate_details_by_student_id = build_teacher_homework_student_answer_rate_details(
         selected_period=selected_period,
         managed_students=managed_students,
@@ -3927,29 +4119,53 @@ def build_teacher_homework_stats_context(
         row["student_id"]: row["assigned_count"]
         for row in assignment_queryset.values("student_id").annotate(assigned_count=Count("id"))
     }
-    completed_submission_queryset = HomeworkSubmission.objects.filter(
-        assignment__in=assignment_queryset,
-        student_id__in=managed_student_ids,
-        student_id=F("assignment__student_id"),
-        is_active=True,
-        status__in=HOMEWORK_COMPLETION_STATUSES,
-        submitted_at__isnull=False,
-    )
-    submitted_count_by_student = {
-        row["student_id"]: row["submitted_count"]
-        for row in completed_submission_queryset.values("student_id").annotate(submitted_count=Count("assignment_id", distinct=True))
-    }
-    submission_record_count_by_student = {
-        row["student_id"]: row["submission_record_count"]
-        for row in completed_submission_queryset.values("student_id").annotate(submission_record_count=Count("id"))
-    }
-    submission_record_count_by_student_and_assignment = {
-        (row["student_id"], row["assignment_id"]): row["submission_record_count"]
-        for row in completed_submission_queryset.values("student_id", "assignment_id").annotate(submission_record_count=Count("id"))
-    }
-    completed_assignment_ids = list(
-        completed_submission_queryset.values_list("assignment_id", flat=True).distinct()
-    )
+    if selected_period == "week":
+        submitted_assignment_ids_by_student: dict[int, set[int]] = defaultdict(set)
+        submission_record_count_by_student: dict[int, int] = defaultdict(int)
+        submission_record_count_by_student_and_assignment: dict[tuple[int, int], int] = defaultdict(int)
+        completed_assignment_ids_set: set[int] = set()
+        for submission in scored_submissions:
+            submitted_assignment_ids_by_student[submission.student_id].add(submission.assignment_id)
+            submission_record_count_by_student[submission.student_id] += 1
+            submission_record_count_by_student_and_assignment[(submission.student_id, submission.assignment_id)] += 1
+            completed_assignment_ids_set.add(submission.assignment_id)
+        submitted_count_by_student = {
+            student_id: len(assignment_ids)
+            for student_id, assignment_ids in submitted_assignment_ids_by_student.items()
+        }
+        submission_record_count_by_student = {
+            student_id: count
+            for student_id, count in submission_record_count_by_student.items()
+        }
+        submission_record_count_by_student_and_assignment = {
+            key: count
+            for key, count in submission_record_count_by_student_and_assignment.items()
+        }
+        completed_assignment_ids = list(completed_assignment_ids_set)
+    else:
+        completed_submission_queryset = HomeworkSubmission.objects.filter(
+            assignment__in=assignment_queryset,
+            student_id__in=managed_student_ids,
+            student_id=F("assignment__student_id"),
+            is_active=True,
+            status__in=HOMEWORK_COMPLETION_STATUSES,
+            submitted_at__isnull=False,
+        )
+        submitted_count_by_student = {
+            row["student_id"]: row["submitted_count"]
+            for row in completed_submission_queryset.values("student_id").annotate(submitted_count=Count("assignment_id", distinct=True))
+        }
+        submission_record_count_by_student = {
+            row["student_id"]: row["submission_record_count"]
+            for row in completed_submission_queryset.values("student_id").annotate(submission_record_count=Count("id"))
+        }
+        submission_record_count_by_student_and_assignment = {
+            (row["student_id"], row["assignment_id"]): row["submission_record_count"]
+            for row in completed_submission_queryset.values("student_id", "assignment_id").annotate(submission_record_count=Count("id"))
+        }
+        completed_assignment_ids = list(
+            completed_submission_queryset.values_list("assignment_id", flat=True).distinct()
+        )
     overdue_missing_count_by_student = {
         row["student_id"]: row["overdue_missing_count"]
         for row in assignment_queryset.exclude(id__in=completed_assignment_ids)
@@ -3986,7 +4202,7 @@ def build_teacher_homework_stats_context(
                         "detail_label": "查看详情",
                         "detail_href": (
                             f"{reverse('teacher-homework-stats-assignment-submissions')}?"
-                            f"{urlencode({'student_id': student.id, 'assignment_id': assignment_id, 'period': 'month'})}"
+                            f"{urlencode({'student_id': student.id, 'assignment_id': assignment_id, 'period': selected_period})}"
                             if assignment_id
                             else ""
                         ),
@@ -4172,7 +4388,10 @@ def build_teacher_homework_assignment_submission_detail_context(
     period: str = "month",
 ) -> dict:
     selected_period = normalize_teacher_homework_stats_period(period)
-    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
+    if selected_period == "week":
+        period_start, period_end, period_label = resolve_homework_assignment_week_window(assignment)
+    else:
+        period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
     submission_rows = build_teacher_homework_assignment_submission_detail_rows(
         portal_user=portal_user,
         student=student,
@@ -4214,7 +4433,10 @@ def build_teacher_homework_submission_answer_detail_context(
     period: str = "month",
 ) -> dict:
     selected_period = normalize_teacher_homework_stats_period(period)
-    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
+    if selected_period == "week":
+        period_start, period_end, period_label = resolve_homework_assignment_week_window(submission.assignment)
+    else:
+        period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
     answer_detail_rows = build_teacher_homework_submission_answer_detail_rows(submission=submission)
     import_job = submission.assignment.source_import_job
     knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
@@ -4546,6 +4768,7 @@ def build_teacher_homework_batch_create_context(
     form_values: dict[str, object] | None = None,
     error_message: str = "",
     success_message: str = "",
+    batch_result: dict[str, object] | None = None,
 ) -> dict:
     normalized_course_slug = str(selected_course_slug or "").strip().lower()
     selected_course = None
@@ -4599,17 +4822,14 @@ def build_teacher_homework_batch_create_context(
     import_job_rows = []
     for import_job in visible_import_jobs:
         question_count = len(build_homework_import_job_question_payloads(import_job))
+        source_metadata = build_homework_import_job_source_metadata(import_job)
         import_job_rows.append(
             {
                 "import_job_id": import_job.id,
                 "source_filename": import_job.source_filename,
                 "teacher_display_name": import_job.teacher.full_name or import_job.teacher.username,
                 "teacher_username": import_job.teacher.username,
-                "assignment_title": import_job.assignment.title,
-                "course_title": import_job.assignment.content.course.title,
-                "content_title": import_job.assignment.content.title,
-                "source_due_date_text": format_date(import_job.assignment.due_date),
-                "source_due_date_value": import_job.assignment.due_date.isoformat(),
+                **source_metadata,
                 "question_count": question_count,
                 "created_at_text": format_datetime(import_job.created_at),
                 "preview_href": reverse("teacher-homework-import-job-preview", args=[import_job.id]),
@@ -4629,6 +4849,10 @@ def build_teacher_homework_batch_create_context(
     save_action = reverse("teacher-homework-batch-create")
     if selected_course is not None:
         save_action += "?" + urlencode({"course": selected_course.slug})
+
+    question_source_import_href = reverse("teacher-question-source-import")
+    if selected_course is not None:
+        question_source_import_href += "?" + urlencode({"course": selected_course.slug})
 
     return {
         "page_title": "批量布置作业",
@@ -4665,11 +4889,13 @@ def build_teacher_homework_batch_create_context(
             "import_job_id": selected_import_job_id or "",
             "assignment_requirement": str((form_values or {}).get("assignment_requirement") or ""),
             "due_date": str((form_values or {}).get("due_date") or timezone.localdate().isoformat()),
-            "summary_title": str((form_values or {}).get("summary_title") or default_summary_title),
+            "summary_title": str((form_values or {}).get("summary_title") or ""),
             "summary_html": str((form_values or {}).get("summary_html") or ""),
         },
         "summary_title_suggestion": default_summary_title,
+        "batch_result": batch_result,
         "save_action": save_action,
+        "question_source_import_href": question_source_import_href,
         "back_href": f"{reverse('teacher-students')}?tab=students",
         "support_items": [
             {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},

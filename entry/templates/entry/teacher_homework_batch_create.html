@@ -132,10 +132,11 @@
                     <div class="portal-action-row portal-action-row--leading">
                         <button id="open-homework-import-job-selector" class="cm-tabulator-btn cm-tabulator-btn--primary" type="button" {% if not import_job_rows %}disabled{% endif %}>选择题目</button>
                         <a class="system-header__link" href="{{ back_href }}">返回教师工作台</a>
+                        <a class="system-header__link" href="{{ question_source_import_href }}">导入练习题</a>
                     </div>
 
                     {% if not import_job_rows %}
-                        <div class="entry-hint-bar">当前没有可选的 HomeworkImportJob。先去单个学生作业页上传并确认一份在线题目。</div>
+                        <div class="entry-hint-bar">当前没有可选的 HomeworkImportJob。可以先点右侧“导入练习题”走公共题池导入，或去单个学生作业页上传并确认一份在线题目。</div>
                     {% endif %}
 
                     <div id="homework-import-job-selector-panel" {% if not import_job_selector_should_open %}hidden{% endif %}>
@@ -275,6 +276,7 @@
 {% block extra_body_end %}
     {{ student_table_rows|json_script:"homework-batch-student-table-data" }}
     {{ import_job_table_rows|json_script:"homework-import-job-table-data" }}
+    {{ batch_result|json_script:"homework-batch-result-data" }}
     {% include "entry/includes/teacher_tabulator_scripts.html" %}
     <script>
         (function () {
@@ -301,10 +303,12 @@
                     tableId: "homework-import-job-table",
                     dataScriptId: "homework-import-job-table-data",
                     searchInputId: "homework-import-job-search",
-                    hiddenInputId: "homework-import-job-id"
+                    hiddenInputId: "homework-import-job-id",
+                    formId: "homework-batch-create-form"
                 });
             }
 
+            const batchResultElement = document.getElementById("homework-batch-result-data");
             const importJobTableElement = document.getElementById("homework-import-job-table");
             const importJobPanel = document.getElementById("homework-import-job-selector-panel");
             const importJobOpenButton = document.getElementById("open-homework-import-job-selector");
@@ -320,6 +324,21 @@
             const previewModalList = document.getElementById("homework-import-job-preview-modal-list");
             const previewModalCloseButton = document.getElementById("close-homework-import-job-preview-modal");
             const previewModalCancelButton = document.getElementById("cancel-homework-import-job-preview-modal");
+
+            if (batchResultElement) {
+                try {
+                    const batchResult = JSON.parse(batchResultElement.textContent || "null");
+                    if (batchResult && batchResult.status && batchResult.message) {
+                        window.setTimeout(function () {
+                            const title = String(batchResult.title || "");
+                            const message = String(batchResult.message || "");
+                            window.alert(title ? title + "\n" + message : message);
+                        }, 0);
+                    }
+                } catch (error) {
+                    // ignore malformed batch result payload
+                }
+            }
 
             function setImportJobPanelOpen(isOpen) {
                 if (!importJobPanel) {

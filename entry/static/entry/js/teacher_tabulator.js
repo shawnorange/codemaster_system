@@ -1570,6 +1570,7 @@
         var data = readJsonScript(config.dataScriptId);
         var hiddenInput = document.getElementById(config.hiddenInputId);
         var tableElement = document.getElementById(config.tableId);
+        var form = document.getElementById(config.formId);
 
         function selectedValue() {
             return hiddenInput ? String(hiddenInput.value || "") : "";
@@ -1593,6 +1594,11 @@
                     },
                 })
             );
+        }
+
+        function syncSelectionFromTable(table) {
+            var selectedData = table.getSelectedData();
+            syncSelection(selectedData.length ? selectedData[0] : null);
         }
 
         var table = new Tabulator(
@@ -1681,7 +1687,9 @@
                 table.selectRow([selectedRow.import_job_id]);
                 syncSelection(selectedRow);
                 emitEvent("codemaster:import-job-selected", selectedRow);
+                return;
             }
+            syncSelectionFromTable(table);
         });
 
         table.on("rowSelectionChanged", function (selectedData) {
@@ -1701,6 +1709,12 @@
                     return String(row.import_job_id || "") === importJobId;
                 }) || null;
                 emitEvent("codemaster:import-job-preview-requested", rowData);
+            });
+        }
+
+        if (form) {
+            form.addEventListener("submit", function () {
+                syncSelectionFromTable(table);
             });
         }
 

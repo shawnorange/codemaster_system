@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import shutil
 import tempfile
 import zipfile
@@ -21,7 +22,10 @@ from entry.homework_online import (
     HomeworkImportParseError,
     call_external_json_api,
     detect_homework_source_type,
+    parse_candidates_with_heuristic,
+    parse_candidates_with_qwen,
     parse_homework_import_job,
+    sanitize_candidate,
     split_vision_ocr_text_into_blocks,
 )
 from entry.models import (
@@ -247,6 +251,14 @@ class HomeworkOnlineChoiceTests(TestCase):
             "confidence": 0.92,
         }
 
+    def build_png_bytes(self, *, width: int = 80, height: int = 260) -> bytes:
+        from PIL import Image  # type: ignore
+
+        image = Image.new("RGB", (width, height), color=(255, 255, 255))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
     def build_docx_bytes(self, body_text: str) -> bytes:
         document_xml = (
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -281,14 +293,6 @@ class HomeworkOnlineChoiceTests(TestCase):
             archive.writestr("[Content_Types].xml", content_types)
             archive.writestr("_rels/.rels", rels)
             archive.writestr("word/document.xml", document_xml)
-        return buffer.getvalue()
-
-    def build_png_bytes(self, *, width: int = 80, height: int = 260) -> bytes:
-        from PIL import Image  # type: ignore
-
-        image = Image.new("RGB", (width, height), color=(255, 255, 255))
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
         return buffer.getvalue()
 
     def build_pdf_bytes(self, *, page_count: int = 3) -> bytes:
@@ -386,6 +390,109 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "上传生成选择题")
         self.assertContains(response, reverse("teacher-homework-builder", args=[self.student.id, assignment.id]))
+
+    @override_settings(DASHSCOPE_API_KEY="test-qwen-key")
+    def test_qwen_prompt_mentions_extended_answer_and_analysis_markers(self) -> None:
+        with patch(
+            "entry.homework_online.call_external_json_api",
+            return_value=(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "questions": [
+                                            self.build_candidate(stem="二维数组题", correct_answer="B")
+                                        ],
+                                        "notes": "ok",
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            }
+                        }
+                    ]
+                },
+                "request note",
+            ),
+        ) as mock_call:
+            candidates, _notes = parse_candidates_with_qwen(
+                "1. 二维数组题\nA. 甲\nB. 乙\n参考答案：B\n解析：测试解析",
+                source_type=HomeworkImportJob.SOURCE_TYPE_TEXT,
+                source_origin="unit-test",
+            )
+
+        self.assertEqual(candidates[0]["correct_answer"], "B")
+        payload = mock_call.call_args.kwargs["payload"]
+        prompt_text = "\n".join(message["content"] for message in payload["messages"])
+        self.assertIn("参考答案", prompt_text)
+        self.assertIn("标准答案", prompt_text)
+        self.assertIn("Correct Answer", prompt_text)
+        self.assertIn("Explanation", prompt_text)
+
+    def test_heuristic_parser_recognizes_extended_answer_and_analysis_markers(self) -> None:
+        scenarios = [
+            ("答案：A", "A"),
+            ("参考答案：B", "B"),
+            ("正确答案：C", "C"),
+            ("标准答案：D", "D"),
+            ("【参考答案】A", "A"),
+            ("Answer: B", "B"),
+            ("Correct Answer: C", "C"),
+        ]
+        for answer_line, expected_answer in scenarios:
+            with self.subTest(answer_line=answer_line):
+                source_text = (
+                    "1. 二维数组中哪个写法合法？\n"
+                    "A. arr[i][j]\n"
+                    "B. arr[i,j]\n"
+                    "C. arr(i)(j)\n"
+                    "D. arr<i><j>\n"
+                    f"{answer_line}\n"
+                    "答案解析：二维数组使用双下标。\n"
+                )
+                candidates, _notes = parse_candidates_with_heuristic(source_text)
+                self.assertEqual(len(candidates), 1)
+                self.assertEqual(candidates[0]["correct_answer"], expected_answer)
+                self.assertEqual(candidates[0]["analysis"], "二维数组使用双下标。")
+                self.assertNotIn("参考答案", candidates[0]["stem"])
+
+    def test_heuristic_parser_maps_option_text_answer_to_letter_and_splits_inline_analysis(self) -> None:
+        source_text = (
+            "1. 哪个概念最符合 for 的特点？\n"
+            "A. 条件判断\n"
+            "B. 循环结构\n"
+            "C. 输入函数\n"
+            "D. 文件系统\n"
+            "参考答案：循环结构。解析：for 常用于循环结构。\n"
+        )
+
+        candidates, _notes = parse_candidates_with_heuristic(source_text)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["correct_answer"], "B")
+        self.assertEqual(candidates[0]["analysis"], "for 常用于循环结构。")
+        self.assertNotIn("参考答案", candidates[0]["stem"])
+
+    def test_sanitize_candidate_maps_labeled_answer_and_inline_analysis(self) -> None:
+        candidate = sanitize_candidate(
+            {
+                "stem": "二维数组中哪个表达式表示第 i 行第 j 列？\n参考答案：B",
+                "options": {
+                    "A": "arr(i,j)",
+                    "B": "arr[i][j]",
+                    "C": "arr{i}{j}",
+                    "D": "arr<i><j>",
+                },
+                "correct_answer": "参考答案：arr[i][j] 解析：标准二维数组下标写法。",
+                "analysis": "",
+            },
+            index=1,
+        )
+
+        self.assertEqual(candidate["correct_answer"], "B")
+        self.assertEqual(candidate["analysis"], "标准二维数组下标写法。")
+        self.assertNotIn("参考答案", candidate["stem"])
 
     def test_call_external_json_api_classifies_ssl_error(self) -> None:
         with patch(
@@ -1980,8 +2087,31 @@ class HomeworkBatchCreateTests(TestCase):
                 analysis=candidate["analysis"],
                 source_snapshot_json={"source_import_job_id": import_job.id, "candidate_index": index},
                 is_active=True,
-            )
+        )
         return import_job
+
+    def build_candidate(self, *, stem: str = "候选题一", correct_answer: str = "A") -> dict:
+        return {
+            "stem": stem,
+            "options": {
+                "A": "选项 A",
+                "B": "选项 B",
+                "C": "选项 C",
+                "D": "选项 D",
+            },
+            "correct_answer": correct_answer,
+            "analysis": f"{stem} 的解析",
+            "notes": "",
+            "confidence": 0.92,
+        }
+
+    def build_png_bytes(self, *, width: int = 80, height: int = 260) -> bytes:
+        from PIL import Image  # type: ignore
+
+        image = Image.new("RGB", (width, height), color=(255, 255, 255))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
     def post_batch_create(
         self,
@@ -2008,6 +2138,98 @@ class HomeworkBatchCreateTests(TestCase):
             payload["summary_html_file"] = summary_file
         return self.client.post(self.batch_create_url, payload, follow=follow)
 
+    def get_expected_question_source_import_href(self) -> str:
+        return reverse("teacher-question-source-import") + "?course=cpp"
+
+    def post_question_source_import_upload(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str,
+        content_id: int | None = None,
+        follow: bool = False,
+    ):
+        return self.client.post(
+            self.get_expected_question_source_import_href(),
+            {
+                "form_action": "upload_choice_file",
+                "content_id": str(content_id or self.array_content.id),
+                "source_file": SimpleUploadedFile(filename, content, content_type=content_type),
+            },
+            follow=follow,
+        )
+
+    def post_question_source_import_confirm(
+        self,
+        *,
+        import_job: HomeworkImportJob,
+        follow: bool = False,
+    ):
+        payload = {
+            "form_action": "confirm_import_job",
+            "import_job_id": str(import_job.id),
+            "candidate_count": str(len(import_job.candidates_json)),
+        }
+        for index, candidate in enumerate(import_job.candidates_json):
+            payload[f"candidate_{index}_included"] = "1"
+            payload[f"candidate_{index}_stem"] = candidate["stem"]
+            payload[f"candidate_{index}_option_A"] = candidate["options"]["A"]
+            payload[f"candidate_{index}_option_B"] = candidate["options"]["B"]
+            payload[f"candidate_{index}_option_C"] = candidate["options"]["C"]
+            payload[f"candidate_{index}_option_D"] = candidate["options"]["D"]
+            payload[f"candidate_{index}_correct_answer"] = candidate["correct_answer"]
+            payload[f"candidate_{index}_analysis"] = candidate["analysis"]
+            payload[f"candidate_{index}_notes"] = candidate.get("notes", "")
+        return self.client.post(
+            self.get_expected_question_source_import_href(),
+            payload,
+            follow=follow,
+        )
+
+    def create_public_question_source_import_job(
+        self,
+        *,
+        filename: str = "public-bank.txt",
+        stem: str = "公共题池文本题",
+        correct_answer: str = "B",
+        source_type: str = "text",
+    ) -> HomeworkImportJob:
+        self.sign_in(self.teacher)
+        if source_type == "image":
+            with patch(
+                "entry.homework_online.extract_text_with_volc_vision",
+                return_value=("1. 图片题\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n参考答案：A\n", "Doubao OCR"),
+            ), patch(
+                "entry.homework_online.parse_candidates_with_qwen",
+                return_value=([self.build_candidate(stem=stem, correct_answer=correct_answer)], "Qwen Public Image"),
+            ):
+                upload_response = self.post_question_source_import_upload(
+                    filename=filename,
+                    content=self.build_png_bytes(width=120, height=120),
+                    content_type="image/png",
+                )
+        else:
+            with patch(
+                "entry.homework_online.parse_candidates_with_qwen",
+                return_value=([self.build_candidate(stem=stem, correct_answer=correct_answer)], "Qwen Public Text"),
+            ):
+                upload_response = self.post_question_source_import_upload(
+                    filename=filename,
+                    content=(
+                        "1. 二维数组哪种写法正确？\n"
+                        "A. arr(i,j)\nB. arr[i][j]\nC. arr{i}{j}\nD. arr<i><j>\n参考答案：B\n"
+                    ).encode("utf-8"),
+                    content_type="text/plain",
+                )
+        self.assertEqual(upload_response.status_code, 302)
+        import_job = HomeworkImportJob.objects.get(source_filename=filename)
+        confirm_response = self.post_question_source_import_confirm(import_job=import_job)
+        self.assertEqual(confirm_response.status_code, 302)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+        return import_job
+
     def test_teacher_workbench_shows_batch_homework_button(self) -> None:
         self.sign_in(self.teacher)
 
@@ -2030,6 +2252,112 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertContains(response, 'name="summary_title"', html=False)
         self.assertContains(response, 'name="summary_html_file"', html=False)
         self.assertContains(response, 'name="summary_html"', html=False)
+        self.assertContains(response, 'enctype="multipart/form-data"', html=False)
+        self.assertContains(response, "保存并批量布置作业")
+        self.assertEqual(response.context["form_values"]["summary_title"], "")
+
+    def test_batch_homework_page_shows_import_practice_button_with_public_question_source_entry(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        expected_href = self.get_expected_question_source_import_href()
+        self.assertEqual(response.context["question_source_import_href"], expected_href)
+        self.assertContains(response, "导入练习题")
+        self.assertContains(response, expected_href)
+        self.assertNotIn("/teacher/students/", expected_href)
+        self.assertNotIn("student_id=", expected_href)
+
+    def test_question_source_import_entry_keeps_teacher_only_permission(self) -> None:
+        protected_href = self.get_expected_question_source_import_href()
+        self.sign_in(self.target_student_user)
+
+        response = self.client.get(protected_href)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("student-courses"))
+
+    def test_question_source_import_entry_returns_public_import_page_not_student_homework_page(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.get(self.get_expected_question_source_import_href())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "上传文件生成公共题池选择题候选")
+        self.assertContains(response, 'name="content_id"', html=False)
+        self.assertNotContains(response, f"/teacher/students/{self.source_student.id}/homework/")
+
+    def test_question_source_text_import_creates_public_import_job_and_questions_without_assignment(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_count_before = HomeworkAssignment.objects.count()
+
+        with patch(
+            "entry.homework_online.parse_candidates_with_qwen",
+            return_value=([self.build_candidate(stem="公共题池文本题", correct_answer="B")], "Qwen Public Text"),
+        ):
+            upload_response = self.post_question_source_import_upload(
+                filename="public-bank.txt",
+                content=(
+                    "1. 二维数组哪种写法正确？\n"
+                    "A. arr(i,j)\nB. arr[i][j]\nC. arr{i}{j}\nD. arr<i><j>\n参考答案：B\n"
+                ).encode("utf-8"),
+                content_type="text/plain",
+            )
+
+        self.assertEqual(upload_response.status_code, 302)
+        self.assertIn("op=parsed", upload_response["Location"])
+        import_job = HomeworkImportJob.objects.get(source_filename="public-bank.txt")
+        self.assertIsNone(import_job.assignment_id)
+        self.assertEqual(import_job.content_id, self.array_content.id)
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
+
+        confirm_response = self.post_question_source_import_confirm(import_job=import_job)
+
+        self.assertEqual(confirm_response.status_code, 302)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
+        created_questions = list(
+            HomeworkQuestion.objects.filter(import_job=import_job, is_active=True).order_by("question_no", "id")
+        )
+        self.assertGreaterEqual(len(created_questions), 1)
+        self.assertTrue(all(question.assignment_id is None for question in created_questions))
+
+    def test_question_source_image_import_creates_public_import_job_and_questions_without_assignment(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_count_before = HomeworkAssignment.objects.count()
+
+        with patch(
+            "entry.homework_online.extract_text_with_volc_vision",
+            return_value=("1. 图片题\nA. 甲\nB. 乙\nC. 丙\nD. 丁\n参考答案：A\n", "Doubao OCR"),
+        ), patch(
+            "entry.homework_online.parse_candidates_with_qwen",
+            return_value=([self.build_candidate(stem="公共题池图片题", correct_answer="A")], "Qwen Public Image"),
+        ):
+            upload_response = self.post_question_source_import_upload(
+                filename="public-bank.png",
+                content=self.build_png_bytes(width=120, height=120),
+                content_type="image/png",
+            )
+
+        self.assertEqual(upload_response.status_code, 302)
+        import_job = HomeworkImportJob.objects.get(source_filename="public-bank.png")
+        self.assertIsNone(import_job.assignment_id)
+        self.assertEqual(import_job.content_id, self.array_content.id)
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
+
+        confirm_response = self.post_question_source_import_confirm(import_job=import_job)
+
+        self.assertEqual(confirm_response.status_code, 302)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
+        created_questions = list(
+            HomeworkQuestion.objects.filter(import_job=import_job, is_active=True).order_by("question_no", "id")
+        )
+        self.assertGreaterEqual(len(created_questions), 1)
+        self.assertTrue(all(question.assignment_id is None for question in created_questions))
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
 
     def test_batch_homework_page_opens_question_source_panel_when_import_jobs_exist(self) -> None:
         self.sign_in(self.teacher)
@@ -2046,7 +2374,27 @@ class HomeworkBatchCreateTests(TestCase):
         response = self.client.get(self.batch_create_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "teacher_tabulator.js?v=20260424-homework-batch-fix")
+        self.assertContains(response, "teacher_tabulator.js?v=20260503-homework-batch-submit-fix")
+
+    def test_batch_page_lists_public_question_source_import_job(self) -> None:
+        public_import_job = self.create_public_question_source_import_job(filename="public-visible.txt")
+
+        self.sign_in(self.teacher)
+        response = self.client.get(self.batch_create_url)
+
+        self.assertEqual(response.status_code, 200)
+        import_job_ids = {item["import_job_id"] for item in response.context["import_job_rows"]}
+        self.assertIn(public_import_job.id, import_job_ids)
+
+    def test_batch_page_can_preselect_public_import_job_from_query_param(self) -> None:
+        public_import_job = self.create_public_question_source_import_job(filename="public-selected.txt")
+
+        self.sign_in(self.teacher)
+        response = self.client.get(self.batch_create_url + f"&import_job_id={public_import_job.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_import_job_row"]["import_job_id"], public_import_job.id)
+        self.assertContains(response, f'value="{public_import_job.id}"', html=False)
 
     def test_non_teacher_is_redirected_from_batch_homework_page(self) -> None:
         self.sign_in(self.target_student_user)
@@ -2112,6 +2460,36 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(HomeworkImportJob.objects.count(), import_job_count_before)
         self.assertEqual(HomeworkQuestion.objects.count(), question_count_before)
 
+    def test_batch_create_with_public_question_source_import_succeeds_in_one_post(self) -> None:
+        public_import_job = self.create_public_question_source_import_job(filename="public-batch.txt")
+
+        self.sign_in(self.teacher)
+        response = self.post_batch_create(
+            student_ids=[self.target_student.id, self.second_target_student.id],
+            import_job_id=public_import_job.id,
+            summary_file=SimpleUploadedFile(
+                "public-summary.html",
+                "<h2>公共题池总结</h2><p>一次提交即可成功。</p>".encode("utf-8"),
+                content_type="text/html",
+            ),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.redirect_chain), 1)
+        created_assignments = HomeworkAssignment.objects.filter(
+            teacher=self.teacher,
+            student_id__in=[self.target_student.id, self.second_target_student.id],
+            title=self.array_content.title,
+        ).order_by("student_id")
+        self.assertEqual(created_assignments.count(), 2)
+        self.assertTrue(all(item.source_import_job_id == public_import_job.id for item in created_assignments))
+        self.assertEqual(HomeworkSummary.objects.count(), 1)
+        self.assertEqual(response.context["batch_result"]["status"], "success")
+        self.assertEqual(response.context["batch_result"]["title"], "批量布置成功")
+        self.assertContains(response, "homework-batch-result-data")
+        self.assertContains(response, "已为 2 名学生创建作业")
+
     def test_batch_create_still_works_when_teacher_student_assignment_is_missing(self) -> None:
         TeacherStudentAssignment.objects.filter(
             teacher=self.teacher,
@@ -2145,6 +2523,9 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "请至少选择 1 名学生。")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
+        self.assertEqual(response.context["batch_result"]["title"], "批量布置失败")
+        self.assertContains(response, "homework-batch-result-data")
         self.assertFalse(
             HomeworkAssignment.objects.filter(
                 teacher=self.teacher,
@@ -2164,6 +2545,8 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "请先选择 1 条 HomeworkImportJob 题目记录。")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
+        self.assertContains(response, "homework-batch-result-data")
 
     def test_batch_create_saves_requirement_and_links_import_job(self) -> None:
         self.sign_in(self.teacher)
@@ -2327,6 +2710,7 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "不属于你名下")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
         self.assertFalse(
             HomeworkAssignment.objects.filter(
                 teacher=self.teacher,
@@ -2346,6 +2730,7 @@ class HomeworkBatchCreateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "当前老师不能使用这条 HomeworkImportJob 题目记录。")
+        self.assertEqual(response.context["batch_result"]["status"], "error")
         self.assertFalse(
             HomeworkAssignment.objects.filter(
                 teacher=self.teacher,

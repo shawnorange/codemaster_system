@@ -382,11 +382,13 @@ class TeacherHomeworkStatsTests(TestCase):
             assignment=assignment_a1,
             student=self.student_a,
             status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            submitted_at=assignment_a1.created_at + timedelta(hours=1),
         )
         self.create_submission(
             assignment=assignment_a2,
             student=self.student_a,
             status=HomeworkSubmission.STATUS_REVIEWED,
+            submitted_at=assignment_a2.created_at + timedelta(hours=1),
         )
         self.create_submission(
             assignment=assignment_b1,
@@ -394,6 +396,7 @@ class TeacherHomeworkStatsTests(TestCase):
             status=HomeworkSubmission.STATUS_AUTO_CHECKED,
             correct_count=4,
             wrong_count=1,
+            submitted_at=assignment_b1.created_at + timedelta(hours=1),
         )
         self.create_submission(
             assignment=assignment_c1,
@@ -401,6 +404,7 @@ class TeacherHomeworkStatsTests(TestCase):
             status=HomeworkSubmission.STATUS_AUTO_CHECKED,
             correct_count=1,
             wrong_count=4,
+            submitted_at=assignment_c1.created_at + timedelta(hours=1),
         )
 
         response = self.client.get(reverse("teacher-homework-stats"), {"period": "week"})
@@ -660,9 +664,130 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertEqual(student_json["submission_record_count_text"], "本周提交 2 条")
         self.assertTrue(
             student_json["detail_href"].endswith(
-                f"{reverse('teacher-homework-stats-assignment-submissions')}?student_id={self.student_a.id}&assignment_id={assignment.id}&period=month"
+                f"{reverse('teacher-homework-stats-assignment-submissions')}?student_id={self.student_a.id}&assignment_id={assignment.id}&period=week"
             )
         )
+
+    def test_week_uses_per_assignment_seven_day_submission_window_in_student_detail(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_a_created_at = self.make_local_datetime(day_offset=-14)
+        assignment_b_created_at = self.make_local_datetime(day_offset=-10)
+
+        assignment_a = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_a,
+            title="学生甲作业 A",
+            created_at=assignment_a_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment_a, source_filename="数组.txt")
+        self.create_submission(
+            assignment=assignment_a,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            correct_count=3,
+            wrong_count=1,
+            submitted_at=assignment_a_created_at + timedelta(days=6),
+            created_at=assignment_a_created_at + timedelta(days=1),
+        )
+        self.create_submission(
+            assignment=assignment_a,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            correct_count=9,
+            wrong_count=0,
+            submitted_at=assignment_a_created_at + timedelta(days=8),
+            created_at=assignment_a_created_at + timedelta(days=2),
+        )
+
+        assignment_b = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_a,
+            title="学生甲作业 B",
+            created_at=assignment_b_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment_b, source_filename="递归.txt")
+        self.create_submission(
+            assignment=assignment_b,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            correct_count=5,
+            wrong_count=2,
+            submitted_at=assignment_b_created_at + timedelta(days=6),
+            created_at=assignment_b_created_at + timedelta(days=1),
+        )
+
+        response = self.client.get(reverse("teacher-homework-stats"), {"period": "week"})
+
+        rows = [
+            row
+            for row in self.extract_json_script(response, "teacher-homework-stats-students-data")
+            if row["student_name"] == "学生甲"
+        ]
+        self.assertEqual(len(rows), 2)
+        assignment_a_row = next(row for row in rows if row["assignment_id"] == assignment_a.id)
+        assignment_b_row = next(row for row in rows if row["assignment_id"] == assignment_b.id)
+        self.assertEqual(assignment_a_row["knowledge_point"], "数组")
+        self.assertEqual(assignment_a_row["submission_record_count"], 1)
+        self.assertEqual(assignment_a_row["answer_rate_details"][0]["correct_count"], 3)
+        self.assertEqual(assignment_a_row["answer_rate_details"][0]["wrong_count"], 1)
+        self.assertEqual(assignment_b_row["knowledge_point"], "递归")
+        self.assertEqual(assignment_b_row["submission_record_count"], 1)
+        self.assertEqual(assignment_b_row["answer_rate_details"][0]["correct_count"], 5)
+        self.assertEqual(assignment_b_row["answer_rate_details"][0]["wrong_count"], 2)
+
+    def test_week_prefers_submitted_at_and_falls_back_to_created_at_when_submitted_at_is_empty(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_b_created_at = self.make_local_datetime(day_offset=-9)
+        assignment_c_created_at = self.make_local_datetime(day_offset=-8)
+
+        assignment_b = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_b,
+            title="学生乙作业",
+            created_at=assignment_b_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment_b, source_filename="图论.txt")
+        self.create_submission(
+            assignment=assignment_b,
+            student=self.student_b,
+            status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            correct_count=6,
+            wrong_count=0,
+            submitted_at=assignment_b_created_at + timedelta(days=8),
+            created_at=assignment_b_created_at + timedelta(days=1),
+        )
+
+        assignment_c = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_c,
+            title="学生丙作业",
+            created_at=assignment_c_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment_c, source_filename="树结构.txt")
+        fallback_submission = self.create_submission(
+            assignment=assignment_c,
+            student=self.student_c,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            correct_count=4,
+            wrong_count=1,
+            submitted_at=assignment_c_created_at + timedelta(days=2),
+            created_at=assignment_c_created_at + timedelta(days=3),
+        )
+        HomeworkSubmission.objects.filter(id=fallback_submission.id).update(
+            submitted_at=None,
+            checked_at=None,
+            created_at=assignment_c_created_at + timedelta(days=3),
+        )
+
+        response = self.client.get(reverse("teacher-homework-stats"), {"period": "week"})
+
+        student_b = self.get_student_row(response, "学生乙")
+        student_c = self.get_student_row(response, "学生丙")
+        self.assertFalse(student_b["has_answer_rate_details"])
+        self.assertTrue(student_c["has_answer_rate_details"])
+        self.assertEqual(student_c["answer_rate_details"][0]["knowledge_point_name"], "树结构")
+        self.assertEqual(student_c["answer_rate_details"][0]["correct_count"], 4)
+        self.assertEqual(student_c["answer_rate_details"][0]["wrong_count"], 1)
 
     def test_month_student_detail_includes_assignment_submission_detail_link_and_quarter_does_not(self) -> None:
         self.sign_in(self.teacher)
@@ -712,6 +837,85 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertEqual(quarter_json["knowledge_point"], "")
         self.assertEqual(quarter_json["assignment_id"], 0)
         self.assertEqual(quarter_json["detail_href"], "")
+
+    def test_week_assignment_submission_detail_uses_assignment_created_at_plus_seven_days_window(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_created_at = self.make_local_datetime(day_offset=-12)
+        assignment = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_a,
+            title="周度详情作业",
+            created_at=assignment_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment, source_filename="动态规划.txt")
+        valid_submission = self.create_submission(
+            assignment=assignment,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            correct_count=2,
+            wrong_count=1,
+            submitted_at=assignment_created_at + timedelta(days=6),
+            created_at=assignment_created_at + timedelta(days=1),
+        )
+        self.create_submission(
+            assignment=assignment,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            correct_count=9,
+            wrong_count=0,
+            submitted_at=assignment_created_at + timedelta(days=8),
+            created_at=assignment_created_at + timedelta(days=2),
+        )
+
+        response = self.client.get(
+            reverse("teacher-homework-stats-assignment-submissions"),
+            {"student_id": self.student_a.id, "assignment_id": assignment.id, "period": "week"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "动态规划")
+        rows = self.extract_json_script(response, "teacher-homework-assignment-submission-detail-data")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["submission_id"], valid_submission.id)
+        self.assertIn("submission-answer-detail?submission_id=", rows[0]["detail_answer_href"])
+
+    def test_month_submission_detail_is_not_limited_by_assignment_week_window(self) -> None:
+        self.sign_in(self.teacher)
+        month_start = timezone.localdate().replace(day=1)
+        assignment_created_at = self.make_local_datetime_for_date(month_start + timedelta(days=1))
+        assignment = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_a,
+            title="月度详情作业",
+            created_at=assignment_created_at,
+        )
+        self.attach_source_import_job(assignment=assignment, source_filename="广度优先搜索.txt")
+        valid_submission = self.create_submission(
+            assignment=assignment,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_AUTO_CHECKED,
+            correct_count=2,
+            wrong_count=1,
+            submitted_at=assignment_created_at + timedelta(days=2),
+            created_at=assignment_created_at + timedelta(days=2),
+        )
+        late_submission = self.create_submission(
+            assignment=assignment,
+            student=self.student_a,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            correct_count=3,
+            wrong_count=1,
+            submitted_at=assignment_created_at + timedelta(days=8),
+            created_at=assignment_created_at + timedelta(days=8),
+        )
+
+        response = self.client.get(
+            reverse("teacher-homework-stats-assignment-submissions"),
+            {"student_id": self.student_a.id, "assignment_id": assignment.id, "period": "month"},
+        )
+
+        rows = self.extract_json_script(response, "teacher-homework-assignment-submission-detail-data")
+        self.assertEqual({row["submission_id"] for row in rows}, {valid_submission.id, late_submission.id})
 
     def test_assignment_submission_detail_page_lists_all_month_submissions_for_same_student_and_assignment(self) -> None:
         self.sign_in(self.teacher)
@@ -1260,8 +1464,9 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertTrue(week_rows)
         self.assertTrue(month_rows)
         self.assertTrue(quarter_rows)
-        self.assertEqual(week_rows[0]["student_name"], "学生甲")
-        self.assertTrue(any(detail["knowledge_point_name"] == "周度知识点" for detail in week_rows[0]["answer_rate_details"]))
+        week_student_a_rows = [row for row in week_rows if row["student_name"] == "学生甲"]
+        self.assertTrue(week_student_a_rows)
+        self.assertTrue(any(detail["knowledge_point_name"] == "周度知识点" for row in week_student_a_rows for detail in row["answer_rate_details"]))
         self.assertTrue(all(detail["knowledge_point_name"] == "" for row in month_rows for detail in row["answer_rate_details"]))
         self.assertTrue(all(detail["knowledge_point_name"] == "" for row in quarter_rows for detail in row["answer_rate_details"]))
 

@@ -37,6 +37,7 @@ from .homework_online import (
     HomeworkImportParseError,
     compute_uploaded_file_sha256,
     confirm_homework_import_job,
+    confirm_question_source_import_job,
     detect_homework_source_type,
     encode_sql_ascii_json_text,
     extract_import_job_user_facing_message,
@@ -94,6 +95,7 @@ from .portal_context import (
     build_teacher_homework_stats_context,
     build_teacher_homework_builder_context,
     build_teacher_page_shell,
+    build_teacher_question_source_import_context,
     build_teacher_student_assignment_list_context,
     build_teacher_student_detail_context,
     build_default_batch_homework_summary_title,
@@ -1170,6 +1172,7 @@ def teacher_homework_submission_answer_detail(request: HttpRequest) -> HttpRespo
 def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     selected_course_slug = (request.GET.get("course") or "").strip().lower()
+    requested_import_job_id = normalize_positive_int(request.GET.get("import_job_id"), default=0, minimum=1)
     selected_course = None
     if selected_course_slug:
         selected_course = Course.objects.filter(slug=selected_course_slug).order_by("id").first()
@@ -1177,6 +1180,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             raise Http404("未找到该课程")
 
     success_message = ""
+    batch_result: dict[str, object] | None = None
     if request.GET.get("op") == "created":
         created_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
         if created_count:
@@ -1184,8 +1188,18 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 success_message = f"批量布置完成：已为 {created_count} 名学生创建作业，并关联 1 篇课后总结。"
             else:
                 success_message = f"批量布置完成：已为 {created_count} 名学生创建作业。"
+            batch_result = {
+                "status": "success",
+                "title": "批量布置成功",
+                "message": success_message,
+                "count": created_count,
+            }
 
-    form_values: dict[str, object] | None = None
+    form_values: dict[str, object] | None = (
+        {"import_job_id": requested_import_job_id}
+        if requested_import_job_id
+        else None
+    )
     error_message = ""
 
     if request.method == "POST":
@@ -1269,62 +1283,82 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                         for student_id in selected_student_ids
                         if student_id in allowed_student_map
                     ]
+                    source_content = (
+                        visible_import_job.assignment.content
+                        if visible_import_job.assignment_id and visible_import_job.assignment
+                        else visible_import_job.content
+                    )
+                    if source_content is None:
+                        error_message = "当前题目记录没有绑定有效知识点，暂时不能用于批量布置作业。"
                     assignment_title = (
                         visible_import_job.assignment.title.strip()
-                        or visible_import_job.assignment.content.title.strip()
+                        if visible_import_job.assignment_id and visible_import_job.assignment
+                        else ""
+                    )
+                    if not assignment_title and source_content is not None:
+                        assignment_title = source_content.title.strip()
+                    assignment_title = (
+                        assignment_title
                         or visible_import_job.source_filename.strip()
                     )
-                    created_summary = None
-                    final_summary_title = ""
-                    if summary_html_value:
-                        final_summary_title = summary_title or build_default_batch_homework_summary_title(
-                            course_label=selected_course.title if selected_course is not None else "批量作业",
-                            anchor_date=timezone.localdate(),
-                        )
-                    try:
-                        with transaction.atomic():
-                            if summary_html_value:
-                                created_summary = HomeworkSummary.objects.create(
-                                    title=final_summary_title,
-                                    summary_html=summary_html_value,
-                                    created_by=portal_user,
-                                )
-                            for student in selected_students:
-                                ensure_homework_content_access(
-                                    student,
-                                    visible_import_job.assignment.content,
-                                    portal_user,
-                                )
-                                assignment = HomeworkAssignment.objects.create(
-                                    teacher=portal_user,
-                                    student=student,
-                                    content=visible_import_job.assignment.content,
-                                    title=assignment_title,
-                                    description=assignment_requirement,
-                                    due_date=due_date_value,
-                                    status=HomeworkAssignment.STATUS_ASSIGNED,
-                                    summary=created_summary,
-                                    source_import_job=visible_import_job,
-                                    assigned_at=timezone.now(),
-                                    is_active=True,
-                                )
-                    except ValidationError as exc:
-                        error_message = "；".join(exc.messages) if exc.messages else str(exc)
-                    else:
-                        redirect_params: dict[str, object] = {
-                            "op": "created",
-                            "count": len(selected_students),
-                        }
-                        if created_summary is not None:
-                            redirect_params["with_summary"] = 1
-                        if selected_course_slug:
-                            redirect_params["course"] = selected_course_slug
-                        return redirect(
-                            build_redirect_with_query(
-                                reverse("teacher-homework-batch-create"),
-                                params=redirect_params,
+                    if not error_message:
+                        created_summary = None
+                        final_summary_title = ""
+                        if summary_html_value:
+                            final_summary_title = summary_title or build_default_batch_homework_summary_title(
+                                course_label=selected_course.title if selected_course is not None else "批量作业",
+                                anchor_date=timezone.localdate(),
                             )
-                        )
+                        try:
+                            with transaction.atomic():
+                                if summary_html_value:
+                                    created_summary = HomeworkSummary.objects.create(
+                                        title=final_summary_title,
+                                        summary_html=summary_html_value,
+                                        created_by=portal_user,
+                                    )
+                                for student in selected_students:
+                                    ensure_homework_content_access(
+                                        student,
+                                        source_content,
+                                        portal_user,
+                                    )
+                                    HomeworkAssignment.objects.create(
+                                        teacher=portal_user,
+                                        student=student,
+                                        content=source_content,
+                                        title=assignment_title,
+                                        description=assignment_requirement,
+                                        due_date=due_date_value,
+                                        status=HomeworkAssignment.STATUS_ASSIGNED,
+                                        summary=created_summary,
+                                        source_import_job=visible_import_job,
+                                        assigned_at=timezone.now(),
+                                        is_active=True,
+                                    )
+                        except ValidationError as exc:
+                            error_message = "；".join(exc.messages) if exc.messages else str(exc)
+                        else:
+                            redirect_params: dict[str, object] = {
+                                "op": "created",
+                                "count": len(selected_students),
+                            }
+                            if created_summary is not None:
+                                redirect_params["with_summary"] = 1
+                            if selected_course_slug:
+                                redirect_params["course"] = selected_course_slug
+                            return redirect(
+                                build_redirect_with_query(
+                                    reverse("teacher-homework-batch-create"),
+                                    params=redirect_params,
+                                )
+                            )
+        if error_message:
+            batch_result = {
+                "status": "error",
+                "title": "批量布置失败",
+                "message": error_message,
+            }
 
     try:
         context = build_teacher_homework_batch_create_context(
@@ -1333,6 +1367,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             form_values=form_values,
             error_message=error_message,
             success_message=success_message,
+            batch_result=batch_result,
         )
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该课程") from exc
@@ -1355,6 +1390,218 @@ def teacher_homework_import_job_preview(request: HttpRequest, import_job_id: int
     if import_job is None:
         raise Http404("未找到该题目记录")
     return JsonResponse(build_homework_import_job_preview_payload(import_job))
+
+
+@role_required("teacher")
+def teacher_question_source_import(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    selected_course_slug = (request.GET.get("course") or "").strip().lower()
+    requested_content_id = normalize_positive_int(request.GET.get("content_id"), default=0, minimum=1)
+
+    success_map = {
+        "parsed": "源文件已上传并完成候选题识别，请先确认题目再写入公共题池。",
+    }
+
+    def get_success_message() -> str:
+        op = (request.GET.get("op") or "").strip()
+        if op == "confirmed":
+            confirmed_count = normalize_positive_int(request.GET.get("confirmed_count"), default=0, minimum=0)
+            if confirmed_count > 0:
+                return f"确认成功，已写入 {confirmed_count} 道公共题池题目。"
+            return "候选题已确认并写入公共题池。"
+        return success_map.get(op, "")
+
+    def render_import_page(*, upload_error_message: str = "", upload_success_message: str = "", selected_content_id: int = 0) -> HttpResponse:
+        success_message = upload_success_message or get_success_message()
+        try:
+            context = build_teacher_question_source_import_context(
+                portal_user,
+                selected_course_slug=selected_course_slug,
+                selected_content_id=selected_content_id or requested_content_id,
+                upload_error_message=upload_error_message,
+                upload_success_message=success_message,
+            )
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该课程") from exc
+        return render(
+            request,
+            "entry/teacher_question_source_import.html",
+            {
+                "role_label": ROLE_CONFIG["teacher"]["label"],
+                **build_shell_identity_context(request),
+                **context,
+            },
+        )
+
+    if request.method == "POST":
+        action = request.POST.get("form_action", "").strip()
+        selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
+        try:
+            context = build_teacher_question_source_import_context(
+                portal_user,
+                selected_course_slug=selected_course_slug,
+                selected_content_id=selected_content_id,
+            )
+        except ObjectDoesNotExist as exc:
+            raise Http404("未找到该课程") from exc
+        content_option_ids = {item["id"] for item in context["content_options"]}
+        selected_content_option = context["selected_content_option"]
+        selected_content = (
+            CourseContent.objects.select_related("course", "level")
+            .filter(id=selected_content_id)
+            .first()
+            if selected_content_id in content_option_ids
+            else None
+        )
+
+        if action == "upload_choice_file":
+            if selected_content is None:
+                return render_import_page(upload_error_message="请先选择一个有效知识点。", selected_content_id=selected_content_id)
+            source_file = request.FILES.get("source_file")
+            if not source_file:
+                return render_import_page(upload_error_message="请先选择一个文件再上传。", selected_content_id=selected_content_id)
+            source_type = detect_homework_source_type(source_file.name)
+            if not source_type:
+                return render_import_page(upload_error_message="当前只支持 pdf / image / html / txt / docx / xlsx 文件。", selected_content_id=selected_content_id)
+            source_sha256 = compute_uploaded_file_sha256(source_file)
+            with transaction.atomic():
+                pending_import_job = (
+                    HomeworkImportJob.objects.select_for_update()
+                    .filter(
+                        teacher=portal_user,
+                        assignment__isnull=True,
+                        content=selected_content,
+                        is_active=True,
+                        parse_status__in=[HomeworkImportJob.STATUS_UPLOADED, HomeworkImportJob.STATUS_PARSING],
+                    )
+                    .order_by("-created_at", "-id")
+                    .first()
+                )
+                if pending_import_job:
+                    return render_import_page(upload_error_message="当前知识点已有公共导入任务正在上传或识别中，请等待完成后再试。", selected_content_id=selected_content_id)
+                import_job = HomeworkImportJob.objects.create(
+                    teacher=portal_user,
+                    assignment=None,
+                    content=selected_content,
+                    source_file=source_file,
+                    source_filename=source_file.name,
+                    source_sha256=source_sha256,
+                    source_type=source_type,
+                    parse_status=HomeworkImportJob.STATUS_UPLOADED,
+                    is_active=True,
+                )
+            try:
+                parse_homework_import_job(import_job)
+            except Exception as exc:
+                logger.exception(
+                    "question source import parse crashed import_job=%s content=%s source_type=%s",
+                    import_job.id,
+                    selected_content.id if selected_content else 0,
+                    source_type,
+                )
+                import_job.parse_status = HomeworkImportJob.STATUS_FAILED
+                import_job.candidates_json = []
+                import_job.parse_notes = "\n".join(
+                    [
+                        "页面提示：文件解析时发生后端异常，未生成候选题，请联系管理员查看日志。",
+                        "失败步骤：导入解析",
+                        f"失败原因：{type(exc).__name__}: {exc}",
+                    ]
+                )
+                import_job.save(update_fields=["parse_status", "candidates_json", "parse_notes", "updated_at"])
+            if import_job.parse_status == HomeworkImportJob.STATUS_FAILED:
+                return render_import_page(
+                    upload_error_message=extract_import_job_user_facing_message(
+                        import_job,
+                        default="文件解析失败，请检查源文件内容。",
+                    ),
+                    selected_content_id=selected_content_id,
+                )
+            redirect_params = {"op": "parsed", "content_id": selected_content_id}
+            if selected_course_slug:
+                redirect_params["course"] = selected_course_slug
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-question-source-import"),
+                    params=redirect_params,
+                    anchor="candidate-editor",
+                )
+            )
+
+        if action == "confirm_import_job":
+            import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
+            import_job = (
+                HomeworkImportJob.objects.filter(
+                    id=import_job_id,
+                    teacher=portal_user,
+                    assignment__isnull=True,
+                    is_active=True,
+                )
+                .first()
+            )
+            if import_job is None:
+                raise Http404("未找到该公共题池导入任务")
+            candidate_count = normalize_positive_int(request.POST.get("candidate_count"), default=0, minimum=0)
+            if candidate_count <= 0:
+                return render_import_page(upload_error_message="确认失败：候选题提交数据为空，请刷新页面后重试。", selected_content_id=selected_content_id or import_job.content_id)
+            payloads = []
+            has_candidate_fields = False
+            for index in range(candidate_count):
+                included_field_name = f"candidate_{index}_included"
+                has_candidate_fields = has_candidate_fields or any(
+                    field_name in request.POST
+                    for field_name in [
+                        included_field_name,
+                        f"candidate_{index}_stem",
+                        f"candidate_{index}_option_A",
+                        f"candidate_{index}_option_B",
+                        f"candidate_{index}_option_C",
+                        f"candidate_{index}_option_D",
+                        f"candidate_{index}_correct_answer",
+                        f"candidate_{index}_analysis",
+                        f"candidate_{index}_notes",
+                    ]
+                )
+                payloads.append(
+                    {
+                        "included": "1" in request.POST.getlist(included_field_name),
+                        "stem": request.POST.get(f"candidate_{index}_stem", ""),
+                        "options": {
+                            "A": request.POST.get(f"candidate_{index}_option_A", ""),
+                            "B": request.POST.get(f"candidate_{index}_option_B", ""),
+                            "C": request.POST.get(f"candidate_{index}_option_C", ""),
+                            "D": request.POST.get(f"candidate_{index}_option_D", ""),
+                        },
+                        "correct_answer": request.POST.get(f"candidate_{index}_correct_answer", ""),
+                        "analysis": request.POST.get(f"candidate_{index}_analysis", ""),
+                        "notes": request.POST.get(f"candidate_{index}_notes", ""),
+                    }
+                )
+            if not has_candidate_fields or not payloads:
+                return render_import_page(upload_error_message="确认失败：候选题提交数据为空，请刷新页面后重试。", selected_content_id=selected_content_id or import_job.content_id)
+            try:
+                created_questions = confirm_question_source_import_job(import_job, payloads, operator=portal_user)
+            except HomeworkImportParseError as exc:
+                import_job.candidates_json = encode_sql_ascii_json_text(payloads)
+                import_job.parse_status = HomeworkImportJob.STATUS_PARSED
+                import_job.save(update_fields=["candidates_json", "parse_status", "updated_at"])
+                return render_import_page(upload_error_message=f"确认失败：{exc}", selected_content_id=selected_content_id or import_job.content_id)
+            redirect_params = {
+                "op": "confirmed",
+                "confirmed_count": len(created_questions),
+                "content_id": import_job.content_id or selected_content_id,
+            }
+            if selected_course_slug:
+                redirect_params["course"] = selected_course_slug
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-question-source-import"),
+                    params=redirect_params,
+                    anchor="candidate-editor",
+                )
+            )
+
+    return render_import_page(selected_content_id=requested_content_id)
 
 
 @role_required("teacher")

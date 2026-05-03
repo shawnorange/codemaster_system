@@ -435,6 +435,15 @@ class HomeworkImportJob(models.Model):
         HomeworkAssignment,
         on_delete=models.CASCADE,
         related_name="import_jobs",
+        null=True,
+        blank=True,
+    )
+    content = models.ForeignKey(
+        CourseContent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="homework_import_jobs",
     )
     source_file = models.FileField("源文件", upload_to="homework_imports/%Y/%m/%d")
     source_filename = models.CharField("原始文件名", max_length=255)
@@ -459,7 +468,14 @@ class HomeworkImportJob(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.assignment.title} - {self.source_filename}"
+        owner_label = (
+            self.assignment.title
+            if self.assignment_id and self.assignment
+            else self.content.title
+            if self.content_id and self.content
+            else "公共题池"
+        )
+        return f"{owner_label} - {self.source_filename}"
 
 
 class HomeworkQuestion(models.Model):
@@ -473,6 +489,8 @@ class HomeworkQuestion(models.Model):
         HomeworkAssignment,
         on_delete=models.CASCADE,
         related_name="questions",
+        null=True,
+        blank=True,
     )
     import_job = models.ForeignKey(
         HomeworkImportJob,
@@ -509,7 +527,14 @@ class HomeworkQuestion(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.assignment.title} - 第{self.question_no}题"
+        owner_label = (
+            self.assignment.title
+            if self.assignment_id and self.assignment
+            else self.import_job.source_filename
+            if self.import_job_id and self.import_job
+            else "公共题池题目"
+        )
+        return f"{owner_label} - 第{self.question_no}题"
 
 
 class HomeworkSubmission(models.Model):

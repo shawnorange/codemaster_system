@@ -28,11 +28,15 @@ def get_visible_homework_import_jobs(
             "assignment__content",
             "assignment__content__course",
             "assignment__student",
+            "content",
+            "content__course",
         )
         .filter(
             is_active=True,
-            assignment__is_active=True,
-            assignment__content__is_active=True,
+        )
+        .filter(
+            Q(assignment__isnull=True, content__is_active=True)
+            | Q(assignment__is_active=True, assignment__content__is_active=True)
         )
         .filter(
             Q(parse_status=HomeworkImportJob.STATUS_CONFIRMED)
@@ -42,10 +46,35 @@ def get_visible_homework_import_jobs(
         .order_by("-confirmed_at", "-created_at", "-id")
     )
     if course_id:
-        queryset = queryset.filter(assignment__content__course_id=course_id)
+        queryset = queryset.filter(
+            Q(assignment__content__course_id=course_id)
+            | Q(content__course_id=course_id)
+        )
     if teacher_can_import_students(portal_user):
         return queryset
     return queryset.filter(teacher=portal_user)
+
+
+def build_homework_import_job_source_metadata(import_job: HomeworkImportJob) -> dict[str, Any]:
+    if import_job.assignment_id and import_job.assignment:
+        return {
+            "assignment_title": import_job.assignment.title,
+            "course_title": import_job.assignment.content.course.title,
+            "content_title": import_job.assignment.content.title,
+            "content_id": import_job.assignment.content_id,
+            "source_due_date_text": import_job.assignment.due_date.isoformat(),
+            "source_due_date_value": import_job.assignment.due_date.isoformat(),
+        }
+
+    content = import_job.content
+    return {
+        "assignment_title": (content.title if content else "") or import_job.source_filename,
+        "course_title": content.course.title if content and content.course_id else "",
+        "content_title": content.title if content else "",
+        "content_id": content.id if content else 0,
+        "source_due_date_text": "",
+        "source_due_date_value": "",
+    }
 
 
 def build_homework_import_job_question_payloads(import_job: HomeworkImportJob) -> list[dict[str, Any]]:
@@ -98,6 +127,7 @@ def build_homework_import_job_question_payloads(import_job: HomeworkImportJob) -
 
 def build_homework_import_job_preview_payload(import_job: HomeworkImportJob) -> dict[str, Any]:
     question_payloads = build_homework_import_job_question_payloads(import_job)
+    source_metadata = build_homework_import_job_source_metadata(import_job)
     preview_items = []
     for question in question_payloads:
         options = question["options_json"] if isinstance(question["options_json"], dict) else {}
@@ -120,11 +150,7 @@ def build_homework_import_job_preview_payload(import_job: HomeworkImportJob) -> 
         "source_filename": import_job.source_filename,
         "teacher_name": import_job.teacher.full_name or import_job.teacher.username,
         "teacher_username": import_job.teacher.username,
-        "assignment_title": import_job.assignment.title,
-        "course_title": import_job.assignment.content.course.title,
-        "content_title": import_job.assignment.content.title,
-        "source_due_date_text": import_job.assignment.due_date.isoformat(),
-        "source_due_date_value": import_job.assignment.due_date.isoformat(),
+        **source_metadata,
         "parse_status": import_job.parse_status,
         "question_count": len(preview_items),
         "preview_items": preview_items,

@@ -55,6 +55,7 @@ from .views import (
     teacher_assignment_new,
     teacher_homework_builder,
     teacher_homework_import_job_preview,
+    teacher_question_source_import,
     teacher_homework_assignment_submission_detail,
     teacher_homework_submission_answer_detail,
     teacher_homework_submission_detail,
@@ -153,6 +154,7 @@ urlpatterns = [
         name="teacher-homework-stats-submission-answer-detail",
     ),
     path("teacher/homework/batch-create", teacher_homework_batch_create, name="teacher-homework-batch-create"),
+    path("teacher/homework/question-source/import", teacher_question_source_import, name="teacher-question-source-import"),
     path(
         "teacher/homework/import-jobs/<int:import_job_id>/preview",
         teacher_homework_import_job_preview,

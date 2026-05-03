@@ -40,8 +40,33 @@ VISION_BLOCK_START_RE = re.compile(
     re.IGNORECASE,
 )
 OPTION_RE = re.compile(r"^([A-D])\s*[\.\)、:：]\s*(.+)$", re.IGNORECASE)
-ANSWER_RE = re.compile(r"^(?:答案|正确答案)\s*[:：]?\s*([A-D])\b", re.IGNORECASE)
-ANALYSIS_RE = re.compile(r"^(?:解析|答案解析)\s*[:：]?\s*(.*)$", re.IGNORECASE)
+ANSWER_LABELS = (
+    "正确答案",
+    "标准答案",
+    "参考答案",
+    "答案",
+    "Correct Answer",
+    "Answer",
+)
+ANALYSIS_LABELS = (
+    "答案解析",
+    "参考解析",
+    "解析",
+    "讲解",
+    "Explanation",
+)
+ANSWER_LABEL_PATTERN = "|".join(re.escape(item) for item in sorted(ANSWER_LABELS, key=len, reverse=True))
+ANALYSIS_LABEL_PATTERN = "|".join(re.escape(item) for item in sorted(ANALYSIS_LABELS, key=len, reverse=True))
+ANSWER_RE = re.compile(
+    rf"^(?:【?\s*(?:{ANSWER_LABEL_PATTERN})\s*】?)(?!\s*(?:解析|Explanation))\s*[:：]?\s*(.+)$",
+    re.IGNORECASE,
+)
+ANALYSIS_RE = re.compile(rf"^(?:【?\s*(?:{ANALYSIS_LABEL_PATTERN})\s*】?)\s*[:：]?\s*(.*)$", re.IGNORECASE)
+ANSWER_LETTER_RE = re.compile(r"^\s*([A-D])(?:\b|[\.\)、:：]|$)", re.IGNORECASE)
+INLINE_ANALYSIS_SPLIT_RE = re.compile(
+    rf"(?:[。.;；]\s*|\s+)(?:【?\s*(?:{ANALYSIS_LABEL_PATTERN})\s*】?)\s*[:：]?\s*(.*)$",
+    re.IGNORECASE,
+)
 WHITESPACE_RE = re.compile(r"\s+")
 HTTP_ERROR_PREVIEW_LIMIT = 240
 TRACE_PREVIEW_LIMIT = 220
@@ -274,16 +299,70 @@ def normalize_choice_options(raw_options: object) -> dict[str, str]:
     return options
 
 
+def normalize_candidate_stem(value: object) -> str:
+    normalized = normalize_homework_text(value)
+    kept_lines = []
+    for raw_line in normalized.splitlines():
+        cleaned = normalize_candidate_text(raw_line)
+        if not cleaned:
+            continue
+        if ANSWER_RE.match(cleaned) or ANALYSIS_RE.match(cleaned):
+            continue
+        kept_lines.append(cleaned)
+    return normalize_candidate_text(" ".join(kept_lines))
+
+
+def split_answer_and_analysis_fragment(value: object) -> tuple[str, str]:
+    cleaned = normalize_candidate_text(value)
+    if not cleaned:
+        return "", ""
+    inline_analysis_match = INLINE_ANALYSIS_SPLIT_RE.search(cleaned)
+    if not inline_analysis_match:
+        return cleaned.strip(" ：:，,。；;"), ""
+    answer_text = cleaned[: inline_analysis_match.start()].strip(" ：:，,。；;")
+    analysis_text = normalize_candidate_text(inline_analysis_match.group(1))
+    return answer_text, analysis_text
+
+
+def resolve_candidate_correct_answer(raw_answer: object, options: dict[str, str]) -> str:
+    cleaned_answer = normalize_candidate_text(raw_answer)
+    labeled_answer_match = ANSWER_RE.match(cleaned_answer)
+    if labeled_answer_match:
+        cleaned_answer = labeled_answer_match.group(1)
+    answer_text, _ = split_answer_and_analysis_fragment(cleaned_answer)
+    if not answer_text:
+        return ""
+
+    leading_letter_match = ANSWER_LETTER_RE.match(answer_text)
+    if leading_letter_match:
+        return leading_letter_match.group(1).upper()
+
+    compact_answer = re.sub(r"[\s\.\)、:：,，。；;!！\(\)（）\[\]【】]", "", answer_text).upper()
+    if compact_answer in {"A", "B", "C", "D"}:
+        return compact_answer
+
+    normalized_answer_text = normalize_candidate_text(answer_text)
+    for key in ["A", "B", "C", "D"]:
+        option_text = normalize_candidate_text(options.get(key))
+        if not option_text:
+            continue
+        if normalized_answer_text == option_text:
+            return key
+    return ""
+
+
 def sanitize_candidate(candidate: dict, *, index: int) -> dict:
     options = normalize_choice_options(candidate.get("options"))
-    correct_answer = normalize_candidate_text(candidate.get("correct_answer")).upper()[:1]
+    correct_answer = resolve_candidate_correct_answer(candidate.get("correct_answer"), options)
+    _, inline_analysis = split_answer_and_analysis_fragment(candidate.get("correct_answer"))
     notes = normalize_candidate_text(candidate.get("notes"))
+    analysis = normalize_candidate_text(candidate.get("analysis")) or inline_analysis
     return {
         "index": index,
-        "stem": normalize_candidate_text(candidate.get("stem")),
+        "stem": normalize_candidate_stem(candidate.get("stem")),
         "options": options,
         "correct_answer": correct_answer if correct_answer in {"A", "B", "C", "D"} else "",
-        "analysis": normalize_candidate_text(candidate.get("analysis")),
+        "analysis": analysis,
         "notes": notes,
         "confidence": candidate.get("confidence"),
     }
@@ -656,12 +735,20 @@ def _format_trace_datetime(value: Any) -> str:
 def find_recent_duplicate_import_job(import_job: HomeworkImportJob) -> HomeworkImportJob | None:
     if not import_job.source_sha256:
         return None
-    return (
-        HomeworkImportJob.objects.filter(
-            assignment_id=import_job.assignment_id,
-            is_active=True,
-            source_sha256=import_job.source_sha256,
+    duplicate_queryset = HomeworkImportJob.objects.filter(
+        is_active=True,
+        source_sha256=import_job.source_sha256,
+    )
+    if import_job.assignment_id:
+        duplicate_queryset = duplicate_queryset.filter(assignment_id=import_job.assignment_id)
+    else:
+        duplicate_queryset = duplicate_queryset.filter(
+            assignment__isnull=True,
+            teacher_id=import_job.teacher_id,
+            content_id=import_job.content_id,
         )
+    return (
+        duplicate_queryset
         .exclude(id=import_job.id)
         .order_by("-created_at", "-id")
         .first()
@@ -1214,7 +1301,13 @@ def parse_candidates_with_qwen(
             "只识别单选题，输出 JSON 对象，格式必须为 "
             '{"questions":[{"stem":"","options":{"A":"","B":"","C":"","D":""},"correct_answer":"A","analysis":"","notes":"","confidence":0.0}],"notes":""}。'
             "如果该题块不是完整单选题，或者只是讲义标题、知识点总结、题目说明、例题讲解，请返回空 questions。"
-            "只有在存在明确题干且至少两个选项时，才允许输出候选题。不要输出多余解释。"
+            "只有在存在明确题干且至少两个选项时，才允许输出候选题。"
+            "答案标记可能写成：答案、参考答案、正确答案、标准答案、Answer、Correct Answer。"
+            "解析标记可能写成：解析、答案解析、参考解析、讲解、Explanation。"
+            "不要把答案或解析标签文本并入题干。"
+            "如果答案写的是选项内容而不是字母，请根据 A/B/C/D 选项内容映射成对应字母。"
+            "如果同一题出现多个答案标记，优先取最后一个最明确的答案标记。"
+            "不要输出多余解释。"
         )
         user_prompt = (
             f"源文件类型：{source_type}\n"
@@ -1222,6 +1315,8 @@ def parse_candidates_with_qwen(
             f"题块标识：{block_label or '未命名 block'}\n"
             "请只处理这个题块，不要脑补跨块内容。\n"
             "如果块中只是说明文或不完整题目，就输出空 questions。\n"
+            "遇到“参考答案：B”“【参考答案】A”“Correct Answer: C”时，要把对应字母写入 correct_answer。\n"
+            "遇到“参考答案：循环结构”这类写法时，如果某个选项内容是“循环结构”，请输出对应选项字母。\n"
             f"{source_text}"
         )
     else:
@@ -1229,12 +1324,23 @@ def parse_candidates_with_qwen(
             "你是教学系统的题目结构化助手。"
             "只识别单选题，输出 JSON 对象，格式必须为 "
             '{"questions":[{"stem":"","options":{"A":"","B":"","C":"","D":""},"correct_answer":"A","analysis":"","notes":"","confidence":0.0}],"notes":""}。'
-            "如果文本中不是单选题，就不要输出该题。不要输出多余解释。"
+            "如果文本中不是单选题，就不要输出该题。"
+            "答案标记可能写成：答案、参考答案、正确答案、标准答案、Answer、Correct Answer。"
+            "解析标记可能写成：解析、答案解析、参考解析、讲解、Explanation。"
+            "不要把答案或解析标签文本并入题干。"
+            "如果答案写的是选项内容而不是字母，请根据 A/B/C/D 选项内容映射成对应字母。"
+            "如果同一题出现多个答案标记，优先取最后一个最明确的答案标记。"
+            "不要输出多余解释。"
         )
         user_prompt = (
             f"源文件类型：{source_type}\n"
             f"文本来源：{source_origin}\n"
             "请从下面内容中提取单选题候选，仅保留题干完整、选项明确、答案可判定或可供老师补全的题。\n"
+            "支持识别：参考答案、正确答案、标准答案、Answer、Correct Answer、答案解析、参考解析、讲解、Explanation。\n"
+            "示例：\n"
+            "参考答案：B -> correct_answer 应输出 B。\n"
+            "参考答案：循环结构 -> 如果 B 选项是“循环结构”，correct_answer 应输出 B。\n"
+            "参考答案：A。解析：这是循环遍历。 -> correct_answer=A，analysis=这是循环遍历。\n"
             f"{source_text}"
         )
     payload = {
@@ -1354,16 +1460,20 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
             option_lines[option_match.group(1).upper()] = option_match.group(2).strip()
             collecting_analysis = False
             continue
-        answer_match = ANSWER_RE.match(cleaned)
-        if answer_match:
-            answer = answer_match.group(1).upper()
-            collecting_analysis = False
-            continue
         analysis_match = ANALYSIS_RE.match(cleaned)
         if analysis_match:
             collecting_analysis = True
             if analysis_match.group(1).strip():
                 analysis_lines.append(analysis_match.group(1).strip())
+            continue
+        answer_match = ANSWER_RE.match(cleaned)
+        if answer_match:
+            answer_text, inline_analysis = split_answer_and_analysis_fragment(answer_match.group(1))
+            if answer_text:
+                answer = answer_text
+            if inline_analysis:
+                analysis_lines.append(inline_analysis)
+            collecting_analysis = bool(inline_analysis)
             continue
         if collecting_analysis:
             analysis_lines.append(cleaned)
@@ -1375,8 +1485,9 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
     if not stem or len([value for value in option_lines.values() if value]) < 2:
         return None
     options = {key: option_lines.get(key, "") for key in ["A", "B", "C", "D"]}
+    resolved_answer = resolve_candidate_correct_answer(answer, options)
     notes = []
-    if not answer:
+    if not resolved_answer:
         notes.append("未稳定识别到正确答案，请老师确认。")
     if any(not value for value in options.values()):
         notes.append("选项未完全识别为 A/B/C/D，请老师补全。")
@@ -1384,7 +1495,7 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
         "index": index,
         "stem": stem,
         "options": options,
-        "correct_answer": answer if answer in {"A", "B", "C", "D"} else "",
+        "correct_answer": resolved_answer,
         "analysis": normalize_candidate_text(" ".join(analysis_lines)),
         "notes": " ".join(notes).strip(),
         "confidence": None,
@@ -1805,6 +1916,55 @@ def normalize_confirmed_candidate_payloads(payloads: list[dict]) -> list[dict]:
     return normalized
 
 
+def normalize_and_validate_confirmed_candidate_payloads(payloads: list[dict]) -> tuple[list[dict], list[dict]]:
+    if not payloads:
+        raise HomeworkImportParseError("候选题提交数据为空，请刷新页面后重试。")
+
+    normalized_payloads = normalize_confirmed_candidate_payloads(payloads)
+    selected_candidates = [item for item in normalized_payloads if item["included"]]
+    if not selected_candidates:
+        raise HomeworkImportParseError("请至少保留一道候选题后再确认导入。")
+
+    for candidate in selected_candidates:
+        if not candidate["stem"]:
+            raise HomeworkImportParseError("题干不能为空。")
+        if any(not candidate["options"][key] for key in ["A", "B", "C", "D"]):
+            raise HomeworkImportParseError("A/B/C/D 选项必须全部填写完整。")
+        if candidate["correct_answer"] not in {"A", "B", "C", "D"}:
+            raise HomeworkImportParseError("正确答案必须是 A/B/C/D 之一。")
+    return normalized_payloads, selected_candidates
+
+
+def build_homework_question_from_candidate(
+    *,
+    assignment: HomeworkAssignment | None,
+    import_job: HomeworkImportJob,
+    candidate: dict,
+    question_no: int,
+    extra_snapshot: dict[str, object] | None = None,
+) -> HomeworkQuestion:
+    snapshot = {
+        "import_job_id": import_job.id,
+        "source_filename": import_job.source_filename,
+        "candidate_index": candidate["index"],
+        "notes": candidate["notes"],
+    }
+    if extra_snapshot:
+        snapshot.update(extra_snapshot)
+    return HomeworkQuestion(
+        assignment=assignment,
+        import_job=import_job,
+        question_no=question_no,
+        question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+        stem=candidate["stem"],
+        options_json=encode_sql_ascii_json_text(candidate["options"]),
+        correct_answer=candidate["correct_answer"],
+        analysis=candidate["analysis"],
+        source_snapshot_json=encode_sql_ascii_json_text(snapshot),
+        is_active=True,
+    )
+
+
 def _format_homework_validation_error(exc: ValidationError) -> str:
     if getattr(exc, "message_dict", None):
         parts = []
@@ -1827,26 +1987,12 @@ def confirm_homework_import_job(
     *,
     operator: PortalUser | None = None,
 ) -> list[HomeworkQuestion]:
-    if not payloads:
-        raise HomeworkImportParseError("候选题提交数据为空，请刷新页面后重试。")
-
-    normalized_payloads = normalize_confirmed_candidate_payloads(payloads)
-    selected_candidates = [item for item in normalized_payloads if item["included"]]
-    if not selected_candidates:
-        raise HomeworkImportParseError("请至少保留一道候选题后再确认导入。")
-
-    for candidate in selected_candidates:
-        if not candidate["stem"]:
-            raise HomeworkImportParseError("题干不能为空。")
-        if any(not candidate["options"][key] for key in ["A", "B", "C", "D"]):
-            raise HomeworkImportParseError("A/B/C/D 选项必须全部填写完整。")
-        if candidate["correct_answer"] not in {"A", "B", "C", "D"}:
-            raise HomeworkImportParseError("正确答案必须是 A/B/C/D 之一。")
+    normalized_payloads, _selected_candidates = normalize_and_validate_confirmed_candidate_payloads(payloads)
 
     try:
         with transaction.atomic():
             locked_import_job = (
-                HomeworkImportJob.objects.select_related("assignment", "teacher")
+                HomeworkImportJob.objects
                 .select_for_update()
                 .get(id=import_job.id, is_active=True)
             )
@@ -1875,22 +2021,11 @@ def confirm_homework_import_job(
             for candidate in normalized_payloads:
                 reviewed_candidate = dict(candidate)
                 if candidate["included"]:
-                    question = HomeworkQuestion(
+                    question = build_homework_question_from_candidate(
                         assignment=assignment,
                         import_job=locked_import_job,
+                        candidate=candidate,
                         question_no=len(created_questions) + 1,
-                        question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
-                        stem=candidate["stem"],
-                        options_json=encode_sql_ascii_json_text(candidate["options"]),
-                        correct_answer=candidate["correct_answer"],
-                        analysis=candidate["analysis"],
-                        source_snapshot_json=encode_sql_ascii_json_text({
-                            "import_job_id": locked_import_job.id,
-                            "source_filename": locked_import_job.source_filename,
-                            "candidate_index": candidate["index"],
-                            "notes": candidate["notes"],
-                        }),
-                        is_active=True,
                     )
                     try:
                         question.full_clean()
@@ -1941,6 +2076,83 @@ def confirm_homework_import_job(
         return created_questions
     except IntegrityError as exc:
         raise HomeworkImportParseError(f"正式题目写入失败：{exc}") from exc
+
+
+def confirm_question_source_import_job(
+    import_job: HomeworkImportJob,
+    payloads: list[dict],
+    *,
+    operator: PortalUser | None = None,
+) -> list[HomeworkQuestion]:
+    normalized_payloads, _selected_candidates = normalize_and_validate_confirmed_candidate_payloads(payloads)
+
+    try:
+        with transaction.atomic():
+            locked_import_job = (
+                HomeworkImportJob.objects
+                .select_for_update()
+                .get(id=import_job.id, is_active=True)
+            )
+            if locked_import_job.assignment_id is not None:
+                raise HomeworkImportParseError("当前导入任务属于学生作业，不能按公共题池导入确认。")
+            if locked_import_job.parse_status != HomeworkImportJob.STATUS_PARSED:
+                raise HomeworkImportParseError("当前导入任务不是待确认状态，请刷新页面后重试。")
+            if operator is not None and locked_import_job.teacher_id != operator.id:
+                raise HomeworkImportParseError("当前老师没有权限操作这份公共题池导入记录。")
+
+            HomeworkQuestion.objects.filter(import_job=locked_import_job, is_active=True).update(
+                is_active=False,
+                updated_at=timezone.now(),
+            )
+            created_questions = []
+            reviewed_candidates = []
+            for candidate in normalized_payloads:
+                reviewed_candidate = dict(candidate)
+                if candidate["included"]:
+                    question = build_homework_question_from_candidate(
+                        assignment=None,
+                        import_job=locked_import_job,
+                        candidate=candidate,
+                        question_no=len(created_questions) + 1,
+                        extra_snapshot={
+                            "question_source_import": True,
+                            "content_id": locked_import_job.content_id or 0,
+                        },
+                    )
+                    try:
+                        question.full_clean()
+                    except ValidationError as exc:
+                        raise HomeworkImportParseError(
+                            f"第 {len(created_questions) + 1} 道公共题池题目校验失败：{_format_homework_validation_error(exc)}"
+                        ) from exc
+                    question.save()
+                    reviewed_candidate["question_no"] = question.question_no
+                    created_questions.append(question)
+                reviewed_candidates.append(reviewed_candidate)
+
+            locked_import_job.candidates_json = encode_sql_ascii_json_text(reviewed_candidates)
+            locked_import_job.parse_status = HomeworkImportJob.STATUS_CONFIRMED
+            locked_import_job.confirmed_at = timezone.now()
+            locked_import_job.parse_notes = "\n".join(
+                [
+                    line
+                    for line in [
+                        locked_import_job.parse_notes.strip(),
+                        f"教师已确认并写入公共题池题目，共写入 {len(created_questions)} 道题。",
+                    ]
+                    if line
+                ]
+            )
+            locked_import_job.save(
+                update_fields=["candidates_json", "parse_status", "confirmed_at", "parse_notes", "updated_at"]
+            )
+            import_job.candidates_json = locked_import_job.candidates_json
+            import_job.parse_status = locked_import_job.parse_status
+            import_job.confirmed_at = locked_import_job.confirmed_at
+            import_job.parse_notes = locked_import_job.parse_notes
+        return created_questions
+    except IntegrityError as exc:
+        raise HomeworkImportParseError(f"公共题池题目写入失败：{exc}") from exc
 
 
 def grade_homework_submission(
