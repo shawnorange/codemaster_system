@@ -24,7 +24,7 @@
 
     <section class="hero-panel hero-panel--stacked-metrics">
         <div class="hero-panel__copy">
-            <p class="eyebrow">Homework Submission Detail</p>
+            <p class="eyebrow">Student Period Assignments</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
             <h2>{{ page_title }}</h2>
             <p class="role-description">{{ page_description }}</p>
@@ -44,20 +44,20 @@
     <div class="system-content-grid portal-content-grid--single">
         <section class="surface-panel surface-panel--primary">
             <div class="section-heading section-heading--compact">
-                <p class="section-heading__eyebrow">Week Submission Records</p>
-                <h3>本周提交记录列表</h3>
-                <p>这里只展示当前教师学生在本周截止日期范围内相关 assignment 的 HomeworkSubmission 记录，每一行代表一次提交。</p>
+                <p class="section-heading__eyebrow">Student Period Assignment List</p>
+                <h3>{{ period_label }}作业列表</h3>
+                <p>这里只展示当前学生在 {{ period_label }}内按 due_date 命中的 assignment 列表；month / quarter 主表只保留学生聚合结果，不再平铺 HomeworkSubmission。</p>
             </div>
 
             <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
                 <div class="portal-grid-toolbar teacher-tabulator-toolbar">
                     <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
-                        <label for="teacher-homework-submission-detail-search">按时间 / 知识点 / 正误统计查找</label>
+                        <label for="teacher-homework-student-period-assignments-search">按 assignment / 日期 / 状态查找</label>
                         <input
-                            id="teacher-homework-submission-detail-search"
+                            id="teacher-homework-student-period-assignments-search"
                             class="portal-grid-search teacher-tabulator-search"
                             type="text"
-                            placeholder="输入知识点、正确题数、错误题数或正确率"
+                            placeholder="输入 assignment_id、作业标题、布置时间、截止日期、状态或未完成原因"
                         >
                     </div>
                     <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
@@ -65,20 +65,22 @@
                         <a class="system-header__link" href="{{ back_href }}">返回 Student Detail</a>
                     </div>
                 </div>
-                <div id="teacher-homework-submission-detail-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
-                <div id="teacher-homework-submission-detail-fallback">
-                    {% if submission_rows %}
-                        {% for item in submission_rows %}
+                <div id="teacher-homework-student-period-assignments-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
+                <div id="teacher-homework-student-period-assignments-fallback">
+                    {% if student_period_assignment_rows %}
+                        {% for item in student_period_assignment_rows %}
                             <article class="entry-hint-bar">
-                                <strong>{{ item.submitted_at_text }}</strong>
-                                <span>知识点 {{ item.knowledge_point }}，正确 {{ item.correct_count }}，错误 {{ item.wrong_count }}，正确率 {{ item.correct_rate_text }}</span>
-                                {% if item.detail_answer_href %}
-                                    <div><a class="system-header__link" href="{{ item.detail_answer_href }}">查看做题详情</a></div>
+                                <strong>{{ item.assignment_title }}</strong>
+                                <span>assignment_id {{ item.assignment_id }}，布置时间 {{ item.assigned_at_text }}，截止日期 {{ item.due_date_text }}，{{ item.homework_mode_text }}，完成状态 {{ item.completion_state_text }}</span>
+                                <div>知识点 {{ item.knowledge_point }}，完成时间 {{ item.completed_at_text }}，提交记录数 {{ item.submission_count }}，latest_submission_id {{ item.latest_submission_id }}</div>
+                                <div>说明：{{ item.completion_reason_text }}</div>
+                                {% if item.detail_href %}
+                                    <div><a class="system-header__link" href="{{ item.detail_href }}">{{ item.detail_label }}</a></div>
                                 {% endif %}
                             </article>
                         {% endfor %}
                     {% else %}
-                        <div class="entry-hint-bar">当前周度窗口内还没有可展示的提交记录。</div>
+                        <div class="entry-hint-bar">当前周期内还没有命中的 assignment。</div>
                     {% endif %}
                 </div>
             </div>
@@ -87,29 +89,29 @@
 {% endblock %}
 
 {% block extra_body_end %}
-    {{ submission_rows|json_script:"teacher-homework-submission-detail-data" }}
+    {{ student_period_assignment_rows|json_script:"teacher-homework-student-period-assignments-data" }}
     {% include "entry/includes/teacher_tabulator_scripts.html" %}
     <script>
         (function () {
-            var fallback = document.getElementById("teacher-homework-submission-detail-fallback");
+            var fallback = document.getElementById("teacher-homework-student-period-assignments-fallback");
             try {
                 if (
                     window.CodeMasterTeacherTabulator &&
-                    typeof window.CodeMasterTeacherTabulator.initTeacherHomeworkSubmissionDetail === "function" &&
-                    document.getElementById("teacher-homework-submission-detail-table") &&
-                    document.getElementById("teacher-homework-submission-detail-data")
+                    typeof window.CodeMasterTeacherTabulator.initTeacherHomeworkStudentPeriodAssignments === "function" &&
+                    document.getElementById("teacher-homework-student-period-assignments-table") &&
+                    document.getElementById("teacher-homework-student-period-assignments-data")
                 ) {
-                    var table = window.CodeMasterTeacherTabulator.initTeacherHomeworkSubmissionDetail({
-                        tableId: "teacher-homework-submission-detail-table",
-                        dataScriptId: "teacher-homework-submission-detail-data",
-                        searchInputId: "teacher-homework-submission-detail-search"
+                    var table = window.CodeMasterTeacherTabulator.initTeacherHomeworkStudentPeriodAssignments({
+                        tableId: "teacher-homework-student-period-assignments-table",
+                        dataScriptId: "teacher-homework-student-period-assignments-data",
+                        searchInputId: "teacher-homework-student-period-assignments-search"
                     });
                     if (table && fallback) {
                         fallback.hidden = true;
                     }
                 }
             } catch (error) {
-                console.error("Teacher Homework Submission Detail grid init failed", error);
+                console.error("Teacher Homework Student Period Assignments grid init failed", error);
             }
         }());
     </script>

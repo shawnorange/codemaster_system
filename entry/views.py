@@ -89,6 +89,7 @@ from .portal_context import (
     build_teacher_homework_batch_create_context,
     build_teacher_homework_submission_answer_detail_context,
     build_teacher_homework_submission_detail_context,
+    build_teacher_homework_student_period_assignment_detail_context,
     build_parent_page_shell,
     build_principal_page_shell,
     build_student_portal_page,
@@ -1122,6 +1123,27 @@ def teacher_homework_submission_detail(request: HttpRequest) -> HttpResponse:
         student=student,
     )
     return render_shell_page(request, "teacher", "entry/teacher_homework_submission_detail.html", context)
+
+
+@role_required("teacher")
+def teacher_homework_student_period_assignment_detail(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
+    selected_period = request.GET.get("period") or "month"
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id, teacher_user=portal_user)
+        .first()
+    )
+    if student is None:
+        raise Http404("未找到该学生")
+
+    context = build_teacher_homework_student_period_assignment_detail_context(
+        portal_user,
+        student=student,
+        period=selected_period,
+    )
+    return render_shell_page(request, "teacher", "entry/teacher_homework_student_period_assignment_detail.html", context)
 
 
 @role_required("teacher")

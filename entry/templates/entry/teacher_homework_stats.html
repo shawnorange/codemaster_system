@@ -55,7 +55,7 @@
                     <div class="section-heading section-heading--compact">
                         <p class="section-heading__eyebrow">Period Filter</p>
                         <h3>{{ period_label }}统计</h3>
-                        <p>当前按{{ period_field_label }}落在统计周期内的作业实时聚合，只统计你当前负责学生的作业记录。</p>
+                        <p>当前按{{ period_field_label }}落在统计周期内的作业实时聚合，只统计你当前负责学生的作业记录；assigned_at 仅用于明细表搜索与展示。</p>
                     </div>
 
                     <div class="teacher-homework-stats-periods">
@@ -75,11 +75,11 @@
                         </article>
                         <article class="topic-work-card__meta-item">
                             <span>提交去重规则</span>
-                            <strong>同一份作业多次提交只算 1 次完成</strong>
+                            <strong>同一份作业多次提交只算 1 次完成，明细优先取最新完成态提交</strong>
                         </article>
                         <article class="topic-work-card__meta-item">
                             <span>未交榜排除条件</span>
-                            <strong>应交作业数为 0 的学生不进入榜单</strong>
+                            <strong>应交作业数为 0 的学生不进入榜单，未定截止日期单独排除</strong>
                         </article>
                     </div>
                 </section>
@@ -118,22 +118,39 @@
                         <div class="section-heading section-heading--compact">
                             <p class="section-heading__eyebrow">Student Detail</p>
                             <h3>学生明细表</h3>
-                            <p>这里按当前教师负责学生逐个展示应交、已交、未交、完成率，以及 `HomeworkSubmission.correct_count / wrong_count` 汇总结果。周度详情入口会按具体 assignment 下钻。</p>
+                            {% if selected_period == "week" %}
+                                <p>这里保留 week 的 assignment 级明细展示。统计周期统一按 due_date 归属；assigned_at 搜索只影响前端 datagrid 过滤，不改后端完成统计。</p>
+                            {% else %}
+                                <p>这里按学生聚合展示 {{ period_label }}作业完成情况，每个学生只显示一行；不会把 HomeworkSubmission 多次提交平铺成多行。</p>
+                            {% endif %}
                         </div>
 
                     {% if students %}
                         <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
                             <div class="portal-grid-toolbar teacher-tabulator-toolbar">
                                 <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
-                                    <label for="teacher-homework-stats-student-search">按姓名 / 级别 / 知识点 / 统计查找</label>
+                                    {% if selected_period == "week" %}
+                                        <label for="teacher-homework-stats-student-search">按姓名 / 作业 / 级别 / 知识点 / 统计查找</label>
+                                    {% else %}
+                                        <label for="teacher-homework-stats-student-search">按姓名 / 级别 / 完成统计 / 最近时间查找</label>
+                                    {% endif %}
                                     <input
                                         id="teacher-homework-stats-student-search"
                                         class="portal-grid-search teacher-tabulator-search"
                                         type="text"
-                                        placeholder="输入学生姓名、级别、知识点名或正确率 / 错误率"
+                                        placeholder="{% if selected_period == 'week' %}输入学生姓名、作业标题、级别、知识点或正确率 / 错误率{% else %}输入学生姓名、级别、作业数量、完成数量或最近日期{% endif %}"
                                     >
                                 </div>
                                 <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                    <div class="teacher-tabulator-filter-field">
+                                        <label for="teacher-homework-stats-assigned-at-search">assigned_at 搜索</label>
+                                        <input
+                                            id="teacher-homework-stats-assigned-at-search"
+                                            class="portal-grid-filter-control teacher-tabulator-filter-control"
+                                            type="text"
+                                            placeholder="输入 2026-05-01 或 2026-05-01 10:00"
+                                        >
+                                    </div>
                                     <div class="teacher-tabulator-filter-field">
                                         <label for="teacher-homework-stats-level-filter">级别分组筛选</label>
                                         <select id="teacher-homework-stats-level-filter" class="portal-grid-filter-control teacher-tabulator-filter-control">
@@ -142,28 +159,41 @@
                                             {% endfor %}
                                         </select>
                                     </div>
-                                    <span class="portal-grid-note teacher-tabulator-note">完成率 = 已交作业数 ÷ 应交作业数。同一份作业多次提交只计 1 次。周度按学生 + assignment 知识点展示，详情入口会进入该 assignment 的提交记录列表；月度 / 季度按学生汇总全部知识点。</span>
+                                    <span class="portal-grid-note teacher-tabulator-note">
+                                        {% if selected_period == "week" %}
+                                            assignment 是否进入本周统计只看 due_date；week 主表保留 assignment 级明细。
+                                        {% else %}
+                                            month / quarter 主表只保留学生聚合结果：completed_count、incomplete_count、assignment_count，以及客观题 / 要求型拆分统计。
+                                        {% endif %}
+                                    </span>
                                 </div>
                             </div>
                             <div id="teacher-homework-stats-students-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
                             <div id="teacher-homework-stats-students-fallback">
                                 {% for item in student_table_rows %}
                                     <article class="entry-hint-bar">
-                                        <strong>{{ item.student_name }}</strong>
-                                        <span>级别 {{ item.level_code_display }}，应交 {{ item.assigned_count }}，已交 {{ item.submitted_count }}，待完成 {{ item.pending_count }}，超期未完成 {{ item.overdue_missing_count }}，完成率 {{ item.completion_rate_text }}</span>
-                                        {% if item.has_answer_rate_details %}
-                                            {% for detail in item.answer_rate_details %}
-                                                <div>
-                                                    {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point|default:detail.knowledge_point_name }}：{% endif %}
-                                                    正确 {{ detail.correct_count }}，错误 {{ detail.wrong_count }}，正确率 {{ detail.correct_rate_text }}，错误率 {{ detail.wrong_rate_text }}
-                                                </div>
-                                            {% endfor %}
+                                        {% if selected_period == "week" %}
+                                            <strong>{{ item.student_name }}{% if item.assignment_title %} · {{ item.assignment_title }}{% endif %}</strong>
+                                            <span>级别 {{ item.level_code_display }}，布置时间 {{ item.assigned_at_text|default:"暂无" }}，截止日期 {{ item.due_date_text|default:"暂无" }}，作业类型 {{ item.homework_mode_text|default:"暂无" }}，知识点 {{ item.knowledge_point|default:"暂无" }}</span>
+                                            <div>应交 {{ item.assigned_count }}，已完成 {{ item.submitted_count }}，待完成 {{ item.pending_count }}，超期未完成 {{ item.overdue_missing_count }}，完成率 {{ item.completion_rate_text }}</div>
+                                            {% if item.has_answer_rate_details %}
+                                                {% for detail in item.answer_rate_details %}
+                                                    <div>
+                                                        {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point|default:detail.knowledge_point_name }}：{% endif %}
+                                                        正确 {{ detail.correct_count }}，错误 {{ detail.wrong_count }}，正确率 {{ detail.correct_rate_text }}，错误率 {{ detail.wrong_rate_text }}
+                                                    </div>
+                                                {% endfor %}
+                                            {% else %}
+                                                <div>暂无答题统计</div>
+                                            {% endif %}
                                         {% else %}
-                                            <div>暂无答题统计</div>
+                                            <strong>{{ item.student_name }}</strong>
+                                            <span>级别 {{ item.level_code_display }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，未完成 {{ item.incomplete_count }}</span>
+                                            <div>客观题 {{ item.online_assignment_count }} / 已完成 {{ item.online_completed_count }}，要求型 {{ item.requirement_assignment_count }} / 已完成 {{ item.requirement_completed_count }}</div>
+                                            <div>最近布置 {{ item.latest_assigned_at_text|default:"暂无" }}，最近截止 {{ item.latest_due_date_text|default:"暂无" }}</div>
                                         {% endif %}
                                         {% if item.detail_href %}
                                             <div>
-                                                {{ item.submission_record_count_text }}
                                                 <a class="system-header__link" href="{{ item.detail_href }}">{{ item.detail_label|default:"查看详情" }}</a>
                                             </div>
                                         {% endif %}
@@ -200,6 +230,7 @@
                         tableId: "teacher-homework-stats-students-table",
                         dataScriptId: "teacher-homework-stats-students-data",
                         searchInputId: "teacher-homework-stats-student-search",
+                        assignedAtSearchInputId: "teacher-homework-stats-assigned-at-search",
                         levelFilterId: "teacher-homework-stats-level-filter",
                         period: "{{ selected_period }}"
                     });

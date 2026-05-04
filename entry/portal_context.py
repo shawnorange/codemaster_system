@@ -21,6 +21,13 @@ from .content_visibility import (
     pick_highest_permission_code,
 )
 from .course_identity import resolve_course_slug, summarize_course_level_labels
+from .homework_completion_stats import (
+    build_homework_completion_stats,
+    get_homework_submission_effective_submitted_at,
+    normalize_homework_completion_period_type,
+    resolve_homework_completion_period_datetimes,
+    resolve_homework_completion_period_dates,
+)
 from .homework_batch import (
     build_homework_import_job_source_metadata,
     build_homework_import_job_question_payloads,
@@ -1113,55 +1120,25 @@ def build_teacher_workbench_tabs(active_key: str) -> list[dict[str, object]]:
 
 
 def normalize_teacher_homework_stats_period(period: str) -> str:
-    normalized = (period or "").strip().lower()
-    return normalized if normalized in {"week", "month", "quarter"} else "week"
+    return normalize_homework_completion_period_type(period)
 
 
 def resolve_teacher_homework_stats_period_bounds(period: str) -> tuple[datetime, datetime, str]:
-    normalized_period = normalize_teacher_homework_stats_period(period)
-    tz = timezone.get_current_timezone()
-    current_date = timezone.localdate()
-
-    if normalized_period == "month":
-        start_date = current_date.replace(day=1)
-        if start_date.month == 12:
-            end_date = start_date.replace(year=start_date.year + 1, month=1, day=1)
-        else:
-            end_date = start_date.replace(month=start_date.month + 1, day=1)
-        label = "本月"
-    elif normalized_period == "quarter":
-        quarter_start_month = ((current_date.month - 1) // 3) * 3 + 1
-        start_date = current_date.replace(month=quarter_start_month, day=1)
-        if quarter_start_month == 10:
-            end_date = start_date.replace(year=start_date.year + 1, month=1, day=1)
-        else:
-            end_date = start_date.replace(month=quarter_start_month + 3, day=1)
-        label = "本季度"
-    else:
-        start_date = current_date - timedelta(days=current_date.weekday())
-        end_date = start_date + timedelta(days=7)
-        label = "本周"
-
-    start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), tz)
-    end_at = timezone.make_aware(datetime.combine(end_date, datetime.min.time()), tz)
+    start_at, end_at, _, _, label = resolve_homework_completion_period_datetimes(period)
     return start_at, end_at, label
 
 
 def resolve_homework_assignment_week_window(assignment: HomeworkAssignment) -> tuple[datetime, datetime, str]:
-    start_at = assignment.created_at
-    end_at = assignment.created_at + timedelta(days=7)
-    return start_at, end_at, "本周"
-
-
-def get_homework_submission_effective_submitted_at(submission: HomeworkSubmission) -> datetime | None:
-    return submission.submitted_at or submission.created_at
+    start_date, end_date, label = resolve_homework_completion_period_dates("week", anchor_date=assignment.due_date)
+    tz = timezone.get_current_timezone()
+    start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), tz)
+    end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()), tz)
+    return start_at, end_at, label
 
 
 def is_homework_submission_within_assignment_week_window(submission: HomeworkSubmission) -> bool:
-    effective_submitted_at = get_homework_submission_effective_submitted_at(submission)
-    if effective_submitted_at is None:
-        return False
     assignment_start_at, assignment_end_at, _ = resolve_homework_assignment_week_window(submission.assignment)
+    effective_submitted_at = get_homework_submission_effective_submitted_at(submission)
     return assignment_start_at <= effective_submitted_at < assignment_end_at
 
 
@@ -1171,16 +1148,33 @@ def filter_teacher_homework_stats_assignments(
     start_at: datetime,
     end_at: datetime,
 ) -> tuple[QuerySet[HomeworkAssignment], str]:
-    field_map = {field.name for field in HomeworkAssignment._meta.fields}
-    if "due_at" in field_map:
-        return queryset.filter(due_at__gte=start_at, due_at__lt=end_at), "截止时间"
-    return queryset.filter(created_at__gte=start_at, created_at__lt=end_at), "创建时间"
+    period_end_date = timezone.localtime(end_at - timedelta(seconds=1)).date()
+    return queryset.filter(due_date__range=(timezone.localtime(start_at).date(), period_end_date)), "截止日期"
 
 
 def normalize_homework_knowledge_point_name(source_filename: str) -> str:
     filename = str(source_filename or "").strip()
     normalized = re.sub(r"\.(txt|xlsx)$", "", filename, flags=re.IGNORECASE).strip()
     return normalized or "未命名知识点"
+
+
+def get_teacher_homework_assignment_knowledge_point(assignment: HomeworkAssignment) -> str:
+    import_job = assignment.source_import_job
+    if import_job and import_job.is_active and str(import_job.source_filename or "").strip():
+        return normalize_homework_knowledge_point_name(import_job.source_filename)
+    content_title = str(getattr(assignment.content, "title", "") or "").strip()
+    return content_title or str(assignment.title or "").strip() or "未命名知识点"
+
+
+def get_teacher_homework_completion_reason_text(reason: str, *, is_completed: bool) -> str:
+    if is_completed:
+        return "已完成"
+    reason_map = {
+        "online_missing": "在线题没有完成态提交",
+        "requirement_not_marked_completed": "要求型作业未标记完成",
+        "undated": "无截止日期，未纳入周期统计",
+    }
+    return reason_map.get(str(reason or ""), "未完成")
 
 
 def normalize_teacher_homework_level_code(level_code: str) -> str:
@@ -1278,6 +1272,81 @@ def build_correct_wrong_rate_summary(*, correct_count: int, wrong_count: int) ->
         "correct_rate_text": format_completion_rate(correct_rate),
         "wrong_rate_text": format_completion_rate(wrong_rate),
     }
+
+
+def build_teacher_homework_assignment_rate_details(assignment_item: dict[str, object]) -> list[dict[str, object]]:
+    if not assignment_item.get("has_online_questions"):
+        return []
+
+    rate_summary = build_correct_wrong_rate_summary(
+        correct_count=int(assignment_item.get("correct_count") or 0),
+        wrong_count=int(assignment_item.get("wrong_count") or 0),
+    )
+    if int(rate_summary["total_answered"]) <= 0:
+        return []
+
+    assignment = assignment_item["assignment"]
+    knowledge_point = get_teacher_homework_assignment_knowledge_point(assignment)
+    return [
+        {
+            "assignment_id": int(assignment.id),
+            "assignment_title": str(assignment.title or "").strip(),
+            "knowledge_point": knowledge_point,
+            "knowledge_point_name": knowledge_point,
+            "show_knowledge_point_name": False,
+            **rate_summary,
+        }
+    ]
+
+
+def build_teacher_homework_student_summary_answer_rate_details(
+    *,
+    selected_period: str,
+    assignment_items: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if selected_period == "week":
+        details: list[dict[str, object]] = []
+        for assignment_item in assignment_items:
+            assignment_details = build_teacher_homework_assignment_rate_details(assignment_item)
+            if not assignment_details:
+                continue
+            detail = assignment_details[0]
+            details.append(
+                {
+                    **detail,
+                    "show_knowledge_point_name": True,
+                }
+            )
+        return sorted(
+            details,
+            key=lambda item: (
+                str(item.get("knowledge_point_name") or ""),
+                str(item.get("assignment_title") or ""),
+                int(item.get("assignment_id") or 0),
+            ),
+        )
+
+    total_correct_count = 0
+    total_wrong_count = 0
+    for assignment_item in assignment_items:
+        if not assignment_item.get("has_online_questions"):
+            continue
+        total_correct_count += int(assignment_item.get("correct_count") or 0)
+        total_wrong_count += int(assignment_item.get("wrong_count") or 0)
+    rate_summary = build_correct_wrong_rate_summary(
+        correct_count=total_correct_count,
+        wrong_count=total_wrong_count,
+    )
+    if int(rate_summary["total_answered"]) <= 0:
+        return []
+    return [
+        {
+            "knowledge_point": "",
+            "knowledge_point_name": "",
+            "show_knowledge_point_name": False,
+            **rate_summary,
+        }
+    ]
 
 
 def build_teacher_homework_student_overall_rate_summaries(
@@ -1481,40 +1550,106 @@ def build_teacher_homework_student_detail_rows(
             **student_row,
             "student_sort_index": student_index,
         }
-        answer_rate_details = list(base_row.get("table_answer_rate_details") or base_row.get("answer_rate_details") or [])
+        if selected_period in {"month", "quarter"}:
+            detail_rows.append(
+                {
+                    **base_row,
+                    "latest_assigned_at_text": format_datetime(base_row.get("latest_assigned_at")),
+                    "latest_due_date_text": format_date(base_row.get("latest_due_date")),
+                }
+            )
+            continue
 
-        if selected_period in {"week", "month"}:
-            visible_details = sorted(
-                answer_rate_details,
+        assignment_items = list(base_row.get("assignment_items") or [])
+        if assignment_items:
+            sorted_assignment_items = sorted(
+                assignment_items,
                 key=lambda item: (
-                    -float(item.get("wrong_rate") or 0),
-                    str(item.get("knowledge_point") or item.get("knowledge_point_name") or ""),
+                    getattr(item["assignment"], "due_date", timezone.localdate()),
+                    getattr(item["assignment"], "assigned_at", None) or timezone.now(),
                     int(item.get("assignment_id") or 0),
                 ),
+                reverse=True,
             )
-            if visible_details:
-                for detail in visible_details:
-                    detail_rows.append(
-                        {
-                            **base_row,
-                            "assignment_id": int(detail.get("assignment_id") or 0),
-                            "knowledge_point": str(detail.get("knowledge_point") or detail.get("knowledge_point_name") or ""),
-                            "answer_rate_details": [detail],
-                            "has_answer_rate_details": True,
-                            "answer_rate_search_text": format_teacher_homework_answer_rate_detail_text(detail),
-                            "submission_record_count": int(detail.get("submission_record_count") or 0),
-                            "submission_record_count_text": str(detail.get("submission_record_count_text") or ""),
-                            "detail_label": str(detail.get("detail_label") or ""),
-                            "detail_href": str(detail.get("detail_href") or ""),
-                        }
-                    )
-                continue
+            for assignment_item in sorted_assignment_items:
+                assignment = assignment_item["assignment"]
+                answer_rate_details = build_teacher_homework_assignment_rate_details(assignment_item)
+                answer_rate_search_text = " | ".join(
+                    format_teacher_homework_answer_rate_detail_text(detail)
+                    for detail in answer_rate_details
+                ) or "暂无答题统计"
+                is_completed = bool(assignment_item.get("is_completed"))
+                overdue_missing_count = 0
+                pending_count = 0
+                if not is_completed:
+                    overdue_missing_count = 1 if assignment.due_date < timezone.localdate() else 0
+                    pending_count = 0 if overdue_missing_count else 1
+                detail_href = (
+                    f"{reverse('teacher-homework-stats-assignment-submissions')}?"
+                    f"{urlencode({'student_id': assignment.student_id, 'assignment_id': assignment.id, 'period': selected_period})}"
+                    if assignment_item.get("has_online_questions")
+                    else ""
+                )
+                detail_rows.append(
+                    {
+                        **base_row,
+                        "assignment_id": int(assignment.id),
+                        "assignment_title": str(assignment.title or "").strip(),
+                        "assigned_at": assignment.assigned_at,
+                        "assigned_at_text": format_datetime(assignment.assigned_at),
+                        "due_date": assignment.due_date,
+                        "due_date_text": format_date(assignment.due_date),
+                        "knowledge_point": get_teacher_homework_assignment_knowledge_point(assignment),
+                        "homework_mode_text": (
+                            f"在线题 {int(assignment_item.get('online_question_count') or 0)} 题"
+                            if assignment_item.get("has_online_questions")
+                            else "要求型作业"
+                        ),
+                        "completion_state": str(assignment_item.get("completion_state") or ""),
+                        "completion_state_text": "已完成" if is_completed else "未完成",
+                        "completion_reason": str(assignment_item.get("completion_reason") or ""),
+                        "assigned_count": 1,
+                        "submitted_count": 1 if is_completed else 0,
+                        "missing_count": 0 if is_completed else 1,
+                        "pending_count": pending_count,
+                        "overdue_missing_count": overdue_missing_count,
+                        "completion_rate": 100.0 if is_completed else 0.0,
+                        "completion_rate_text": "100%" if is_completed else "0%",
+                        "answer_rate_details": answer_rate_details,
+                        "has_answer_rate_details": bool(answer_rate_details),
+                        "answer_rate_search_text": answer_rate_search_text,
+                        "submission_record_count": int(assignment_item.get("active_submission_count") or 0),
+                        "submission_record_count_text": (
+                            f"提交记录 {int(assignment_item.get('active_submission_count') or 0)} 条"
+                            if assignment_item.get("has_online_questions")
+                            else ""
+                        ),
+                        "detail_label": "查看详情" if detail_href else "",
+                        "detail_href": detail_href,
+                    }
+                )
+            continue
 
         detail_rows.append(
             {
                 **base_row,
                 "assignment_id": 0,
+                "assignment_title": "",
+                "assigned_at": None,
+                "assigned_at_text": "",
+                "due_date": None,
+                "due_date_text": "",
                 "knowledge_point": "",
+                "homework_mode_text": "",
+                "completion_state": "",
+                "completion_state_text": "",
+                "answer_rate_details": [],
+                "has_answer_rate_details": False,
+                "answer_rate_search_text": "暂无答题统计",
+                "submission_record_count": 0,
+                "submission_record_count_text": "",
+                "detail_label": "",
+                "detail_href": "",
             }
         )
 
@@ -1522,24 +1657,38 @@ def build_teacher_homework_student_detail_rows(
 
 
 def build_teacher_homework_student_table_column_titles(*, selected_period: str) -> list[str]:
+    if selected_period in {"month", "quarter"}:
+        return [
+            "学生姓名",
+            "级别",
+            "应完成作业数",
+            "已完成",
+            "未完成",
+            "客观题作业",
+            "客观题已完成",
+            "要求型作业",
+            "要求型已完成",
+            "最近布置时间",
+            "最近截止日期",
+            "操作",
+        ]
+
     titles = [
         "学生姓名",
+        "作业",
         "级别",
+        "布置时间",
+        "截止日期",
+        "作业类型",
+        "知识点",
+        "应交作业数",
+        "已完成作业数",
+        "待完成作业数",
+        "超期未完成作业数",
+        "完成率",
+        "正确率 / 错误率",
+        "Homework Submission Detail",
     ]
-    if selected_period == "week":
-        titles.append("知识点")
-    titles.extend(
-        [
-            "应交作业数",
-            "已完成作业数",
-            "待完成作业数",
-            "超期未完成作业数",
-            "完成率",
-            "正确率 / 错误率",
-        ]
-    )
-    if selected_period in {"week", "month"}:
-        titles.append("Homework Submission Detail")
     return titles
 
 
@@ -1576,6 +1725,7 @@ def build_teacher_homework_submission_detail_rows(
     period_start: datetime,
     period_end: datetime,
 ) -> list[dict[str, object]]:
+    period_end_date = timezone.localtime(period_end - timedelta(seconds=1)).date()
     submissions = list(
         HomeworkSubmission.objects.select_related(
             "assignment",
@@ -1587,13 +1737,11 @@ def build_teacher_homework_submission_detail_rows(
             student_id=F("assignment__student_id"),
             assignment__teacher=portal_user,
             assignment__is_active=True,
-            assignment__created_at__gte=period_start,
-            assignment__created_at__lt=period_end,
+            assignment__due_date__range=(timezone.localtime(period_start).date(), period_end_date),
             is_active=True,
-            status__in=HOMEWORK_COMPLETION_STATUSES,
-            submitted_at__isnull=False,
         ).order_by(
             "-submitted_at",
+            "-created_at",
             "-id",
         )
     )
@@ -1601,8 +1749,7 @@ def build_teacher_homework_submission_detail_rows(
     rows: list[dict[str, object]] = []
     for submission in submissions:
         assignment = submission.assignment
-        import_job = assignment.source_import_job
-        knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
+        knowledge_point = get_teacher_homework_assignment_knowledge_point(assignment)
         rate_summary = build_correct_wrong_rate_summary(
             correct_count=int(submission.correct_count or 0),
             wrong_count=int(submission.wrong_count or 0),
@@ -1639,45 +1786,33 @@ def build_teacher_homework_assignment_submission_detail_rows(
     period_end: datetime,
     period: str = "month",
 ) -> list[dict[str, object]]:
-    base_queryset = HomeworkSubmission.objects.select_related(
-        "assignment",
-        "assignment__source_import_job",
-        "student",
-    ).filter(
-        student=student,
-        assignment=assignment,
-        student__teacher_user=portal_user,
-        student_id=F("assignment__student_id"),
-        assignment__teacher=portal_user,
-        assignment__student=student,
-        assignment__is_active=True,
-        is_active=True,
-    )
-    if period == "week":
-        raw_submissions = [
-            submission
-            for submission in base_queryset.filter(status__in=HOMEWORK_COMPLETION_STATUSES)
-            if is_homework_submission_within_assignment_week_window(submission)
-        ]
-    else:
-        raw_submissions = list(
-            base_queryset.filter(
-                Q(submitted_at__gte=period_start, submitted_at__lt=period_end)
-                | Q(created_at__gte=period_start, created_at__lt=period_end)
-            )
+    raw_submissions = list(
+        HomeworkSubmission.objects.select_related(
+            "assignment",
+            "assignment__source_import_job",
+            "student",
+        ).filter(
+            student=student,
+            assignment=assignment,
+            student__teacher_user=portal_user,
+            student_id=F("assignment__student_id"),
+            assignment__teacher=portal_user,
+            assignment__student=student,
+            assignment__is_active=True,
+            is_active=True,
         )
+    )
     submissions = sorted(
         raw_submissions,
         key=lambda item: (
-            get_homework_submission_effective_submitted_at(item) or timezone.now(),
+            get_homework_submission_effective_submitted_at(item),
             item.created_at,
             item.id,
         ),
         reverse=True,
     )
 
-    import_job = assignment.source_import_job
-    knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
+    knowledge_point = get_teacher_homework_assignment_knowledge_point(assignment)
     rows: list[dict[str, object]] = []
     for submission in submissions:
         total_count = int(submission.total_count or 0)
@@ -1725,13 +1860,94 @@ def build_teacher_homework_assignment_submission_detail_rows(
     return rows
 
 
+def build_teacher_homework_student_period_assignment_detail_rows(
+    *,
+    portal_user: PortalUser,
+    student: Student,
+    period: str,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    stats_result = build_homework_completion_stats(
+        portal_user,
+        student=student,
+        period_type=period,
+    )
+    student_stat = stats_result["student_stats"][0] if stats_result["student_stats"] else None
+    if student_stat is None:
+        return [], stats_result
+
+    def latest_submission_id(assignment_item: dict[str, object]) -> int:
+        submissions = list(assignment_item.get("active_submissions") or [])
+        if not submissions:
+            return 0
+        latest_submission = max(
+            submissions,
+            key=lambda submission: (
+                get_homework_submission_effective_submitted_at(submission),
+                submission.created_at,
+                submission.id,
+            ),
+        )
+        return int(latest_submission.id)
+
+    rows: list[dict[str, object]] = []
+    for assignment_item in sorted(
+        student_stat["assignments"],
+        key=lambda item: (
+            item["assignment"].due_date,
+            item["assignment"].assigned_at,
+            item["assignment_id"],
+        ),
+        reverse=True,
+    ):
+        assignment = assignment_item["assignment"]
+        has_online_questions = bool(assignment_item.get("has_online_questions"))
+        latest_completed_submission = assignment_item.get("latest_completed_submission")
+        rows.append(
+            {
+                "row_key": f"student-period-assignment-{assignment.id}",
+                "assignment_id": int(assignment.id),
+                "assignment_title": str(assignment.title or "").strip(),
+                "assigned_at": assignment.assigned_at,
+                "assigned_at_text": format_datetime(assignment.assigned_at),
+                "due_date": assignment.due_date,
+                "due_date_text": format_date(assignment.due_date),
+                "knowledge_point": get_teacher_homework_assignment_knowledge_point(assignment),
+                "has_online_questions": has_online_questions,
+                "homework_mode_text": (
+                    f"在线题 {int(assignment_item.get('online_question_count') or 0)} 题"
+                    if has_online_questions
+                    else "要求型作业"
+                ),
+                "completion_state": str(assignment_item.get("completion_state") or ""),
+                "completion_state_text": "已完成" if assignment_item.get("is_completed") else "未完成",
+                "completion_reason": str(assignment_item.get("completion_reason") or ""),
+                "completion_reason_text": get_teacher_homework_completion_reason_text(
+                    str(assignment_item.get("completion_reason") or ""),
+                    is_completed=bool(assignment_item.get("is_completed")),
+                ),
+                "completed_at": assignment.completed_at,
+                "completed_at_text": format_datetime(assignment.completed_at) if assignment.completed_at else "未完成",
+                "submission_count": int(assignment_item.get("active_submission_count") or 0),
+                "latest_submission_id": latest_submission_id(assignment_item),
+                "latest_completed_submission_id": int(latest_completed_submission.id) if latest_completed_submission else 0,
+                "detail_href": (
+                    f"{reverse('teacher-homework-stats-assignment-submissions')}?"
+                    f"{urlencode({'student_id': student.id, 'assignment_id': assignment.id, 'period': period})}"
+                    if has_online_questions
+                    else ""
+                ),
+                "detail_label": "查看提交记录" if has_online_questions else "",
+            }
+        )
+    return rows, stats_result
+
+
 def build_teacher_homework_submission_answer_detail_rows(
     *,
     submission: HomeworkSubmission,
 ) -> list[dict[str, object]]:
     assignment = submission.assignment
-    import_job = assignment.source_import_job
-    knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
+    knowledge_point = get_teacher_homework_assignment_knowledge_point(assignment)
     submitted_at_text = format_datetime(submission.submitted_at or submission.created_at)
 
     answers = list(
@@ -4138,175 +4354,80 @@ def build_teacher_homework_stats_context(
     period: str = "week",
 ) -> dict:
     selected_period = normalize_teacher_homework_stats_period(period)
-    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
-    managed_students = list(
-        Student.objects.select_related("user", "parent_user", "teacher_user")
-        .filter(teacher_user=portal_user)
-        .order_by("display_name", "id")
+    stats_result = build_homework_completion_stats(
+        portal_user,
+        period_type=selected_period,
     )
+    period_start = stats_result["period_start"]
+    period_end = stats_result["period_end"]
+    period_label = str(stats_result["period_label"])
+    managed_students = [item["student"] for item in stats_result["student_stats"]]
     managed_student_ids = [student.id for student in managed_students]
-
-    assignment_queryset = HomeworkAssignment.objects.filter(
-        teacher=portal_user,
-        is_active=True,
-    ).exclude(status=HomeworkAssignment.STATUS_CANCELLED)
-    if managed_student_ids:
-        assignment_queryset = assignment_queryset.filter(student_id__in=managed_student_ids)
-    else:
-        assignment_queryset = assignment_queryset.none()
-    if selected_period == "week":
-        period_field_label = "创建时间"
-        scored_submissions = [
-            submission
-            for submission in build_teacher_homework_stats_scored_submission_queryset(
-                assignment_queryset=assignment_queryset,
-                managed_student_ids=managed_student_ids,
-                include_missing_submitted_at=True,
-            )
-            if is_homework_submission_within_assignment_week_window(submission)
-        ]
-    else:
-        assignment_queryset, period_field_label = filter_teacher_homework_stats_assignments(
-            assignment_queryset,
-            start_at=period_start,
-            end_at=period_end,
-        )
-        scored_submissions = list(
-            build_teacher_homework_stats_scored_submission_queryset(
-                assignment_queryset=assignment_queryset,
-                managed_student_ids=managed_student_ids,
-            )
-        )
-    answer_rate_details_by_student_id = build_teacher_homework_student_answer_rate_details(
-        selected_period=selected_period,
-        managed_students=managed_students,
-        submissions=scored_submissions,
-    )
-    table_answer_rate_details_by_student_id = build_teacher_homework_student_table_answer_rate_details(
-        selected_period=selected_period,
-        managed_students=managed_students,
-        submissions=scored_submissions,
-    )
     student_level_code_by_student_id = build_teacher_homework_student_level_code_map(
         portal_user=portal_user,
         managed_student_ids=managed_student_ids,
     )
-    overall_rate_summaries_by_student_id = build_teacher_homework_student_overall_rate_summaries(
-        managed_students=managed_students,
-        submissions=scored_submissions,
-    )
-
-    assigned_count_by_student = {
-        row["student_id"]: row["assigned_count"]
-        for row in assignment_queryset.values("student_id").annotate(assigned_count=Count("id"))
-    }
-    if selected_period == "week":
-        submitted_assignment_ids_by_student: dict[int, set[int]] = defaultdict(set)
-        submission_record_count_by_student: dict[int, int] = defaultdict(int)
-        submission_record_count_by_student_and_assignment: dict[tuple[int, int], int] = defaultdict(int)
-        completed_assignment_ids_set: set[int] = set()
-        for submission in scored_submissions:
-            submitted_assignment_ids_by_student[submission.student_id].add(submission.assignment_id)
-            submission_record_count_by_student[submission.student_id] += 1
-            submission_record_count_by_student_and_assignment[(submission.student_id, submission.assignment_id)] += 1
-            completed_assignment_ids_set.add(submission.assignment_id)
-        submitted_count_by_student = {
-            student_id: len(assignment_ids)
-            for student_id, assignment_ids in submitted_assignment_ids_by_student.items()
-        }
-        submission_record_count_by_student = {
-            student_id: count
-            for student_id, count in submission_record_count_by_student.items()
-        }
-        submission_record_count_by_student_and_assignment = {
-            key: count
-            for key, count in submission_record_count_by_student_and_assignment.items()
-        }
-        completed_assignment_ids = list(completed_assignment_ids_set)
-    else:
-        completed_submission_queryset = HomeworkSubmission.objects.filter(
-            assignment__in=assignment_queryset,
-            student_id__in=managed_student_ids,
-            student_id=F("assignment__student_id"),
-            is_active=True,
-            status__in=HOMEWORK_COMPLETION_STATUSES,
-            submitted_at__isnull=False,
-        )
-        submitted_count_by_student = {
-            row["student_id"]: row["submitted_count"]
-            for row in completed_submission_queryset.values("student_id").annotate(submitted_count=Count("assignment_id", distinct=True))
-        }
-        submission_record_count_by_student = {
-            row["student_id"]: row["submission_record_count"]
-            for row in completed_submission_queryset.values("student_id").annotate(submission_record_count=Count("id"))
-        }
-        submission_record_count_by_student_and_assignment = {
-            (row["student_id"], row["assignment_id"]): row["submission_record_count"]
-            for row in completed_submission_queryset.values("student_id", "assignment_id").annotate(submission_record_count=Count("id"))
-        }
-        completed_assignment_ids = list(
-            completed_submission_queryset.values_list("assignment_id", flat=True).distinct()
-        )
-    overdue_missing_count_by_student = {
-        row["student_id"]: row["overdue_missing_count"]
-        for row in assignment_queryset.exclude(id__in=completed_assignment_ids)
-        .filter(due_date__lt=timezone.localdate())
-        .values("student_id")
-        .annotate(overdue_missing_count=Count("id"))
-    }
-
+    period_field_label = "截止日期"
     student_rows: list[dict[str, object]] = []
-    for student in managed_students:
-        assigned_count = int(assigned_count_by_student.get(student.id, 0) or 0)
-        submitted_count = min(int(submitted_count_by_student.get(student.id, 0) or 0), assigned_count)
-        missing_count = max(assigned_count - submitted_count, 0)
-        overdue_missing_count = min(int(overdue_missing_count_by_student.get(student.id, 0) or 0), missing_count)
+    for student_stat in stats_result["student_stats"]:
+        student = student_stat["student"]
+        assignment_items = list(student_stat["assignments"])
+        assigned_count = int(student_stat["assignment_count"] or 0)
+        submitted_count = int(student_stat["completed_count"] or 0)
+        missing_count = int(student_stat["incomplete_count"] or 0)
+        overdue_missing_count = sum(
+            1
+            for assignment_item in assignment_items
+            if not assignment_item["is_completed"] and assignment_item["assignment"].due_date < timezone.localdate()
+        )
         pending_count = max(missing_count - overdue_missing_count, 0)
-        submission_record_count = int(submission_record_count_by_student.get(student.id, 0) or 0)
+        submission_record_count = sum(int(item.get("active_submission_count") or 0) for item in assignment_items)
         completion_rate = round((submitted_count / assigned_count) * 100, 1) if assigned_count else 0.0
-        answer_rate_details = answer_rate_details_by_student_id.get(student.id, [])
-        table_answer_rate_details = table_answer_rate_details_by_student_id.get(student.id, [])
-        if selected_period in {"week", "month"}:
-            enriched_table_answer_rate_details: list[dict[str, object]] = []
-            for detail in table_answer_rate_details:
-                assignment_id = int(detail.get("assignment_id") or 0)
-                submission_record_count = int(
-                    submission_record_count_by_student_and_assignment.get((student.id, assignment_id), 0)
-                    or 0
-                )
-                submission_period_label = "本周" if selected_period == "week" else "本月"
-                enriched_table_answer_rate_details.append(
-                    {
-                        **detail,
-                        "submission_record_count": submission_record_count,
-                        "submission_record_count_text": f"{submission_period_label}提交 {submission_record_count} 条",
-                        "detail_label": "查看详情",
-                        "detail_href": (
-                            f"{reverse('teacher-homework-stats-assignment-submissions')}?"
-                            f"{urlencode({'student_id': student.id, 'assignment_id': assignment_id, 'period': selected_period})}"
-                            if assignment_id
-                            else ""
-                        ),
-                    }
-                )
-            table_answer_rate_details = enriched_table_answer_rate_details
+        answer_rate_details = build_teacher_homework_student_summary_answer_rate_details(
+            selected_period=selected_period,
+            assignment_items=assignment_items,
+        )
+        total_correct_count = sum(
+            int(item.get("correct_count") or 0)
+            for item in assignment_items
+            if item.get("has_online_questions")
+        )
+        total_wrong_count = sum(
+            int(item.get("wrong_count") or 0)
+            for item in assignment_items
+            if item.get("has_online_questions")
+        )
+        overall_rate_summary = build_correct_wrong_rate_summary(
+            correct_count=total_correct_count,
+            wrong_count=total_wrong_count,
+        )
         level_code = student_level_code_by_student_id.get(student.id, "")
         level_code_display = format_teacher_homework_level_code_display(level_code)
-        overall_rate_summary = overall_rate_summaries_by_student_id.get(
-            student.id,
-            build_correct_wrong_rate_summary(correct_count=0, wrong_count=0),
-        )
         answer_rate_search_text = " | ".join(
             format_teacher_homework_answer_rate_detail_text(detail)
             for detail in answer_rate_details
         ) or "暂无答题统计"
+        detail_href = ""
+        detail_label = ""
+        if selected_period in {"month", "quarter"} and assigned_count > 0:
+            detail_href = (
+                f"{reverse('teacher-homework-stats-student-period-assignments')}?"
+                f"{urlencode({'student_id': student.id, 'period': selected_period})}"
+            )
+            detail_label = "查看详情"
         student_rows.append(
             {
                 "student_id": student.id,
                 "student_name": student.display_name,
+                "teacher_id": portal_user.id,
+                "teacher_name": portal_user.full_name or portal_user.username,
+                "period": selected_period,
+                "period_start": period_start,
+                "period_end": period_end,
                 "level_code": level_code,
                 "level_code_display": level_code_display,
                 "level_code_filter_value": level_code or TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE,
+                "assignment_count": assigned_count,
                 "assigned_count": assigned_count,
                 "submitted_count": submitted_count,
                 "missing_count": missing_count,
@@ -4324,11 +4445,24 @@ def build_teacher_homework_stats_context(
                 "overall_wrong_rate": float(overall_rate_summary["wrong_rate"]),
                 "overall_wrong_rate_text": str(overall_rate_summary["wrong_rate_text"]),
                 "answer_rate_details": answer_rate_details,
-                "table_answer_rate_details": table_answer_rate_details,
+                "table_answer_rate_details": answer_rate_details,
                 "has_answer_rate_details": bool(answer_rate_details),
                 "answer_rate_search_text": answer_rate_search_text,
-                "detail_label": "",
-                "detail_href": "",
+                "assignment_items": assignment_items,
+                "completed_count": submitted_count,
+                "incomplete_count": missing_count,
+                "excluded_undated_count": int(student_stat["excluded_undated_count"] or 0),
+                "online_assignment_count": int(student_stat["online_assignment_count"] or 0),
+                "online_completed_count": int(student_stat["online_completed_count"] or 0),
+                "requirement_assignment_count": int(student_stat["requirement_assignment_count"] or 0),
+                "requirement_completed_count": int(student_stat["requirement_completed_count"] or 0),
+                "incomplete_assignment_ids": list(student_stat["incomplete_assignment_ids"] or []),
+                "latest_assigned_at": student_stat.get("latest_assigned_at"),
+                "latest_due_date": student_stat.get("latest_due_date"),
+                "latest_assigned_at_text": format_datetime(student_stat.get("latest_assigned_at")),
+                "latest_due_date_text": format_date(student_stat.get("latest_due_date")),
+                "detail_label": detail_label,
+                "detail_href": detail_href,
             }
         )
 
@@ -4347,6 +4481,22 @@ def build_teacher_homework_stats_context(
         selected_period=selected_period,
         student_rows=student_rows,
     )
+    student_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"assignment_items"}
+        }
+        for row in student_rows
+    ]
+    student_detail_rows = [
+        {
+            key: value
+            for key, value in row.items()
+            if key not in {"assignment_items"}
+        }
+        for row in student_detail_rows
+    ]
     student_table_column_titles = build_teacher_homework_student_table_column_titles(selected_period=selected_period)
 
     done_top10 = sorted(
@@ -4370,35 +4520,38 @@ def build_teacher_homework_stats_context(
         ),
     )[:10]
 
-    assigned_count = sum(int(row["assigned_count"]) for row in student_rows)
-    submitted_count = sum(int(row["submitted_count"]) for row in student_rows)
-    missing_count = max(assigned_count - submitted_count, 0)
+    assigned_count = int(stats_result["summary"]["assignment_count"])
+    submitted_count = int(stats_result["summary"]["completed_count"])
+    missing_count = int(stats_result["summary"]["incomplete_count"])
     completion_rate = round((submitted_count / assigned_count) * 100, 1) if assigned_count else 0.0
     summary = {
         "assigned_count": assigned_count,
         "submitted_count": submitted_count,
+        "completed_count": submitted_count,
         "missing_count": missing_count,
+        "incomplete_count": missing_count,
+        "excluded_undated_count": int(stats_result["summary"]["excluded_undated_count"]),
         "completion_rate": completion_rate,
         "completion_rate_text": format_completion_rate(completion_rate),
     }
 
     return {
         "page_title": "学生作业统计",
-        "page_description": "按当前教师负责学生实时聚合应交、已交和未交情况，先提供周 / 月 / 季度三个最小统计口径。",
+        "page_description": "按当前教师负责学生实时聚合作业完成情况，周期归属统一按 HomeworkAssignment.due_date 判断；assigned_at 只用于学生明细表展示与搜索。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "学生作业统计"},
         ],
         "summary_cards": [
             {"label": "应交作业数", "value": str(summary["assigned_count"]), "hint": f"按{period_field_label}落在当前周期"},
-            {"label": "已提交作业数", "value": str(summary["submitted_count"]), "hint": "同一份作业多次提交只算 1 次完成"},
-            {"label": "未提交作业数", "value": str(summary["missing_count"]), "hint": "应交减已交的实时结果"},
+            {"label": "已完成作业数", "value": str(summary["completed_count"]), "hint": "在线题只要存在完成态提交就算完成；要求型看 assignment 完成状态"},
+            {"label": "未完成作业数", "value": str(summary["incomplete_count"]), "hint": "当前周期内仍未完成的作业数量"},
             {"label": "整体完成率", "value": summary["completion_rate_text"], "hint": f"{period_label}老师名下学生整体完成情况"},
         ],
         "tabs": build_teacher_workbench_tabs("homework-stats"),
         "selected_period": selected_period,
         "period_label": period_label,
-        "period_range_text": f"{period_start.strftime('%Y-%m-%d %H:%M')} 至 {period_end.strftime('%Y-%m-%d %H:%M')}",
+        "period_range_text": f"{period_start.isoformat()} 至 {period_end.isoformat()}",
         "period_field_label": period_field_label,
         "period_options": [
             {
@@ -4439,7 +4592,7 @@ def build_teacher_homework_submission_detail_context(
     )
     return {
         "page_title": "Homework Submission Detail",
-        "page_description": "这里只看本周作业范围内的 HomeworkSubmission 提交记录，每一行代表一次提交，知识点固定来自 HomeworkAssignment.source_import_job 对应导入文件名。",
+        "page_description": "这里只展示当前教师学生在本周截止日期范围内相关作业的 HomeworkSubmission 记录；作业是否进入本周统计由 HomeworkAssignment.due_date 决定。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "学生作业统计", "href": f"{reverse('teacher-homework-stats')}?period=week"},
@@ -4448,8 +4601,8 @@ def build_teacher_homework_submission_detail_context(
         "summary_cards": [
             {"label": "提交记录数", "value": str(len(submission_rows)), "hint": "按 HomeworkSubmission 记录计数"},
             {"label": "统计窗口", "value": period_label, "hint": f"{period_start.strftime('%Y-%m-%d')} 至 {period_end.strftime('%Y-%m-%d')}"},
-            {"label": "知识点来源", "value": "source_filename", "hint": "统一取 HomeworkImportJob.source_filename 去后缀"},
-            {"label": "数据范围", "value": "本周提交记录列表", "hint": "只展示当前教师学生在本周周期内的提交"},
+            {"label": "知识点来源", "value": "assignment/source", "hint": "优先取 source_filename，否则回退到 assignment 内容标题"},
+            {"label": "数据范围", "value": "本周 assignment 提交记录", "hint": "统计口径按 due_date，提交时间仅用于记录展示"},
         ],
         "selected_period": "week",
         "period_label": period_label,
@@ -4461,6 +4614,58 @@ def build_teacher_homework_submission_detail_context(
     }
 
 
+def build_teacher_homework_student_period_assignment_detail_context(
+    portal_user: PortalUser,
+    *,
+    student: Student,
+    period: str = "month",
+) -> dict:
+    selected_period = normalize_teacher_homework_stats_period(period)
+    assignment_rows, stats_result = build_teacher_homework_student_period_assignment_detail_rows(
+        portal_user=portal_user,
+        student=student,
+        period=selected_period,
+    )
+    period_start = stats_result["period_start"]
+    period_end = stats_result["period_end"]
+    period_label = str(stats_result["period_label"])
+    student_stat = stats_result["student_stats"][0] if stats_result["student_stats"] else None
+    student_stat = student_stat or {
+        "assignment_count": 0,
+        "completed_count": 0,
+        "incomplete_count": 0,
+        "online_assignment_count": 0,
+        "online_completed_count": 0,
+        "requirement_assignment_count": 0,
+        "requirement_completed_count": 0,
+        "excluded_undated_count": 0,
+    }
+
+    return {
+        "page_title": "Student Period Assignments",
+        "page_description": f"这里只展示 {student.display_name} 在{period_label}内按 due_date 命中的 assignment 列表；month / quarter 主表只保留学生聚合结果。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "学生作业统计", "href": f"{reverse('teacher-homework-stats')}?period={selected_period}"},
+            {"label": "学生周期作业详情"},
+        ],
+        "summary_cards": [
+            {"label": "周期作业数", "value": str(int(student_stat["assignment_count"] or 0)), "hint": f"按 due_date 落在{period_label}范围内"},
+            {"label": "已完成", "value": str(int(student_stat["completed_count"] or 0)), "hint": "在线题看完成态 submission；要求型看 assignment 完成状态"},
+            {"label": "未完成", "value": str(int(student_stat["incomplete_count"] or 0)), "hint": "当前周期内仍未完成的作业数量"},
+            {"label": "排除无截止日期", "value": str(int(student_stat["excluded_undated_count"] or 0)), "hint": "未纳入该周期统计"},
+        ],
+        "selected_period": selected_period,
+        "period_label": period_label,
+        "period_range_text": f"{period_start.isoformat()} 至 {period_end.isoformat()}",
+        "back_href": f"{reverse('teacher-homework-stats')}?period={selected_period}",
+        "assignment_rows": assignment_rows,
+        "student_period_assignment_rows": assignment_rows,
+        "student": student,
+        "student_period_summary": student_stat,
+    }
+
+
 def build_teacher_homework_assignment_submission_detail_context(
     portal_user: PortalUser,
     *,
@@ -4469,10 +4674,7 @@ def build_teacher_homework_assignment_submission_detail_context(
     period: str = "month",
 ) -> dict:
     selected_period = normalize_teacher_homework_stats_period(period)
-    if selected_period == "week":
-        period_start, period_end, period_label = resolve_homework_assignment_week_window(assignment)
-    else:
-        period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
+    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
     submission_rows = build_teacher_homework_assignment_submission_detail_rows(
         portal_user=portal_user,
         student=student,
@@ -4481,11 +4683,10 @@ def build_teacher_homework_assignment_submission_detail_context(
         period_end=period_end,
         period=selected_period,
     )
-    import_job = assignment.source_import_job
-    knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
+    knowledge_point = get_teacher_homework_assignment_knowledge_point(assignment)
     return {
         "page_title": "Homework Submission Detail",
-        "page_description": "这里只展示当前教师在选定周期内、针对同一个学生和同一个作业 assignment 的全部 HomeworkSubmission 记录，不会对多次提交做去重。",
+        "page_description": "这里只展示当前教师在所选统计周期内命中的这一份 assignment 的全部 HomeworkSubmission 历史记录，不会对多次提交做去重。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "学生作业统计", "href": f"{reverse('teacher-homework-stats')}?period={selected_period}"},
@@ -4493,7 +4694,7 @@ def build_teacher_homework_assignment_submission_detail_context(
         ],
         "summary_cards": [
             {"label": "提交记录数", "value": str(len(submission_rows)), "hint": "同一 assignment 下的 HomeworkSubmission 全量记录"},
-            {"label": "统计窗口", "value": period_label, "hint": f"{period_start.strftime('%Y-%m-%d')} 至 {period_end.strftime('%Y-%m-%d')}"},
+            {"label": "来源统计周期", "value": period_label, "hint": f"assignment 截止日期位于 {period_start.strftime('%Y-%m-%d')} 至 {period_end.strftime('%Y-%m-%d')}"},
             {"label": "学生", "value": student.display_name, "hint": "只允许查看当前教师负责学生"},
             {"label": "作业 / 知识点", "value": knowledge_point, "hint": f"assignment_id = {assignment.id}"},
         ],
@@ -4514,18 +4715,14 @@ def build_teacher_homework_submission_answer_detail_context(
     period: str = "month",
 ) -> dict:
     selected_period = normalize_teacher_homework_stats_period(period)
-    if selected_period == "week":
-        period_start, period_end, period_label = resolve_homework_assignment_week_window(submission.assignment)
-    else:
-        period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
+    period_start, period_end, period_label = resolve_teacher_homework_stats_period_bounds(selected_period)
     answer_detail_rows = build_teacher_homework_submission_answer_detail_rows(submission=submission)
-    import_job = submission.assignment.source_import_job
-    knowledge_point = normalize_homework_knowledge_point_name(import_job.source_filename) if import_job else "未命名知识点"
+    knowledge_point = get_teacher_homework_assignment_knowledge_point(submission.assignment)
     submitted_at_text = format_datetime(submission.submitted_at or submission.created_at)
 
     return {
         "page_title": "Homework Submission Answer Detail",
-        "page_description": "这里只展示当前这一条 HomeworkSubmission 记录对应的逐题作答详情，知识点固定来自 HomeworkAssignment.source_import_job 对应导入文件名。",
+        "page_description": "这里只展示当前这一条 HomeworkSubmission 记录对应的逐题作答详情；所属统计周期仍由 assignment.due_date 决定。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "学生作业统计", "href": f"{reverse('teacher-homework-stats')}?period={selected_period}"},
@@ -4540,9 +4737,9 @@ def build_teacher_homework_submission_answer_detail_context(
         ],
         "summary_cards": [
             {"label": "提交时间", "value": submitted_at_text, "hint": "当前这一次 HomeworkSubmission 的提交时间"},
-            {"label": "知识点", "value": knowledge_point, "hint": "统一取 HomeworkImportJob.source_filename 去后缀"},
+            {"label": "知识点", "value": knowledge_point, "hint": "优先取 HomeworkImportJob.source_filename，否则回退到 assignment 内容标题"},
             {"label": "题目数量", "value": str(len(answer_detail_rows)), "hint": "按 HomeworkSubmissionAnswer 记录逐题展开"},
-            {"label": "统计窗口", "value": period_label, "hint": f"{period_start.strftime('%Y-%m-%d')} 至 {period_end.strftime('%Y-%m-%d')}"},
+            {"label": "来源统计周期", "value": period_label, "hint": f"assignment 截止日期位于 {period_start.strftime('%Y-%m-%d')} 至 {period_end.strftime('%Y-%m-%d')}"},
         ],
         "selected_period": selected_period,
         "period_label": period_label,

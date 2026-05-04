@@ -46,7 +46,7 @@
             <div class="section-heading section-heading--compact">
                 <p class="section-heading__eyebrow">Assignment Submission Records</p>
                 <h3>{{ period_label }}提交记录列表</h3>
-                <p>这里只展示当前教师学生在当前{{ period_label }}窗口内、同一个 assignment 下的全部 HomeworkSubmission 记录，不会对多次提交做去重。</p>
+                <p>这里只展示同一个 assignment 下的全部 HomeworkSubmission 历史记录，不会对多次提交做去重；{{ period_label }}只表示这份作业在统计页中的 due_date 归属周期。</p>
             </div>
 
             <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
@@ -83,7 +83,7 @@
                             </article>
                         {% endfor %}
                     {% else %}
-                        <div class="entry-hint-bar">当前月度窗口内还没有匹配该学生和 assignment 的提交记录。</div>
+                        <div class="entry-hint-bar">当前这份作业还没有匹配该学生的提交记录。</div>
                     {% endif %}
                 </div>
             </div>

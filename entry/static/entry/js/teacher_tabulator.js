@@ -400,12 +400,27 @@
 
     function attachTeacherHomeworkStatsFilters(table, config) {
         var searchInput = document.getElementById(config.searchInputId);
+        var assignedAtInput = document.getElementById(config.assignedAtSearchInputId);
         var levelInput = document.getElementById(config.levelFilterId);
         var searchFields = [
             "student_name",
+            "assignment_title",
             "level_code_display",
+            "assigned_at_text",
+            "latest_assigned_at_text",
+            "due_date_text",
+            "latest_due_date_text",
+            "homework_mode_text",
             "knowledge_point",
+            "completion_state_text",
             "completion_rate_text",
+            "assignment_count",
+            "completed_count",
+            "incomplete_count",
+            "online_assignment_count",
+            "online_completed_count",
+            "requirement_assignment_count",
+            "requirement_completed_count",
             "overall_correct_rate_text",
             "answer_rate_search_text",
         ];
@@ -419,10 +434,24 @@
             });
         }
 
+        function matchesAssignedAt(rowData, keyword) {
+            if (!keyword) {
+                return true;
+            }
+            return String(
+                rowData.assigned_at_text ||
+                    rowData.assigned_at ||
+                    rowData.latest_assigned_at_text ||
+                    rowData.latest_assigned_at ||
+                    ""
+            ).toLowerCase().indexOf(keyword) > -1;
+        }
+
         function applyFilters(resetPage) {
             var keyword = searchInput ? String(searchInput.value || "").trim().toLowerCase() : "";
+            var assignedAtKeyword = assignedAtInput ? String(assignedAtInput.value || "").trim().toLowerCase() : "";
             var selectedLevel = levelInput ? String(levelInput.value || "all") : "all";
-            if (!keyword && (!selectedLevel || selectedLevel === "all")) {
+            if (!keyword && !assignedAtKeyword && (!selectedLevel || selectedLevel === "all")) {
                 table.clearFilter(true);
             } else {
                 table.setFilter(function (rowData) {
@@ -430,7 +459,7 @@
                         !selectedLevel || selectedLevel === "all"
                             ? true
                             : String(rowData.level_code_filter_value || "__ungrouped__") === selectedLevel;
-                    return matchesLevel && matchesSearch(rowData, keyword);
+                    return matchesLevel && matchesSearch(rowData, keyword) && matchesAssignedAt(rowData, assignedAtKeyword);
                 });
             }
 
@@ -449,6 +478,9 @@
 
         if (searchInput) {
             searchInput.addEventListener("input", applySearchFilter);
+        }
+        if (assignedAtInput) {
+            assignedAtInput.addEventListener("input", applySearchFilter);
         }
         if (levelInput) {
             levelInput.addEventListener("change", function () {
@@ -513,51 +545,75 @@
         var rawData = readJsonScript(config.dataScriptId);
         var data = Array.isArray(rawData) ? rawData : [];
         var period = String(config.period || "week").toLowerCase();
-        var isWeek = period === "week";
-        var hasSubmissionDetail = isWeek || period === "month";
-        var columns = [
-            { title: "学生姓名", field: "student_name", minWidth: 140, responsive: 0 },
-            { title: "级别", field: "level_code_display", hozAlign: "center", width: 108, responsive: 2 },
-        ];
-        if (isWeek) {
-            columns.push({ title: "知识点", field: "knowledge_point", minWidth: 148, responsive: 3 });
-        }
-        columns = columns.concat([
-            { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112, responsive: 4 },
-            { title: "已完成作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112, responsive: 3 },
-            { title: "待完成作业数", field: "pending_count", sorter: "number", hozAlign: "center", width: 118, responsive: 5 },
-            { title: "超期未完成作业数", field: "overdue_missing_count", sorter: "number", hozAlign: "center", width: 132, responsive: 6 },
-            {
-                title: "完成率",
-                field: "completion_rate",
-                sorter: "number",
-                hozAlign: "center",
-                width: 112,
-                responsive: 2,
-                formatter: function (cell) {
-                    return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
+        var columns;
+        if (period === "month" || period === "quarter") {
+            columns = [
+                { title: "学生", field: "student_name", minWidth: 140, responsive: 0 },
+                { title: "级别", field: "level_code_display", hozAlign: "center", width: 108, responsive: 2 },
+                { title: "应完成作业数", field: "assignment_count", sorter: "number", hozAlign: "center", width: 126, responsive: 1 },
+                { title: "已完成", field: "completed_count", sorter: "number", hozAlign: "center", width: 96, responsive: 1 },
+                { title: "未完成", field: "incomplete_count", sorter: "number", hozAlign: "center", width: 96, responsive: 1 },
+                { title: "客观题作业", field: "online_assignment_count", sorter: "number", hozAlign: "center", width: 112, responsive: 3 },
+                { title: "客观题已完成", field: "online_completed_count", sorter: "number", hozAlign: "center", width: 126, responsive: 3 },
+                { title: "要求型作业", field: "requirement_assignment_count", sorter: "number", hozAlign: "center", width: 118, responsive: 4 },
+                { title: "要求型已完成", field: "requirement_completed_count", sorter: "number", hozAlign: "center", width: 132, responsive: 4 },
+                { title: "最近布置时间", field: "latest_assigned_at_text", minWidth: 152, responsive: 2 },
+                { title: "最近截止日期", field: "latest_due_date_text", minWidth: 118, hozAlign: "center", responsive: 2 },
+                {
+                    title: "操作",
+                    field: "detail_href",
+                    hozAlign: "center",
+                    width: 120,
+                    minWidth: 100,
+                    headerSort: false,
+                    responsive: 0,
+                    formatter: function (cell) {
+                        var row = cell.getRow().getData();
+                        return row.detail_href ? actionButton(row.detail_label || "查看详情", row.detail_href, "primary") : "";
+                    },
                 },
-            },
-            {
-                title: "正确率 / 错误率",
-                field: "answer_rate_search_text",
-                minWidth: 280,
-                widthGrow: 2.4,
-                headerSort: false,
-                responsive: 3,
-                cssClass: "teacher-homework-stats-datagrid__cell--rates",
-                formatter: function (cell) {
-                    return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
+            ];
+        } else {
+            columns = [
+                { title: "学生姓名", field: "student_name", minWidth: 140, responsive: 0 },
+                { title: "作业", field: "assignment_title", minWidth: 180, widthGrow: 1.4, responsive: 0 },
+                { title: "级别", field: "level_code_display", hozAlign: "center", width: 108, responsive: 2 },
+                { title: "布置时间", field: "assigned_at_text", minWidth: 150, responsive: 1 },
+                { title: "截止日期", field: "due_date_text", minWidth: 118, hozAlign: "center", responsive: 1 },
+                { title: "作业类型", field: "homework_mode_text", minWidth: 126, responsive: 3 },
+                { title: "知识点", field: "knowledge_point", minWidth: 148, responsive: 2 },
+                { title: "应交作业数", field: "assigned_count", sorter: "number", hozAlign: "center", width: 112, responsive: 4 },
+                { title: "已完成作业数", field: "submitted_count", sorter: "number", hozAlign: "center", width: 112, responsive: 3 },
+                { title: "待完成作业数", field: "pending_count", sorter: "number", hozAlign: "center", width: 118, responsive: 5 },
+                { title: "超期未完成作业数", field: "overdue_missing_count", sorter: "number", hozAlign: "center", width: 132, responsive: 6 },
+                {
+                    title: "完成率",
+                    field: "completion_rate",
+                    sorter: "number",
+                    hozAlign: "center",
+                    width: 112,
+                    responsive: 2,
+                    formatter: function (cell) {
+                        return escapeHtml(cell.getRow().getData().completion_rate_text || "0%");
+                    },
                 },
-            },
-        ]);
-        if (hasSubmissionDetail) {
-            columns.push(
+                {
+                    title: "正确率 / 错误率",
+                    field: "answer_rate_search_text",
+                    minWidth: 280,
+                    widthGrow: 2.4,
+                    headerSort: false,
+                    responsive: 3,
+                    cssClass: "teacher-homework-stats-datagrid__cell--rates",
+                    formatter: function (cell) {
+                        return renderTeacherHomeworkStatsRateCell(cell.getRow().getData());
+                    },
+                },
                 {
                     title: "Homework Submission Detail",
                     field: "submission_record_count_text",
-                    width: 120,
-                    minWidth: 100,
+                    width: 132,
+                    minWidth: 112,
                     headerSort: false,
                     responsive: 0,
                     hozAlign: "center",
@@ -573,8 +629,8 @@
                         }
                         return parts.join("");
                     },
-                }
-            );
+                },
+            ];
         }
         var table = new Tabulator(
             "#" + config.tableId,
@@ -590,6 +646,78 @@
         var searchFilter = attachTeacherHomeworkStatsFilters(table, config);
         wirePersistentState(
             "teacher-homework-stats-students",
+            table,
+            container,
+            config.searchInputId,
+            searchFilter
+        );
+        return table;
+    }
+
+    function buildTeacherHomeworkStudentPeriodAssignmentsTable(config) {
+        var container = document.getElementById(config.tableId);
+        if (!container || typeof Tabulator !== "function") {
+            return null;
+        }
+
+        var rawData = readJsonScript(config.dataScriptId);
+        var data = Array.isArray(rawData) ? rawData : [];
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    { title: "assignment_id", field: "assignment_id", sorter: "number", hozAlign: "center", width: 110, responsive: 2 },
+                    { title: "作业", field: "assignment_title", minWidth: 180, widthGrow: 1.5, responsive: 0 },
+                    { title: "布置时间", field: "assigned_at_text", minWidth: 152, responsive: 2 },
+                    { title: "截止日期", field: "due_date_text", minWidth: 118, hozAlign: "center", responsive: 1 },
+                    { title: "作业类型", field: "homework_mode_text", minWidth: 132, responsive: 2 },
+                    { title: "知识点", field: "knowledge_point", minWidth: 150, responsive: 3 },
+                    { title: "完成状态", field: "completion_state_text", minWidth: 100, hozAlign: "center", responsive: 1 },
+                    { title: "完成时间", field: "completed_at_text", minWidth: 152, responsive: 4 },
+                    { title: "提交记录数", field: "submission_count", sorter: "number", hozAlign: "center", width: 110, responsive: 3 },
+                    { title: "latest_submission_id", field: "latest_submission_id", sorter: "number", hozAlign: "center", width: 132, responsive: 5 },
+                    { title: "未完成原因", field: "completion_reason_text", minWidth: 160, responsive: 2 },
+                    {
+                        title: "操作",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        width: 126,
+                        minWidth: 100,
+                        headerSort: false,
+                        responsive: 0,
+                        formatter: function (cell) {
+                            var row = cell.getRow().getData();
+                            return row.detail_href ? actionButton(row.detail_label || "查看提交记录", row.detail_href, "primary") : "";
+                        },
+                    },
+                ],
+                {
+                    index: "row_key",
+                    paginationSize: 15,
+                }
+            )
+        );
+
+        var searchFilter = attachSearch(
+            table,
+            config.searchInputId,
+            [
+                "assignment_id",
+                "assignment_title",
+                "assigned_at_text",
+                "due_date_text",
+                "homework_mode_text",
+                "knowledge_point",
+                "completion_state_text",
+                "completed_at_text",
+                "submission_count",
+                "latest_submission_id",
+                "completion_reason_text",
+            ]
+        );
+        wirePersistentState(
+            "teacher-homework-student-period-assignments",
             table,
             container,
             config.searchInputId,
@@ -1732,6 +1860,7 @@
         initTeacherHomeworkAssignmentSubmissionDetail: buildTeacherHomeworkAssignmentSubmissionDetailTable,
         initTeacherHomeworkSubmissionAnswerDetail: buildTeacherHomeworkSubmissionAnswerDetailTable,
         initTeacherHomeworkSubmissionDetail: buildTeacherHomeworkSubmissionDetailTable,
+        initTeacherHomeworkStudentPeriodAssignments: buildTeacherHomeworkStudentPeriodAssignmentsTable,
         initTeacherHomeworkStatsStudents: buildTeacherHomeworkStatsStudentsTable,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,

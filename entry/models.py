@@ -622,6 +622,105 @@ class HomeworkSubmissionAnswer(models.Model):
         return f"{self.submission} - 第{self.homework_question.question_no}题"
 
 
+class HomeworkCompletionStat(models.Model):
+    PERIOD_WEEK = "week"
+    PERIOD_MONTH = "month"
+    PERIOD_QUARTER = "quarter"
+
+    PERIOD_TYPE_CHOICES = [
+        (PERIOD_WEEK, "本周"),
+        (PERIOD_MONTH, "本月"),
+        (PERIOD_QUARTER, "本季度"),
+    ]
+
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.CASCADE,
+        related_name="homework_completion_stats",
+    )
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="homework_completion_stats",
+    )
+    period_type = models.CharField("周期类型", max_length=16, choices=PERIOD_TYPE_CHOICES)
+    period_start = models.DateField("周期开始日期")
+    period_end = models.DateField("周期结束日期")
+    completed_count = models.PositiveIntegerField("已完成数量", default=0)
+    incomplete_count = models.PositiveIntegerField("未完成数量", default=0)
+    excluded_undated_count = models.PositiveIntegerField("排除的无截止日期数量", default=0)
+    generated_at = models.DateTimeField("统计生成时间", default=timezone.now)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["period_start", "period_type", "teacher_id", "student_id", "id"]
+        verbose_name = "作业完成统计"
+        verbose_name_plural = "作业完成统计"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["teacher", "student", "period_type", "period_start", "period_end"],
+                name="hw_completion_stat_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["teacher", "period_type", "period_start", "period_end"],
+                name="hwc_stat_teacher_pd_idx",
+            ),
+            models.Index(
+                fields=["student", "period_type", "period_start", "period_end"],
+                name="hwc_stat_student_pd_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.teacher.full_name or self.teacher.username} / "
+            f"{self.student.display_name} / {self.period_type}"
+        )
+
+
+class HomeworkCompletionStatMissingAssignment(models.Model):
+    REASON_ONLINE_MISSING = "online_missing"
+    REASON_REQUIREMENT_NOT_MARKED_COMPLETED = "requirement_not_marked_completed"
+    REASON_UNDATED = "undated"
+
+    REASON_CHOICES = [
+        (REASON_ONLINE_MISSING, "在线题未形成完成态提交"),
+        (REASON_REQUIREMENT_NOT_MARKED_COMPLETED, "要求型作业未标记完成"),
+        (REASON_UNDATED, "无截止日期"),
+    ]
+
+    stat = models.ForeignKey(
+        HomeworkCompletionStat,
+        on_delete=models.CASCADE,
+        related_name="missing_assignments",
+    )
+    assignment = models.ForeignKey(
+        HomeworkAssignment,
+        on_delete=models.CASCADE,
+        related_name="completion_stat_missing_links",
+    )
+    reason = models.CharField("未完成原因", max_length=48, choices=REASON_CHOICES, blank=True, default="")
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["stat_id", "assignment_id", "id"]
+        verbose_name = "作业完成统计未完成作业"
+        verbose_name_plural = "作业完成统计未完成作业"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["stat", "assignment"],
+                name="hw_comp_stat_missing_unique",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"stat={self.stat_id}, assignment={self.assignment_id}"
+
+
 class TeacherEvaluation(models.Model):
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="teacher_evaluations")
     teacher = models.ForeignKey(

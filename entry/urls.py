@@ -60,6 +60,7 @@ from .views import (
     teacher_homework_assignment_submission_detail,
     teacher_homework_submission_answer_detail,
     teacher_homework_submission_detail,
+    teacher_homework_student_period_assignment_detail,
     teacher_student_assignment_edit,
     teacher_student_assignment_remove,
     teacher_student_assignments,
@@ -143,6 +144,11 @@ urlpatterns = [
         "teacher/homework-stats/submissions",
         teacher_homework_submission_detail,
         name="teacher-homework-stats-submissions",
+    ),
+    path(
+        "teacher/homework-stats/student-period-assignments",
+        teacher_homework_student_period_assignment_detail,
+        name="teacher-homework-stats-student-period-assignments",
     ),
     path(
         "teacher/homework-stats/assignment-submissions",
