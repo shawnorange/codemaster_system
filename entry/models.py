@@ -374,6 +374,8 @@ class HomeworkAssignment(models.Model):
 class HomeworkSummary(models.Model):
     title = models.CharField("总结标题", max_length=255, blank=True, default="")
     summary_html = models.TextField("总结 HTML", blank=True, default="")
+    highlights = models.TextField("亮点表现", blank=True, default="")
+    areas_for_growth = models.TextField("待提升点", blank=True, default="")
     created_by = models.ForeignKey(
         PortalUser,
         on_delete=models.SET_NULL,

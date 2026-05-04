@@ -102,6 +102,7 @@ def build_homework_completion_stats(
     *,
     student: Student | None = None,
     period_type: str = "week",
+    anchor_date: date | None = None,
     period_start: date | None = None,
     period_end: date | None = None,
     persist: bool = False,
@@ -113,7 +114,10 @@ def build_homework_completion_stats(
         raise ValueError("student does not belong to the current teacher")
 
     normalized_period = normalize_homework_completion_period_type(period_type)
-    default_period_start, default_period_end, period_label = resolve_homework_completion_period_dates(normalized_period)
+    default_period_start, default_period_end, period_label = resolve_homework_completion_period_dates(
+        normalized_period,
+        anchor_date=anchor_date,
+    )
     period_start = period_start or default_period_start
     period_end = period_end or default_period_end
 

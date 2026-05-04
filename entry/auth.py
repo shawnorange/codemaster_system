@@ -6,7 +6,7 @@ from typing import Any
 from django.conf import settings
 from django.core import signing
 from django.db.utils import OperationalError, ProgrammingError
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 
@@ -189,6 +189,25 @@ def role_required(expected_role: str):
 
             if user["role"] != expected_role:
                 return redirect(user["landing_url"])
+
+            request.codemaster_user = user
+            return view_func(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def api_role_required(expected_role: str):
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(request: HttpRequest, *args: Any, **kwargs: Any):
+            user = get_authenticated_user(request)
+            if not user:
+                return JsonResponse({"error": "未登录"}, status=401)
+
+            if user["role"] != expected_role:
+                return JsonResponse({"error": "无权访问"}, status=403)
 
             request.codemaster_user = user
             return view_func(request, *args, **kwargs)

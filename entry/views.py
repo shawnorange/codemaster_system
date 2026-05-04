@@ -20,6 +20,7 @@ from django.utils.text import slugify
 from .account_identity import normalize_phone
 from .auth import (
     ROLE_CONFIG,
+    api_role_required,
     authenticate_credentials,
     build_user_payload,
     clear_auth_cookie,
@@ -36,6 +37,7 @@ from .homework_batch import (
     build_homework_import_job_preview_payload,
     get_visible_homework_import_jobs,
 )
+from .homework_completion_stats import resolve_homework_completion_period_dates
 from .homework_online import (
     HomeworkImportParseError,
     compute_uploaded_file_sha256,
@@ -133,6 +135,11 @@ from .student_import import (
     infer_student_primary_track_name,
     parse_student_import_file,
     teacher_can_import_students,
+)
+from .student_learning_api import (
+    build_student_learning_overview,
+    build_student_week_lesson_feedback_payload,
+    normalize_student_learning_anchor_date,
 )
 from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
 from .topic_content.gesp2_ascii_char_encoding.context import (
@@ -1091,9 +1098,18 @@ def teacher_students(request: HttpRequest) -> HttpResponse:
 @role_required("teacher")
 def teacher_homework_stats(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
+    raw_anchor_date = str(request.GET.get("anchor_date") or "").strip()
+    if raw_anchor_date:
+        try:
+            anchor_date = normalize_student_learning_anchor_date(raw_anchor_date)
+        except ValueError:
+            anchor_date = timezone.localdate()
+    else:
+        anchor_date = None
     context = build_teacher_homework_stats_context(
         portal_user,
         period=request.GET.get("period", "week"),
+        anchor_date=anchor_date,
     )
     return render(
         request,
@@ -1106,9 +1122,109 @@ def teacher_homework_stats(request: HttpRequest) -> HttpResponse:
     )
 
 
+@api_role_required("teacher")
+def teacher_homework_stats_lesson_feedback(request: HttpRequest) -> JsonResponse:
+    selected_period = request.GET.get("period") or "week"
+    if selected_period != "week":
+        return JsonResponse({"error": "教师评价仅支持 week 周期。"}, status=400)
+
+    try:
+        anchor_date = normalize_student_learning_anchor_date(request.GET.get("anchor_date"))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    portal_user = get_portal_user_from_request(request)
+    student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id, teacher_user=portal_user)
+        .first()
+    )
+    if student is None:
+        return JsonResponse({"error": "未找到该学生"}, status=404)
+
+    payload = build_student_week_lesson_feedback_payload(
+        student=student,
+        anchor_date=anchor_date,
+        include_teacher_fields=True,
+        teacher=portal_user,
+    )
+    return JsonResponse(payload)
+
+
+@api_role_required("teacher")
+def teacher_homework_stats_lesson_feedback_save(request: HttpRequest) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "仅支持 POST 提交。"}, status=405)
+
+    selected_period = request.POST.get("period") or "week"
+    if selected_period != "week":
+        return JsonResponse({"error": "教师评价仅支持 week 周期。"}, status=400)
+
+    try:
+        anchor_date = normalize_student_learning_anchor_date(request.POST.get("anchor_date"))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    portal_user = get_portal_user_from_request(request)
+    student_id = normalize_positive_int(request.POST.get("student_id"), default=0, minimum=1)
+    summary_id = normalize_positive_int(request.POST.get("summary_id"), default=0, minimum=1)
+    if not student_id or not summary_id:
+        return JsonResponse({"error": "请选择有效的学生和课后总结。"}, status=400)
+
+    student = (
+        Student.objects.select_related("user", "parent_user", "teacher_user")
+        .filter(id=student_id, teacher_user=portal_user)
+        .first()
+    )
+    if student is None:
+        return JsonResponse({"error": "未找到该学生"}, status=404)
+
+    week_start, week_end, _ = resolve_homework_completion_period_dates("week", anchor_date=anchor_date)
+    summary = (
+        HomeworkSummary.objects.filter(
+            id=summary_id,
+            assignments__teacher=portal_user,
+            assignments__student=student,
+            assignments__is_active=True,
+            assignments__due_date__range=(week_start, week_end),
+        )
+        .exclude(assignments__status=HomeworkAssignment.STATUS_CANCELLED)
+        .distinct()
+        .first()
+    )
+    if summary is None:
+        return JsonResponse({"error": "未找到可编辑的课堂评价"}, status=404)
+
+    summary.highlights = normalize_preserved_multiline_text(request.POST.get("highlights", "")).strip()
+    summary.areas_for_growth = normalize_preserved_multiline_text(request.POST.get("areas_for_growth", "")).strip()
+    summary.save(update_fields=["highlights", "areas_for_growth", "updated_at"])
+
+    payload = build_student_week_lesson_feedback_payload(
+        student=student,
+        anchor_date=anchor_date,
+        include_teacher_fields=True,
+        teacher=portal_user,
+    )
+    return JsonResponse(
+        {
+            "message": "保存成功",
+            **payload,
+        }
+    )
+
+
 @role_required("teacher")
 def teacher_homework_submission_detail(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
+    raw_anchor_date = str(request.GET.get("anchor_date") or "").strip()
+    if raw_anchor_date:
+        try:
+            anchor_date = normalize_student_learning_anchor_date(raw_anchor_date)
+        except ValueError:
+            anchor_date = timezone.localdate()
+    else:
+        anchor_date = None
     student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
     student = (
         Student.objects.select_related("user", "parent_user", "teacher_user")
@@ -1121,6 +1237,7 @@ def teacher_homework_submission_detail(request: HttpRequest) -> HttpResponse:
     context = build_teacher_homework_submission_detail_context(
         portal_user,
         student=student,
+        anchor_date=anchor_date,
     )
     return render_shell_page(request, "teacher", "entry/teacher_homework_submission_detail.html", context)
 
@@ -1128,6 +1245,14 @@ def teacher_homework_submission_detail(request: HttpRequest) -> HttpResponse:
 @role_required("teacher")
 def teacher_homework_student_period_assignment_detail(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
+    raw_anchor_date = str(request.GET.get("anchor_date") or "").strip()
+    if raw_anchor_date:
+        try:
+            anchor_date = normalize_student_learning_anchor_date(raw_anchor_date)
+        except ValueError:
+            anchor_date = timezone.localdate()
+    else:
+        anchor_date = None
     student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
     selected_period = request.GET.get("period") or "month"
     student = (
@@ -1142,6 +1267,7 @@ def teacher_homework_student_period_assignment_detail(request: HttpRequest) -> H
         portal_user,
         student=student,
         period=selected_period,
+        anchor_date=anchor_date,
     )
     return render_shell_page(request, "teacher", "entry/teacher_homework_student_period_assignment_detail.html", context)
 
@@ -1149,6 +1275,14 @@ def teacher_homework_student_period_assignment_detail(request: HttpRequest) -> H
 @role_required("teacher")
 def teacher_homework_assignment_submission_detail(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
+    raw_anchor_date = str(request.GET.get("anchor_date") or "").strip()
+    if raw_anchor_date:
+        try:
+            anchor_date = normalize_student_learning_anchor_date(raw_anchor_date)
+        except ValueError:
+            anchor_date = timezone.localdate()
+    else:
+        anchor_date = None
     student_id = normalize_positive_int(request.GET.get("student_id"), default=0, minimum=1)
     assignment_id = normalize_positive_int(request.GET.get("assignment_id"), default=0, minimum=1)
     selected_period = request.GET.get("period") or "month"
@@ -1178,6 +1312,7 @@ def teacher_homework_assignment_submission_detail(request: HttpRequest) -> HttpR
         student=student,
         assignment=assignment,
         period=selected_period,
+        anchor_date=anchor_date,
     )
     return render_shell_page(request, "teacher", "entry/teacher_homework_assignment_submission_detail.html", context)
 
@@ -1185,6 +1320,14 @@ def teacher_homework_assignment_submission_detail(request: HttpRequest) -> HttpR
 @role_required("teacher")
 def teacher_homework_submission_answer_detail(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
+    raw_anchor_date = str(request.GET.get("anchor_date") or "").strip()
+    if raw_anchor_date:
+        try:
+            anchor_date = normalize_student_learning_anchor_date(raw_anchor_date)
+        except ValueError:
+            anchor_date = timezone.localdate()
+    else:
+        anchor_date = None
     submission_id = normalize_positive_int(request.GET.get("submission_id"), default=0, minimum=1)
     selected_period = request.GET.get("period") or "month"
     submission = (
@@ -1209,6 +1352,7 @@ def teacher_homework_submission_answer_detail(request: HttpRequest) -> HttpRespo
     context = build_teacher_homework_submission_answer_detail_context(
         submission=submission,
         period=selected_period,
+        anchor_date=anchor_date,
     )
     return render_shell_page(request, "teacher", "entry/teacher_homework_submission_answer_detail.html", context)
 
@@ -1262,6 +1406,8 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         assignment_requirement_text = assignment_requirement.strip()
         summary_title = request.POST.get("summary_title", "").strip()
         summary_html_text = request.POST.get("summary_html", "").strip()
+        summary_highlights = normalize_preserved_multiline_text(request.POST.get("summary_highlights", "")).strip()
+        summary_areas_for_growth = normalize_preserved_multiline_text(request.POST.get("summary_areas_for_growth", "")).strip()
         form_values = {
             "student_ids": selected_student_ids,
             "import_job_id": selected_import_job_id,
@@ -1270,6 +1416,8 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             "due_date": due_date_raw,
             "summary_title": summary_title,
             "summary_html": summary_html_text,
+            "summary_highlights": summary_highlights,
+            "summary_areas_for_growth": summary_areas_for_growth,
         }
 
         if not selected_student_ids:
@@ -1286,6 +1434,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 error_message = "请选择有效的截止日期。"
 
             summary_html_value = ""
+            summary_content_present = False
             if not error_message:
                 uploaded_summary_file = request.FILES.get("summary_html_file")
                 try:
@@ -1297,8 +1446,13 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 except ValidationError as exc:
                     error_message = "；".join(exc.messages) if exc.messages else str(exc)
                 else:
-                    if summary_title and not summary_html_value:
-                        error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容。"
+                    summary_content_present = bool(
+                        summary_html_value
+                        or summary_highlights
+                        or summary_areas_for_growth
+                    )
+                    if summary_title and not summary_content_present:
+                        error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容，也没有填写亮点表现 / 待提升点。"
 
             visible_import_job = None
             source_content = None
@@ -1375,17 +1529,19 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                     if not error_message:
                         created_summary = None
                         final_summary_title = ""
-                        if summary_html_value:
+                        if summary_content_present:
                             final_summary_title = summary_title or build_default_batch_homework_summary_title(
                                 course_label=selected_course.title if selected_course is not None else "批量作业",
                                 anchor_date=timezone.localdate(),
                             )
                         try:
                             with transaction.atomic():
-                                if summary_html_value:
+                                if summary_content_present:
                                     created_summary = HomeworkSummary.objects.create(
                                         title=final_summary_title,
                                         summary_html=summary_html_value,
+                                        highlights=summary_highlights,
+                                        areas_for_growth=summary_areas_for_growth,
                                         created_by=portal_user,
                                     )
                                 for student in selected_students:
@@ -2853,11 +3009,15 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
             start_date_raw = request.POST.get("summary_start_date", "").strip()
             end_date_raw = request.POST.get("summary_end_date", "").strip()
             summary_html_input = request.POST.get("summary_html", "").strip()
+            summary_highlights = normalize_preserved_multiline_text(request.POST.get("summary_highlights", "")).strip()
+            summary_areas_for_growth = normalize_preserved_multiline_text(request.POST.get("summary_areas_for_growth", "")).strip()
             form_values = {
                 "title": title,
                 "start_date": start_date_raw,
                 "end_date": end_date_raw,
                 "summary_html": summary_html_input,
+                "highlights": summary_highlights,
+                "areas_for_growth": summary_areas_for_growth,
             }
             start_date_value = parse_iso_date(start_date_raw)
             end_date_value = parse_iso_date(end_date_raw)
@@ -2883,10 +3043,10 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
                     homework_summary_form_values=form_values,
                     homework_summary_error_message=str(exc),
                 )
-            if not summary_html:
+            if not (summary_html or summary_highlights or summary_areas_for_growth):
                 return render_detail(
                     homework_summary_form_values=form_values,
-                    homework_summary_error_message="请上传 HTML 文件，或直接填写总结 HTML 正文。",
+                    homework_summary_error_message="请上传 HTML 文件、填写总结 HTML，或补充亮点表现 / 待提升点。",
                 )
             matched_assignments = list(
                 filter_homework_assignments_by_assigned_date(
@@ -2908,6 +3068,8 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
             summary = HomeworkSummary.objects.create(
                 title=final_title,
                 summary_html=summary_html,
+                highlights=summary_highlights,
+                areas_for_growth=summary_areas_for_growth,
                 created_by=portal_user,
             )
             HomeworkAssignment.objects.filter(
@@ -3211,3 +3373,41 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
 @role_required("principal")
 def principal_dashboard(request: HttpRequest) -> HttpResponse:
     return render_role_page(request, "principal", build_principal_page_shell())
+
+
+@api_role_required("principal")
+def api_principal_get_students_info(request: HttpRequest) -> JsonResponse:
+    try:
+        anchor_date = normalize_student_learning_anchor_date(request.GET.get("anchor_date"))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    students = Student.objects.select_related("teacher_user").all()
+    payload = build_student_learning_overview(
+        students=students,
+        anchor_date=anchor_date,
+        include_teacher_fields=True,
+    )
+    return JsonResponse(payload)
+
+
+@api_role_required("parent")
+def api_parent_get_my_child(request: HttpRequest) -> JsonResponse:
+    try:
+        anchor_date = normalize_student_learning_anchor_date(request.GET.get("anchor_date"))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    portal_user = get_portal_user_from_request(request)
+    children = Student.objects.select_related("teacher_user").filter(parent_user=portal_user)
+    payload = build_student_learning_overview(
+        students=children,
+        anchor_date=anchor_date,
+        include_teacher_fields=False,
+    )
+    return JsonResponse(
+        {
+            "anchor_date": payload["anchor_date"],
+            "children": payload["students"],
+        }
+    )

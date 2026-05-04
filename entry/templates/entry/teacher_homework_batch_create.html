@@ -215,11 +215,11 @@
                 </section>
 
                 <section class="record-panel">
-                    <div class="section-heading section-heading--compact">
-                        <p class="section-heading__eyebrow">Homework Summary</p>
-                        <h3>课后总结区块</h3>
-                        <p>可上传 `.html / .htm` 文件，或直接粘贴 `summary_html`。如果两者同时填写，保存时优先使用上传文件，并只创建 1 条 HomeworkSummary 供整批作业共用。</p>
-                    </div>
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Homework Summary</p>
+                            <h3>课后总结区块</h3>
+                            <p>可上传 `.html / .htm` 文件、直接粘贴 `summary_html`，或补充亮点表现 / 待提升点。如果同时上传文件和粘贴 HTML，保存时优先使用上传文件，并只创建 1 条 HomeworkSummary 供整批作业共用。</p>
+                        </div>
 
                     <div class="record-form">
                         <label>
@@ -242,6 +242,22 @@
                                 rows="10"
                                 placeholder="如果不上传 HTML 文件，可以直接在这里粘贴课后总结 HTML。"
                             >{{ form_values.summary_html }}</textarea>
+                        </label>
+                        <label>
+                            <span>亮点表现</span>
+                            <textarea
+                                name="summary_highlights"
+                                rows="4"
+                                placeholder="记录这节课 / 本次作业的亮点表现。"
+                            >{{ form_values.summary_highlights }}</textarea>
+                        </label>
+                        <label>
+                            <span>待提升点</span>
+                            <textarea
+                                name="summary_areas_for_growth"
+                                rows="4"
+                                placeholder="记录这节课 / 本次作业还需要继续加强的地方。"
+                            >{{ form_values.summary_areas_for_growth }}</textarea>
                         </label>
                     </div>
                 </section>

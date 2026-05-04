@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    api_parent_get_my_child,
+    api_principal_get_students_info,
     login_page,
     logout_view,
     parent_homework_detail,
@@ -50,6 +52,8 @@ from .views import (
     teacher_course_level_export,
     teacher_course_students_detail,
     teacher_homework_stats,
+    teacher_homework_stats_lesson_feedback,
+    teacher_homework_stats_lesson_feedback_save,
     teacher_homework_batch_create,
     teacher_question_manual_override,
     teacher_assignment_new,
@@ -72,6 +76,8 @@ from .views import (
 urlpatterns = [
     path("", login_page, name="login"),
     path("logout", logout_view, name="logout"),
+    path("api/principal/get_students_info", api_principal_get_students_info, name="api-principal-get-students-info"),
+    path("api/parent/get_my_child", api_parent_get_my_child, name="api-parent-get-my-child"),
     path("student/courses", student_courses, name="student-courses"),
     path("student/practice", student_practice, name="student-practice"),
     path("student/practice/homework", student_homework_list, name="student-homework-list"),
@@ -140,6 +146,16 @@ urlpatterns = [
     ),
     path("teacher/students", teacher_students, name="teacher-students"),
     path("teacher/homework-stats", teacher_homework_stats, name="teacher-homework-stats"),
+    path(
+        "teacher/homework-stats/lesson-feedback",
+        teacher_homework_stats_lesson_feedback,
+        name="teacher-homework-stats-lesson-feedback",
+    ),
+    path(
+        "teacher/homework-stats/lesson-feedback/save",
+        teacher_homework_stats_lesson_feedback_save,
+        name="teacher-homework-stats-lesson-feedback-save",
+    ),
     path(
         "teacher/homework-stats/submissions",
         teacher_homework_submission_detail,

@@ -118,9 +118,7 @@
                         <div class="section-heading section-heading--compact">
                             <p class="section-heading__eyebrow">Student Detail</p>
                             <h3>学生明细表</h3>
-                            {% if selected_period == "week" %}
-                                <p>这里保留 week 的 assignment 级明细展示。统计周期统一按 due_date 归属；assigned_at 搜索只影响前端 datagrid 过滤，不改后端完成统计。</p>
-                            {% else %}
+                            {% if selected_period != "week" %}
                                 <p>这里按学生聚合展示 {{ period_label }}作业完成情况，每个学生只显示一行；不会把 HomeworkSubmission 多次提交平铺成多行。</p>
                             {% endif %}
                         </div>
@@ -128,27 +126,22 @@
                     {% if students %}
                         <div class="portal-grid-shell teacher-tabulator-shell teacher-homework-stats-grid-shell">
                             <div class="portal-grid-toolbar teacher-tabulator-toolbar">
-                                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
-                                    {% if selected_period == "week" %}
-                                        <label for="teacher-homework-stats-student-search">按姓名 / 作业 / 级别 / 知识点 / 统计查找</label>
-                                    {% else %}
-                                        <label for="teacher-homework-stats-student-search">按姓名 / 级别 / 完成统计 / 最近时间查找</label>
-                                    {% endif %}
-                                    <input
-                                        id="teacher-homework-stats-student-search"
-                                        class="portal-grid-search teacher-tabulator-search"
-                                        type="text"
-                                        placeholder="{% if selected_period == 'week' %}输入学生姓名、作业标题、级别、知识点或正确率 / 错误率{% else %}输入学生姓名、级别、作业数量、完成数量或最近日期{% endif %}"
-                                    >
-                                </div>
-                                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                <div class="teacher-homework-stats-filters">
                                     <div class="teacher-tabulator-filter-field">
-                                        <label for="teacher-homework-stats-assigned-at-search">assigned_at 搜索</label>
+                                        <label for="teacher-homework-stats-student-search">学生姓名</label>
+                                        <input
+                                            id="teacher-homework-stats-student-search"
+                                            class="portal-grid-search teacher-tabulator-search"
+                                            type="text"
+                                            placeholder="搜索学生姓名"
+                                        >
+                                    </div>
+                                    <div class="teacher-tabulator-filter-field">
+                                        <label for="teacher-homework-stats-assigned-at-search">布置日期</label>
                                         <input
                                             id="teacher-homework-stats-assigned-at-search"
                                             class="portal-grid-filter-control teacher-tabulator-filter-control"
-                                            type="text"
-                                            placeholder="输入 2026-05-01 或 2026-05-01 10:00"
+                                            type="date"
                                         >
                                     </div>
                                     <div class="teacher-tabulator-filter-field">
@@ -159,13 +152,6 @@
                                             {% endfor %}
                                         </select>
                                     </div>
-                                    <span class="portal-grid-note teacher-tabulator-note">
-                                        {% if selected_period == "week" %}
-                                            assignment 是否进入本周统计只看 due_date；week 主表保留 assignment 级明细。
-                                        {% else %}
-                                            month / quarter 主表只保留学生聚合结果：completed_count、incomplete_count、assignment_count，以及客观题 / 要求型拆分统计。
-                                        {% endif %}
-                                    </span>
                                 </div>
                             </div>
                             <div id="teacher-homework-stats-students-table" class="portal-grid-container teacher-tabulator-container teacher-homework-stats-table"></div>
@@ -173,23 +159,26 @@
                                 {% for item in student_table_rows %}
                                     <article class="entry-hint-bar">
                                         {% if selected_period == "week" %}
-                                            <strong>{{ item.student_name }}{% if item.assignment_title %} · {{ item.assignment_title }}{% endif %}</strong>
-                                            <span>级别 {{ item.level_code_display }}，布置时间 {{ item.assigned_at_text|default:"暂无" }}，截止日期 {{ item.due_date_text|default:"暂无" }}，作业类型 {{ item.homework_mode_text|default:"暂无" }}，知识点 {{ item.knowledge_point|default:"暂无" }}</span>
-                                            <div>应交 {{ item.assigned_count }}，已完成 {{ item.submitted_count }}，待完成 {{ item.pending_count }}，超期未完成 {{ item.overdue_missing_count }}，完成率 {{ item.completion_rate_text }}</div>
-                                            {% if item.has_answer_rate_details %}
-                                                {% for detail in item.answer_rate_details %}
+                                            <strong>{{ item.display_name }}</strong>
+                                            <span>当前级别 {{ item.primary_level_name }}，本周应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
+                                            {% if item.knowledge_points %}
+                                                {% for detail in item.knowledge_points %}
                                                     <div>
-                                                        {% if detail.show_knowledge_point_name %}{{ detail.knowledge_point|default:detail.knowledge_point_name }}：{% endif %}
-                                                        正确 {{ detail.correct_count }}，错误 {{ detail.wrong_count }}，正确率 {{ detail.correct_rate_text }}，错误率 {{ detail.wrong_rate_text }}
+                                                        {{ detail.name }}：
+                                                        {% if detail.mastery_status %}
+                                                            {{ detail.mastery_status }}，错误率 {% if detail.error_rate == None %}暂无{% else %}{{ detail.error_rate|floatformat:2 }}{% endif %}
+                                                        {% else %}
+                                                            要求型作业
+                                                        {% endif %}
                                                     </div>
                                                 {% endfor %}
                                             {% else %}
-                                                <div>暂无答题统计</div>
+                                                <div>暂无知识点统计</div>
                                             {% endif %}
+                                            <div>教师评价：{% if item.lesson_feedback_available %}本周共有 {{ item.lesson_feedback_count }} 条课堂总结，请使用上方表格按钮编辑{% else %}本周暂无课后总结，无法填写教师评价{% endif %}</div>
                                         {% else %}
-                                            <strong>{{ item.student_name }}</strong>
-                                            <span>级别 {{ item.level_code_display }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，未完成 {{ item.incomplete_count }}</span>
-                                            <div>客观题 {{ item.online_assignment_count }} / 已完成 {{ item.online_completed_count }}，要求型 {{ item.requirement_assignment_count }} / 已完成 {{ item.requirement_completed_count }}</div>
+                                            <strong>{{ item.display_name }}</strong>
+                                            <span>当前级别 {{ item.primary_level_name }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
                                             <div>最近布置 {{ item.latest_assigned_at_text|default:"暂无" }}，最近截止 {{ item.latest_due_date_text|default:"暂无" }}</div>
                                         {% endif %}
                                         {% if item.detail_href %}
@@ -208,6 +197,31 @@
             </div>
         </section>
     </div>
+
+    <dialog class="topic-access-modal" id="teacher-homework-stats-lesson-feedback-modal">
+        <div class="topic-access-modal__panel">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Lesson Feedback</p>
+                    <h3 id="teacher-homework-stats-lesson-feedback-title">教师评价</h3>
+                    <p id="teacher-homework-stats-lesson-feedback-meta">本周课堂总结按 summary_id 去重后展示。</p>
+                </div>
+                <button type="button" class="teacher-modal-close" id="teacher-homework-stats-lesson-feedback-close" aria-label="关闭弹窗">×</button>
+            </div>
+
+            <div id="teacher-homework-stats-lesson-feedback-status" class="entry-hint-bar" hidden></div>
+            <div id="teacher-homework-stats-lesson-feedback-loading" class="entry-hint-bar" hidden>正在加载课堂总结...</div>
+            <div id="teacher-homework-stats-lesson-feedback-empty" class="entry-hint-bar" hidden>本周暂无课后总结，无法填写教师评价。</div>
+            <div id="teacher-homework-stats-lesson-feedback-list" class="content-access-list"></div>
+
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="teacher-homework-stats-lesson-feedback-cancel">关闭</button>
+            </div>
+        </div>
+    </dialog>
+    <form id="teacher-homework-stats-lesson-feedback-csrf-form" hidden>
+        {% csrf_token %}
+    </form>
 {% endblock %}
 
 {% block extra_body_end %}
@@ -219,6 +233,286 @@
     <script>
         (function () {
             var studentFallback = document.getElementById("teacher-homework-stats-students-fallback");
+            var studentTable = null;
+            var selectedPeriod = "{{ selected_period }}";
+            var anchorDate = "{{ anchor_date_iso }}";
+            var lessonFeedbackListUrl = "{% url 'teacher-homework-stats-lesson-feedback' %}";
+            var lessonFeedbackSaveUrl = "{% url 'teacher-homework-stats-lesson-feedback-save' %}";
+            var lessonFeedbackModal = document.getElementById("teacher-homework-stats-lesson-feedback-modal");
+            var lessonFeedbackTitle = document.getElementById("teacher-homework-stats-lesson-feedback-title");
+            var lessonFeedbackMeta = document.getElementById("teacher-homework-stats-lesson-feedback-meta");
+            var lessonFeedbackStatus = document.getElementById("teacher-homework-stats-lesson-feedback-status");
+            var lessonFeedbackLoading = document.getElementById("teacher-homework-stats-lesson-feedback-loading");
+            var lessonFeedbackEmpty = document.getElementById("teacher-homework-stats-lesson-feedback-empty");
+            var lessonFeedbackList = document.getElementById("teacher-homework-stats-lesson-feedback-list");
+            var lessonFeedbackCloseButton = document.getElementById("teacher-homework-stats-lesson-feedback-close");
+            var lessonFeedbackCancelButton = document.getElementById("teacher-homework-stats-lesson-feedback-cancel");
+            var lessonFeedbackCsrfForm = document.getElementById("teacher-homework-stats-lesson-feedback-csrf-form");
+            var activeLessonFeedbackStudentId = 0;
+            var activeLessonFeedbackStudentName = "";
+
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function getLessonFeedbackCsrfToken() {
+                var input = lessonFeedbackCsrfForm ? lessonFeedbackCsrfForm.querySelector("[name=csrfmiddlewaretoken]") : null;
+                return input ? String(input.value || "") : "";
+            }
+
+            function setLessonFeedbackStatus(message, tone) {
+                if (!lessonFeedbackStatus) {
+                    return;
+                }
+                if (!message) {
+                    lessonFeedbackStatus.hidden = true;
+                    lessonFeedbackStatus.removeAttribute("data-tone");
+                    lessonFeedbackStatus.innerHTML = "";
+                    return;
+                }
+                lessonFeedbackStatus.hidden = false;
+                lessonFeedbackStatus.setAttribute("data-tone", tone || "info");
+                lessonFeedbackStatus.innerHTML = "<strong>" + escapeHtml(tone === "error" ? "保存失败" : "提示") + "</strong><span>" + escapeHtml(message) + "</span>";
+            }
+
+            function setLessonFeedbackLoading(isLoading) {
+                if (lessonFeedbackLoading) {
+                    lessonFeedbackLoading.hidden = !isLoading;
+                }
+            }
+
+            function closeLessonFeedbackModal() {
+                if (!lessonFeedbackModal) {
+                    return;
+                }
+                if (typeof lessonFeedbackModal.close === "function") {
+                    lessonFeedbackModal.close();
+                } else {
+                    lessonFeedbackModal.removeAttribute("open");
+                }
+            }
+
+            function openLessonFeedbackModalShell(studentName) {
+                if (!lessonFeedbackModal) {
+                    return;
+                }
+                activeLessonFeedbackStudentName = studentName || "";
+                if (lessonFeedbackTitle) {
+                    lessonFeedbackTitle.textContent = "教师评价";
+                }
+                if (lessonFeedbackMeta) {
+                    lessonFeedbackMeta.textContent = (studentName || "当前学生") + " · 本周课堂总结按 summary_id 去重后展示";
+                }
+                if (typeof lessonFeedbackModal.showModal === "function") {
+                    lessonFeedbackModal.showModal();
+                } else {
+                    lessonFeedbackModal.setAttribute("open", "open");
+                }
+            }
+
+            function buildLessonFeedbackSearchText(lessonFeedbacks) {
+                if (!Array.isArray(lessonFeedbacks) || !lessonFeedbacks.length) {
+                    return "本周暂无课后总结";
+                }
+                return lessonFeedbacks
+                    .map(function (item) {
+                        return [
+                            "summary_id " + String(item.summary_id || ""),
+                            Array.isArray(item.titles) ? item.titles.join("、") : "",
+                            Array.isArray(item.due_dates) ? item.due_dates.join("、") : "",
+                            String(item.highlights || "").trim(),
+                            String(item.areas_for_growth || "").trim()
+                        ]
+                            .filter(Boolean)
+                            .join(" | ");
+                    })
+                    .join(" || ");
+            }
+
+            function updateLessonFeedbackRow(payload) {
+                if (!studentTable || !payload || !payload.student) {
+                    return;
+                }
+                var row = typeof studentTable.getRow === "function" ? studentTable.getRow(payload.student.student_id) : null;
+                if (!row) {
+                    return;
+                }
+                var current = row.getData();
+                var week = payload.week || {};
+                var lessonFeedbacks = Array.isArray(week.lesson_feedbacks) ? week.lesson_feedbacks : [];
+                var highlights = Array.isArray(week.highlights) ? week.highlights : [];
+                var areasForGrowth = Array.isArray(week.areas_for_growth) ? week.areas_for_growth : [];
+                row.update(
+                    Object.assign({}, current, {
+                        lesson_feedbacks: lessonFeedbacks,
+                        highlights: highlights,
+                        areas_for_growth: areasForGrowth,
+                        lesson_feedback_count: lessonFeedbacks.length,
+                        lesson_feedback_available: lessonFeedbacks.length > 0,
+                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周暂无课后总结，无法填写教师评价",
+                        lesson_feedback_search_text: buildLessonFeedbackSearchText(lessonFeedbacks)
+                    })
+                );
+            }
+
+            function renderLessonFeedbackCards(payload) {
+                if (!lessonFeedbackList || !lessonFeedbackEmpty) {
+                    return;
+                }
+                var week = payload && payload.week ? payload.week : {};
+                var lessonFeedbacks = Array.isArray(week.lesson_feedbacks) ? week.lesson_feedbacks : [];
+                lessonFeedbackList.innerHTML = "";
+                if (!lessonFeedbacks.length) {
+                    lessonFeedbackEmpty.hidden = false;
+                    return;
+                }
+                lessonFeedbackEmpty.hidden = true;
+                lessonFeedbackList.innerHTML = lessonFeedbacks
+                    .map(function (item) {
+                        return (
+                            '<article class="content-access-card content-access-card--open">' +
+                                '<div class="content-access-card__top">' +
+                                    '<div>' +
+                                        '<h5>课堂总结 #' + escapeHtml(item.summary_id) + '</h5>' +
+                                        '<p>assignment_ids：' + escapeHtml((item.assignment_ids || []).join(", ")) + '</p>' +
+                                        '<p>作业：' + escapeHtml((item.titles || []).join("、") || "暂无关联作业") + '</p>' +
+                                        '<p>截止日期：' + escapeHtml((item.due_dates || []).join("、") || "暂无") + '</p>' +
+                                    '</div>' +
+                                    '<span class="state-pill state-pill--open">' + escapeHtml(String((item.assignment_ids || []).length || 0)) + ' 条作业</span>' +
+                                '</div>' +
+                                '<label class="portal-form-field">' +
+                                    '<span>闪光点</span>' +
+                                    '<textarea rows="4" data-feedback-field="highlights" data-summary-id="' + escapeHtml(item.summary_id) + '">' + escapeHtml(item.highlights || "") + '</textarea>' +
+                                '</label>' +
+                                '<label class="portal-form-field">' +
+                                    '<span>需改进点</span>' +
+                                    '<textarea rows="4" data-feedback-field="areas_for_growth" data-summary-id="' + escapeHtml(item.summary_id) + '">' + escapeHtml(item.areas_for_growth || "") + '</textarea>' +
+                                '</label>' +
+                                '<div class="topic-access-modal__footer">' +
+                                    '<button type="button" class="login-button" data-feedback-save="1" data-summary-id="' + escapeHtml(item.summary_id) + '">保存</button>' +
+                                '</div>' +
+                            '</article>'
+                        );
+                    })
+                    .join("");
+            }
+
+            async function fetchLessonFeedbackPayload(studentId) {
+                var url = new URL(lessonFeedbackListUrl, window.location.origin);
+                url.searchParams.set("student_id", studentId);
+                url.searchParams.set("period", "week");
+                url.searchParams.set("anchor_date", anchorDate);
+                var response = await window.fetch(url.toString(), {
+                    credentials: "same-origin",
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest"
+                    }
+                });
+                var payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.error || "加载课堂评价失败");
+                }
+                return payload;
+            }
+
+            async function openLessonFeedbackModal(rowData) {
+                if (!rowData || !rowData.student_id || selectedPeriod !== "week") {
+                    return;
+                }
+                activeLessonFeedbackStudentId = Number(rowData.student_id) || 0;
+                openLessonFeedbackModalShell(rowData.display_name || rowData.student_name || "当前学生");
+                setLessonFeedbackStatus("", "");
+                setLessonFeedbackLoading(true);
+                if (lessonFeedbackEmpty) {
+                    lessonFeedbackEmpty.hidden = true;
+                }
+                if (lessonFeedbackList) {
+                    lessonFeedbackList.innerHTML = "";
+                }
+                try {
+                    var payload = await fetchLessonFeedbackPayload(activeLessonFeedbackStudentId);
+                    renderLessonFeedbackCards(payload);
+                } catch (error) {
+                    if (lessonFeedbackEmpty) {
+                        lessonFeedbackEmpty.hidden = false;
+                    }
+                    setLessonFeedbackStatus(error && error.message ? error.message : "加载课堂评价失败", "error");
+                } finally {
+                    setLessonFeedbackLoading(false);
+                }
+            }
+
+            async function saveLessonFeedback(summaryId, button) {
+                if (!activeLessonFeedbackStudentId || !summaryId) {
+                    return;
+                }
+                var highlightsField = lessonFeedbackList ? lessonFeedbackList.querySelector('[data-feedback-field="highlights"][data-summary-id="' + String(summaryId) + '"]') : null;
+                var areasField = lessonFeedbackList ? lessonFeedbackList.querySelector('[data-feedback-field="areas_for_growth"][data-summary-id="' + String(summaryId) + '"]') : null;
+                var payload = new URLSearchParams();
+                payload.set("student_id", String(activeLessonFeedbackStudentId));
+                payload.set("summary_id", String(summaryId));
+                payload.set("period", "week");
+                payload.set("anchor_date", anchorDate);
+                payload.set("highlights", highlightsField ? String(highlightsField.value || "") : "");
+                payload.set("areas_for_growth", areasField ? String(areasField.value || "") : "");
+
+                if (button) {
+                    button.disabled = true;
+                }
+                setLessonFeedbackStatus("", "");
+                try {
+                    var response = await window.fetch(lessonFeedbackSaveUrl, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                            "X-CSRFToken": getLessonFeedbackCsrfToken(),
+                            "X-Requested-With": "XMLHttpRequest"
+                        },
+                        body: payload.toString()
+                    });
+                    var result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result.error || "保存课堂评价失败");
+                    }
+                    renderLessonFeedbackCards(result);
+                    updateLessonFeedbackRow(result);
+                    setLessonFeedbackStatus(result.message || "保存成功", "success");
+                } catch (error) {
+                    setLessonFeedbackStatus(error && error.message ? error.message : "保存课堂评价失败", "error");
+                } finally {
+                    if (button) {
+                        button.disabled = false;
+                    }
+                }
+            }
+
+            if (lessonFeedbackList) {
+                lessonFeedbackList.addEventListener("click", function (event) {
+                    var target = event.target;
+                    if (!(target instanceof HTMLElement)) {
+                        return;
+                    }
+                    var saveButton = target.closest("[data-feedback-save]");
+                    if (!saveButton) {
+                        return;
+                    }
+                    saveLessonFeedback(saveButton.getAttribute("data-summary-id"), saveButton);
+                });
+            }
+
+            if (lessonFeedbackCloseButton) {
+                lessonFeedbackCloseButton.addEventListener("click", closeLessonFeedbackModal);
+            }
+            if (lessonFeedbackCancelButton) {
+                lessonFeedbackCancelButton.addEventListener("click", closeLessonFeedbackModal);
+            }
+
             try {
                 if (
                     window.CodeMasterTeacherTabulator &&
@@ -226,15 +520,16 @@
                     document.getElementById("teacher-homework-stats-students-table") &&
                     document.getElementById("teacher-homework-stats-students-data")
                 ) {
-                    var table = window.CodeMasterTeacherTabulator.initTeacherHomeworkStatsStudents({
+                    studentTable = window.CodeMasterTeacherTabulator.initTeacherHomeworkStatsStudents({
                         tableId: "teacher-homework-stats-students-table",
                         dataScriptId: "teacher-homework-stats-students-data",
                         searchInputId: "teacher-homework-stats-student-search",
                         assignedAtSearchInputId: "teacher-homework-stats-assigned-at-search",
                         levelFilterId: "teacher-homework-stats-level-filter",
-                        period: "{{ selected_period }}"
+                        period: "{{ selected_period }}",
+                        onLessonFeedbackClick: openLessonFeedbackModal
                     });
-                    if (table && studentFallback) {
+                    if (studentTable && studentFallback) {
                         studentFallback.hidden = true;
                     }
                 }
