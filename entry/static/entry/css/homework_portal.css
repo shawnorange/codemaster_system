@@ -66,3 +66,47 @@
     padding: 0 12px;
     margin: 0 auto;
 }
+
+.student-homework-feedback-card {
+    display: grid;
+    gap: 16px;
+    margin-top: 18px;
+}
+
+.student-homework-feedback-card__grid {
+    display: flex;
+    gap: 16px;
+    flex-wrap: nowrap;
+    align-items: stretch;
+}
+
+.student-homework-feedback-card__item {
+    flex: 1 1 0;
+    width: 50%;
+    min-width: 0;
+    justify-content: flex-start;
+    min-height: 100%;
+}
+
+.student-homework-feedback-card__item .metric-card__label {
+    margin-bottom: 12px;
+}
+
+.student-homework-feedback-text {
+    white-space: pre-wrap;
+    min-height: 72px;
+    color: var(--primary-deep);
+    font-size: 1rem;
+    line-height: 1.7;
+    word-break: break-word;
+}
+
+@media (max-width: 760px) {
+    .student-homework-feedback-card__grid {
+        flex-direction: column;
+    }
+
+    .student-homework-feedback-card__item {
+        width: 100%;
+    }
+}

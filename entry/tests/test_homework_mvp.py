@@ -322,6 +322,8 @@ class HomeworkMVPTests(TestCase):
         status: str = HomeworkAssignment.STATUS_ASSIGNED,
         teacher_comment: str = "",
         assigned_at=None,
+        highlights: str = "",
+        areas_for_growth: str = "",
     ) -> HomeworkAssignment:
         assignment = HomeworkAssignment.objects.create(
             teacher=self.teacher,
@@ -333,6 +335,8 @@ class HomeworkMVPTests(TestCase):
             status=status,
             teacher_comment=teacher_comment,
             assigned_at=assigned_at or timezone.now(),
+            highlights=highlights,
+            areas_for_growth=areas_for_growth,
         )
         return assignment
 
@@ -1199,15 +1203,18 @@ class HomeworkMVPTests(TestCase):
         self.assertFalse(StudentContentAccess.objects.filter(student=c1_student, content=c4_only_content).exists())
         self.assertFalse(student_has_content_access(c1_student, c4_only_content.slug))
 
-    def test_student_homework_list_is_descending_and_detail_can_mark_completed(self) -> None:
+    def test_student_homework_list_is_descending_by_assigned_at_and_detail_can_mark_completed(self) -> None:
+        now = timezone.now()
         older = self.create_homework(
             title="二维数组复盘",
             due_date=timezone.localdate() + timedelta(days=1),
+            assigned_at=now - timedelta(days=2),
         )
         newer = self.create_homework(
             content=self.binary_search_content,
             title="二分查找预习",
             due_date=timezone.localdate() + timedelta(days=5),
+            assigned_at=now - timedelta(hours=1),
         )
         self.sign_in(self.student_user)
 
@@ -1231,6 +1238,36 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(older.status, HomeworkAssignment.STATUS_COMPLETED)
         self.assertIsNotNone(older.completed_at)
         self.assertEqual(newer.status, HomeworkAssignment.STATUS_ASSIGNED)
+
+    def test_student_homework_detail_shows_assignment_feedback_with_safe_formatting(self) -> None:
+        assignment = self.create_homework(
+            title="反馈展示作业",
+            highlights="第一行亮点\n<script>alert(1)</script>\n    缩进亮点",
+            areas_for_growth="第一行不足\n    继续加强边界条件",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "老师本周反馈")
+        self.assertContains(response, "student-homework-feedback-card")
+        self.assertContains(response, "student-homework-feedback-text")
+        self.assertContains(response, "第一行亮点")
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;", html=False)
+        self.assertNotContains(response, "<script>alert(1)</script>", html=False)
+        self.assertContains(response, "第一行不足")
+        self.assertContains(response, "继续加强边界条件")
+
+    def test_student_homework_detail_shows_feedback_placeholders_when_empty(self) -> None:
+        assignment = self.create_homework(title="空反馈作业")
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-detail", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "老师暂未填写本周反馈")
+        self.assertContains(response, "暂无填写", count=2)
 
     def test_student_homework_list_shows_summary_entry_when_summary_exists(self) -> None:
         assignment = self.create_homework(title="二维数组周总结入口")

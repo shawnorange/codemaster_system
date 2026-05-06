@@ -103,6 +103,10 @@ class TeacherHomeworkStatsTests(TestCase):
         target = datetime.combine(target_date, datetime.min.time())
         return timezone.make_aware(target, tz).replace(hour=10, minute=0, second=0, microsecond=0)
 
+    def serialize_assignment_due_date(self, assignment: HomeworkAssignment) -> str:
+        assignment.refresh_from_db()
+        return timezone.localtime(assignment.due_date).isoformat()
+
     def create_assignment(
         self,
         *,
@@ -114,6 +118,9 @@ class TeacherHomeworkStatsTests(TestCase):
         assigned_at: datetime | None = None,
         status: str = HomeworkAssignment.STATUS_ASSIGNED,
         completed_at: datetime | None = None,
+        summary: HomeworkSummary | None = None,
+        highlights: str = "",
+        areas_for_growth: str = "",
     ) -> HomeworkAssignment:
         assignment = HomeworkAssignment.objects.create(
             teacher=teacher,
@@ -123,6 +130,9 @@ class TeacherHomeworkStatsTests(TestCase):
             description="统计测试作业",
             due_date=due_date,
             status=status,
+            summary=summary,
+            highlights=highlights,
+            areas_for_growth=areas_for_growth,
             assigned_at=assigned_at or created_at or timezone.now(),
             completed_at=completed_at,
             is_active=True,
@@ -182,15 +192,11 @@ class TeacherHomeworkStatsTests(TestCase):
         self,
         *,
         title: str = "课堂总结",
-        highlights: str = "",
-        areas_for_growth: str = "",
         created_by: PortalUser | None = None,
     ) -> HomeworkSummary:
         return HomeworkSummary.objects.create(
             title=title,
             summary_html="<p>课堂总结</p>",
-            highlights=highlights,
-            areas_for_growth=areas_for_growth,
             created_by=created_by or self.teacher,
         )
 
@@ -262,17 +268,17 @@ class TeacherHomeworkStatsTests(TestCase):
         quarter_titles = self.extract_json_script(quarter_response, "teacher-homework-stats-student-columns")
         self.assertIn("学生姓名", week_titles)
         self.assertIn("当前级别", week_titles)
-        self.assertIn("知识点掌握", week_titles)
+        self.assertIn("正确率", week_titles)
         self.assertIn("教师评价", week_titles)
         self.assertIn("应完成", month_titles)
         self.assertIn("已完成", month_titles)
         self.assertIn("未完成", month_titles)
         self.assertIn("按时完成", month_titles)
         self.assertIn("延迟完成", month_titles)
-        self.assertNotIn("知识点掌握", month_titles)
+        self.assertNotIn("正确率", month_titles)
         self.assertNotIn("教师评价", month_titles)
         self.assertIn("应完成", quarter_titles)
-        self.assertNotIn("知识点掌握", quarter_titles)
+        self.assertNotIn("正确率", quarter_titles)
 
     def test_week_page_removes_explanatory_copy_and_keeps_three_filters(self) -> None:
         self.sign_in(self.teacher)
@@ -301,7 +307,7 @@ class TeacherHomeworkStatsTests(TestCase):
 
         self.assertIn('return ["display_name", "student_name"].some', source)
         self.assertIn("var dates = Array.isArray(rowData.assigned_at_dates) ? rowData.assigned_at_dates : [];", source)
-        self.assertIn('title: "知识点掌握"', source)
+        self.assertIn('title: "正确率"', source)
         self.assertIn('field: "knowledge_points_short_text"', source)
         self.assertIn('title: "教师评价"', source)
         self.assertRegex(source, r'title: "教师评价"[\s\S]{0,220}?responsive: 0')
@@ -354,19 +360,20 @@ class TeacherHomeworkStatsTests(TestCase):
     def test_week_student_detail_keeps_student_level_knowledge_points_and_teacher_feedback_button(self) -> None:
         self.sign_in(self.teacher)
         today = timezone.localdate()
-        summary = self.create_summary(
-            title="本周课堂总结",
-            highlights="课堂专注",
-            areas_for_growth="边界条件需要加强",
-        )
+        summary = self.create_summary(title="本周课堂总结")
         online_assignment = self.create_assignment(
             teacher=self.teacher,
             student=self.student,
             title="循环结构练习",
             due_date=today,
+            summary=summary,
+            highlights="课堂专注",
+            areas_for_growth="边界条件需要加强",
         )
-        online_assignment.summary = summary
-        online_assignment.save(update_fields=["summary", "updated_at"])
+        import_job = self.attach_source_import_job(
+            assignment=online_assignment,
+            source_filename="week-feedback.txt",
+        )
         self.add_direct_question(assignment=online_assignment)
         self.create_submission(
             assignment=online_assignment,
@@ -393,55 +400,71 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertIn("knowledge_points_by_period", row)
         self.assertIn("week", row["knowledge_points_by_period"])
         self.assertEqual(len(row["knowledge_points_by_period"]["week"]), 2)
+        self.assertEqual(row["knowledge_points_short_text"], "100%\n—")
         self.assertTrue(row["lesson_feedback_available"])
         self.assertEqual(row["lesson_feedback_count"], 1)
-        self.assertEqual(row["lesson_feedbacks"][0]["summary_id"], summary.id)
-        self.assertNotIn("无 summary 额外作业", row["lesson_feedbacks"][0]["titles"])
+        self.assertEqual(
+            row["lesson_feedbacks"][0],
+            {
+                "assignment_id": online_assignment.id,
+                "title": "循环结构练习",
+                "due_date": self.serialize_assignment_due_date(online_assignment),
+                "source_import_job_id": import_job.id,
+                "highlights": "课堂专注",
+                "areas_for_growth": "边界条件需要加强",
+            },
+        )
 
-    def test_teacher_lesson_feedback_api_deduplicates_summary_ids_and_excludes_null_summary(self) -> None:
+    def test_teacher_lesson_feedback_api_returns_ordered_assignment_candidates(self) -> None:
         self.sign_in(self.teacher)
         today = timezone.localdate()
-        summary = self.create_summary(
-            title="共享课堂总结",
-            highlights="主动提问",
-            areas_for_growth="边界条件要更稳",
-        )
-        same_summary_a = self.create_assignment(
+        older_source_assignment = self.create_assignment(
             teacher=self.teacher,
             student=self.student,
             title="课堂主作业",
             due_date=today,
+            highlights="主动提问",
+            areas_for_growth="边界条件要更稳",
         )
-        same_summary_a.summary = summary
-        same_summary_a.save(update_fields=["summary", "updated_at"])
-        same_summary_b = self.create_assignment(
+        older_import_job = self.attach_source_import_job(
+            assignment=older_source_assignment,
+            source_filename="teacher-feedback-main.txt",
+        )
+        latest_source_assignment = self.create_assignment(
             teacher=self.teacher,
             student=self.student,
             title="课堂附加作业",
             due_date=today + timedelta(days=1),
         )
-        same_summary_b.summary = summary
-        same_summary_b.save(update_fields=["summary", "updated_at"])
+        latest_import_job = self.attach_source_import_job(
+            assignment=latest_source_assignment,
+            source_filename="teacher-feedback-latest.txt",
+        )
+        feedback_only_assignment = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student,
+            title="仅有教师评价的作业",
+            due_date=today + timedelta(days=2),
+            highlights="口头表达清晰",
+        )
         self.create_assignment(
             teacher=self.teacher,
             student=self.student,
             title="无总结作业",
             due_date=today + timedelta(days=2),
         )
-        leaked_summary = self.create_summary(
-            title="不应泄露的课堂总结",
-            highlights="不应展示",
-            areas_for_growth="不应展示",
-            created_by=self.other_teacher,
-        )
         leaked_assignment = self.create_assignment(
             teacher=self.other_teacher,
             student=self.student,
             title="其他老师作业",
             due_date=today,
+            highlights="不应展示",
+            areas_for_growth="不应展示",
         )
-        leaked_assignment.summary = leaked_summary
-        leaked_assignment.save(update_fields=["summary", "updated_at"])
+        self.attach_source_import_job(
+            assignment=leaked_assignment,
+            source_filename="teacher-feedback-leaked.txt",
+        )
 
         response = self.client.get(
             reverse("teacher-homework-stats-lesson-feedback"),
@@ -451,32 +474,70 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["student"]["student_id"], self.student.id)
-        self.assertEqual(len(payload["week"]["lesson_feedbacks"]), 1)
-        feedback = payload["week"]["lesson_feedbacks"][0]
-        self.assertEqual(feedback["summary_id"], summary.id)
-        self.assertEqual(set(feedback["assignment_ids"]), {same_summary_a.id, same_summary_b.id})
-        self.assertEqual(feedback["titles"], ["课堂主作业", "课堂附加作业"])
-        self.assertEqual(feedback["highlights"], "主动提问")
-        self.assertEqual(feedback["areas_for_growth"], "边界条件要更稳")
+        self.assertEqual(
+            payload["week"]["lesson_feedbacks"],
+            [
+                {
+                    "assignment_id": latest_source_assignment.id,
+                    "title": "课堂附加作业",
+                    "due_date": self.serialize_assignment_due_date(latest_source_assignment),
+                    "source_import_job_id": latest_import_job.id,
+                    "highlights": "",
+                    "areas_for_growth": "",
+                },
+                {
+                    "assignment_id": older_source_assignment.id,
+                    "title": "课堂主作业",
+                    "due_date": self.serialize_assignment_due_date(older_source_assignment),
+                    "source_import_job_id": older_import_job.id,
+                    "highlights": "主动提问",
+                    "areas_for_growth": "边界条件要更稳",
+                },
+                {
+                    "assignment_id": feedback_only_assignment.id,
+                    "title": "仅有教师评价的作业",
+                    "due_date": self.serialize_assignment_due_date(feedback_only_assignment),
+                    "source_import_job_id": None,
+                    "highlights": "口头表达清晰",
+                    "areas_for_growth": "",
+                },
+            ],
+        )
+        self.assertEqual(
+            payload["week"]["highlights"],
+            ["主动提问", "口头表达清晰"],
+        )
+        self.assertEqual(payload["week"]["areas_for_growth"], ["边界条件要更稳"])
 
-    def test_teacher_lesson_feedback_save_updates_summary_and_enforces_permissions(self) -> None:
+    def test_teacher_lesson_feedback_save_updates_assignment_and_enforces_permissions(self) -> None:
         today = timezone.localdate()
-        summary = self.create_summary(title="待编辑课堂总结")
         assignment = self.create_assignment(
             teacher=self.teacher,
             student=self.student,
             title="待编辑作业",
             due_date=today,
         )
-        assignment.summary = summary
-        assignment.save(update_fields=["summary", "updated_at"])
+        self.attach_source_import_job(
+            assignment=assignment,
+            source_filename="teacher-feedback-save.txt",
+        )
+        other_student_assignment = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student_b,
+            title="其他学生作业",
+            due_date=today,
+        )
+        self.attach_source_import_job(
+            assignment=other_student_assignment,
+            source_filename="teacher-feedback-other-student.txt",
+        )
 
         self.sign_in(self.teacher)
         response = self.client.post(
             reverse("teacher-homework-stats-lesson-feedback-save"),
             {
                 "student_id": self.student.id,
-                "summary_id": summary.id,
+                "assignment_id": assignment.id,
                 "period": "week",
                 "anchor_date": today.isoformat(),
                 "highlights": "本周闪光点",
@@ -485,16 +546,16 @@ class TeacherHomeworkStatsTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        summary.refresh_from_db()
-        self.assertEqual(summary.highlights, "本周闪光点")
-        self.assertEqual(summary.areas_for_growth, "本周待改进点")
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.highlights, "本周闪光点")
+        self.assertEqual(assignment.areas_for_growth, "本周待改进点")
 
         self.sign_in(self.other_teacher)
         forbidden_update = self.client.post(
             reverse("teacher-homework-stats-lesson-feedback-save"),
             {
                 "student_id": self.student.id,
-                "summary_id": summary.id,
+                "assignment_id": assignment.id,
                 "period": "week",
                 "anchor_date": today.isoformat(),
                 "highlights": "不应成功",
@@ -502,9 +563,26 @@ class TeacherHomeworkStatsTests(TestCase):
             },
         )
         self.assertEqual(forbidden_update.status_code, 404)
-        summary.refresh_from_db()
-        self.assertEqual(summary.highlights, "本周闪光点")
-        self.assertEqual(summary.areas_for_growth, "本周待改进点")
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.highlights, "本周闪光点")
+        self.assertEqual(assignment.areas_for_growth, "本周待改进点")
+
+        self.sign_in(self.teacher)
+        wrong_student_update = self.client.post(
+            reverse("teacher-homework-stats-lesson-feedback-save"),
+            {
+                "student_id": self.student.id,
+                "assignment_id": other_student_assignment.id,
+                "period": "week",
+                "anchor_date": today.isoformat(),
+                "highlights": "不应成功",
+                "areas_for_growth": "不应成功",
+            },
+        )
+        self.assertEqual(wrong_student_update.status_code, 404)
+        other_student_assignment.refresh_from_db()
+        self.assertEqual(other_student_assignment.highlights, "")
+        self.assertEqual(other_student_assignment.areas_for_growth, "")
 
         for user in (self.parent, self.principal, self.student.user):
             self.sign_in(user)
@@ -512,7 +590,7 @@ class TeacherHomeworkStatsTests(TestCase):
                 reverse("teacher-homework-stats-lesson-feedback-save"),
                 {
                     "student_id": self.student.id,
-                    "summary_id": summary.id,
+                    "assignment_id": assignment.id,
                     "period": "week",
                     "anchor_date": today.isoformat(),
                     "highlights": "越权",

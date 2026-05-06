@@ -198,6 +198,16 @@ class HomeworkCompletionStatsHelperTests(TestCase):
         self.assertIn(in_scope.id, assignment_ids)
         self.assertNotIn(out_of_scope.id, assignment_ids)
 
+    def test_due_date_field_is_datetime_and_date_input_normalizes_to_end_of_day(self) -> None:
+        assignment = self.create_assignment(
+            title="date input normalized",
+            due_date=timezone.localdate(),
+        )
+
+        assignment.refresh_from_db()
+        self.assertEqual(HomeworkAssignment._meta.get_field("due_date").get_internal_type(), "DateTimeField")
+        self.assertEqual(timezone.localtime(assignment.due_date).strftime("%H:%M:%S"), "23:59:59")
+
     def test_month_and_quarter_periods_use_due_date(self) -> None:
         today = timezone.localdate()
         month_start = today.replace(day=1)

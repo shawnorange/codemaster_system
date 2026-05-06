@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.core import signing
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -13,6 +14,7 @@ from entry.models import (
     Course,
     CourseContent,
     HomeworkAssignment,
+    HomeworkImportJob,
     HomeworkQuestion,
     HomeworkSubmission,
     HomeworkSummary,
@@ -90,13 +92,15 @@ class StudentLearningApiTests(TestCase):
         *,
         student: Student,
         title: str,
-        due_date: date,
+        due_date: date | datetime,
         teacher: PortalUser | None = None,
         created_at: datetime | None = None,
         assigned_at: datetime | None = None,
         status: str = HomeworkAssignment.STATUS_ASSIGNED,
         completed_at: datetime | None = None,
         summary: HomeworkSummary | None = None,
+        highlights: str = "",
+        areas_for_growth: str = "",
     ) -> HomeworkAssignment:
         assignment = HomeworkAssignment.objects.create(
             teacher=teacher or student.teacher_user,
@@ -106,6 +110,8 @@ class StudentLearningApiTests(TestCase):
             description="API 测试作业",
             due_date=due_date,
             status=status,
+            highlights=highlights,
+            areas_for_growth=areas_for_growth,
             summary=summary,
             assigned_at=assigned_at or created_at or timezone.now(),
             completed_at=completed_at,
@@ -120,17 +126,39 @@ class StudentLearningApiTests(TestCase):
         self,
         *,
         title: str = "课堂总结",
-        highlights: str = "",
-        areas_for_growth: str = "",
         created_by: PortalUser | None = None,
     ) -> HomeworkSummary:
         return HomeworkSummary.objects.create(
             title=title,
             summary_html="<p>课堂总结</p>",
-            highlights=highlights,
-            areas_for_growth=areas_for_growth,
             created_by=created_by or self.teacher,
         )
+
+    def attach_source_import_job(
+        self,
+        *,
+        assignment: HomeworkAssignment,
+        source_filename: str,
+    ) -> HomeworkImportJob:
+        import_job = HomeworkImportJob.objects.create(
+            teacher=assignment.teacher,
+            assignment=assignment,
+            source_file=SimpleUploadedFile(
+                "student-learning-api-source.txt",
+                b"student-learning-api",
+                content_type="text/plain",
+            ),
+            source_filename=source_filename,
+            source_sha256=f"student-learning-api-{assignment.id}",
+            source_type=HomeworkImportJob.SOURCE_TYPE_TEXT,
+            parse_status=HomeworkImportJob.STATUS_CONFIRMED,
+            confirmed_at=timezone.now(),
+            is_active=True,
+        )
+        assignment.source_import_job = import_job
+        assignment.save(update_fields=["source_import_job", "updated_at"])
+        assignment.refresh_from_db()
+        return import_job
 
     def add_direct_question(self, *, assignment: HomeworkAssignment, question_no: int = 1) -> HomeworkQuestion:
         return HomeworkQuestion.objects.create(
@@ -191,6 +219,10 @@ class StudentLearningApiTests(TestCase):
 
     def get_child_row(self, payload: dict, student: Student) -> dict:
         return next(item for item in payload["children"] if item["student_id"] == student.id)
+
+    def serialize_assignment_due_date(self, assignment: HomeworkAssignment) -> str:
+        assignment.refresh_from_db()
+        return timezone.localtime(assignment.due_date).isoformat()
 
     def test_principal_api_requires_principal_role_and_returns_period_boundaries(self) -> None:
         response = self.client.get(self.principal_url())
@@ -273,64 +305,111 @@ class StudentLearningApiTests(TestCase):
         self.assertEqual(row["month"]["excluded_undated_count"], 0)
         self.assertEqual(row["quarter"]["excluded_undated_count"], 0)
 
-    def test_homework_summary_model_includes_lesson_feedback_fields(self) -> None:
-        summary = self.create_summary(
-            title="本周总结",
-            highlights="课堂专注",
-            areas_for_growth="边界条件需要加强",
-        )
+    def test_homework_assignment_model_owns_lesson_feedback_fields(self) -> None:
+        summary = self.create_summary(title="本周总结")
         assignment = self.create_assignment(
             student=self.child_a,
             title="课堂反馈作业",
             due_date=date(2026, 5, 6),
             summary=summary,
+            highlights="课堂专注",
+            areas_for_growth="边界条件需要加强",
         )
 
-        summary.refresh_from_db()
-        self.assertEqual(summary.highlights, "课堂专注")
-        self.assertEqual(summary.areas_for_growth, "边界条件需要加强")
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.highlights, "课堂专注")
+        self.assertEqual(assignment.areas_for_growth, "边界条件需要加强")
         self.assertEqual(assignment.summary_id, summary.id)
         assignment_field_names = {field.name for field in HomeworkAssignment._meta.fields}
-        self.assertNotIn("highlights", assignment_field_names)
-        self.assertNotIn("areas_for_growth", assignment_field_names)
+        summary_field_names = {field.name for field in HomeworkSummary._meta.fields}
+        self.assertIn("highlights", assignment_field_names)
+        self.assertIn("areas_for_growth", assignment_field_names)
+        self.assertNotIn("highlights", summary_field_names)
+        self.assertNotIn("areas_for_growth", summary_field_names)
+        self.assertEqual(HomeworkAssignment._meta.get_field("due_date").get_internal_type(), "DateTimeField")
+        self.assertEqual(
+            timezone.localtime(assignment.due_date).strftime("%H:%M:%S"),
+            "23:59:59",
+        )
 
-    def test_principal_week_returns_lesson_feedbacks_only_for_assignments_with_summary(self) -> None:
-        summary = self.create_summary(
-            title="本周课堂总结",
-            highlights="课堂专注，能主动复盘错题。",
-            areas_for_growth="循环边界条件还需要加强。",
+    def test_due_datetime_controls_delayed_completion_on_same_day(self) -> None:
+        due_at = self.make_local_datetime_for_date(date(2026, 5, 5), hour=9)
+        online_assignment = self.create_assignment(
+            student=self.child_a,
+            title="同日延迟在线作业",
+            due_date=due_at,
+            status=HomeworkAssignment.STATUS_REVIEWED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 5), hour=10),
         )
-        extra_summary = self.create_summary(
-            title="空反馈总结",
+        self.add_direct_question(assignment=online_assignment)
+        self.create_submission(
+            assignment=online_assignment,
+            student=self.child_a,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            submitted_at=self.make_local_datetime_for_date(date(2026, 5, 5), hour=10),
+            correct_count=2,
+            wrong_count=0,
         )
+
+        requirement_assignment = self.create_assignment(
+            student=self.child_a,
+            title="同日延迟要求型作业",
+            due_date=due_at,
+            status=HomeworkAssignment.STATUS_COMPLETED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 5), hour=10),
+        )
+
+        self.sign_in(self.principal)
+        response = self.client.get(self.principal_url(), {"anchor_date": self.anchor_date.isoformat()})
+
+        self.assertEqual(response.status_code, 200)
+        row = self.get_student_row(response.json(), self.child_a)
+        self.assertEqual(row["week"]["assignment_count"], 2)
+        self.assertEqual(row["week"]["completed_count"], 2)
+        self.assertEqual(row["week"]["on_time_completed_count"], 0)
+        self.assertEqual(row["week"]["delayed_completed_count"], 2)
+
+    def test_principal_week_returns_assignment_level_lesson_feedbacks(self) -> None:
         included_assignment = self.create_assignment(
             student=self.child_a,
             title="循环结构练习",
             due_date=date(2026, 5, 6),
-            summary=summary,
+            highlights="课堂专注，能主动复盘错题。",
+            areas_for_growth="循环边界条件还需要加强。",
+        )
+        included_import_job = self.attach_source_import_job(
+            assignment=included_assignment,
+            source_filename="loop-feedback.txt",
         )
         empty_feedback_assignment = self.create_assignment(
             student=self.child_a,
             title="数组练习",
             due_date=date(2026, 5, 7),
-            summary=extra_summary,
         )
-        extra_assignment_same_summary = self.create_assignment(
+        empty_feedback_import_job = self.attach_source_import_job(
+            assignment=empty_feedback_assignment,
+            source_filename="array-feedback.txt",
+        )
+        feedback_only_assignment = self.create_assignment(
             student=self.child_a,
             title="额外练习",
-            due_date=date(2026, 5, 7),
-            summary=summary,
+            due_date=date(2026, 5, 8),
+            highlights="口头表达积极。",
         )
         self.create_assignment(
             student=self.child_a,
             title="额外作业",
             due_date=date(2026, 5, 8),
         )
-        self.create_assignment(
+        out_of_week_assignment = self.create_assignment(
             student=self.child_a,
             title="六月总结作业",
             due_date=date(2026, 6, 2),
-            summary=summary,
+            highlights="不应进入本周",
+        )
+        self.attach_source_import_job(
+            assignment=out_of_week_assignment,
+            source_filename="june-feedback.txt",
         )
 
         self.sign_in(self.principal)
@@ -346,31 +425,45 @@ class StudentLearningApiTests(TestCase):
         self.assertNotIn("lesson_feedbacks", row["quarter"])
 
         lesson_feedbacks = week["lesson_feedbacks"]
-        self.assertEqual(len(lesson_feedbacks), 2)
+        self.assertEqual(len(lesson_feedbacks), 3)
         self.assertEqual(
-            next(item for item in lesson_feedbacks if item["summary_id"] == summary.id),
+            lesson_feedbacks[0],
             {
-                "summary_id": summary.id,
-                "assignment_ids": [included_assignment.id, extra_assignment_same_summary.id],
-                "titles": ["循环结构练习", "额外练习"],
-                "due_dates": ["2026-05-06", "2026-05-07"],
+                "assignment_id": empty_feedback_assignment.id,
+                "title": "数组练习",
+                "due_date": self.serialize_assignment_due_date(empty_feedback_assignment),
+                "source_import_job_id": empty_feedback_import_job.id,
+                "highlights": "",
+                "areas_for_growth": "",
+            },
+        )
+        self.assertEqual(
+            next(item for item in lesson_feedbacks if item["assignment_id"] == included_assignment.id),
+            {
+                "assignment_id": included_assignment.id,
+                "title": "循环结构练习",
+                "due_date": self.serialize_assignment_due_date(included_assignment),
+                "source_import_job_id": included_import_job.id,
                 "highlights": "课堂专注，能主动复盘错题。",
                 "areas_for_growth": "循环边界条件还需要加强。",
             },
         )
         self.assertEqual(
-            next(item for item in lesson_feedbacks if item["summary_id"] == extra_summary.id),
+            next(item for item in lesson_feedbacks if item["assignment_id"] == feedback_only_assignment.id),
             {
-                "summary_id": extra_summary.id,
-                "assignment_ids": [empty_feedback_assignment.id],
-                "titles": ["数组练习"],
-                "due_dates": ["2026-05-07"],
-                "highlights": "",
+                "assignment_id": feedback_only_assignment.id,
+                "title": "额外练习",
+                "due_date": self.serialize_assignment_due_date(feedback_only_assignment),
+                "source_import_job_id": None,
+                "highlights": "口头表达积极。",
                 "areas_for_growth": "",
             },
         )
-        self.assertTrue(all("额外作业" not in item["titles"] for item in lesson_feedbacks))
-        self.assertEqual(week["highlights"], ["课堂专注，能主动复盘错题。"])
+        self.assertTrue(all(item["title"] != "额外作业" for item in lesson_feedbacks))
+        self.assertEqual(
+            week["highlights"],
+            ["课堂专注，能主动复盘错题。", "口头表达积极。"],
+        )
         self.assertEqual(week["areas_for_growth"], ["循环边界条件还需要加强。"])
 
     def test_online_homework_completion_delay_and_mastery_rules(self) -> None:
@@ -378,6 +471,8 @@ class StudentLearningApiTests(TestCase):
             student=self.child_a,
             title="循环结构练习",
             due_date=date(2026, 5, 5),
+            status=HomeworkAssignment.STATUS_REVIEWED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 5)),
         )
         self.add_direct_question(assignment=on_time_mastered)
         self.create_submission(
@@ -393,9 +488,11 @@ class StudentLearningApiTests(TestCase):
             student=self.child_a,
             title="数组练习",
             due_date=date(2026, 5, 6),
+            status=HomeworkAssignment.STATUS_COMPLETED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 6), hour=11),
         )
         self.add_direct_question(assignment=on_time_basic)
-        self.create_submission(
+        basic_submission = self.create_submission(
             assignment=on_time_basic,
             student=self.child_a,
             status=HomeworkSubmission.STATUS_AUTO_CHECKED,
@@ -403,11 +500,17 @@ class StudentLearningApiTests(TestCase):
             correct_count=4,
             wrong_count=1,
         )
+        HomeworkSubmission.objects.filter(id=basic_submission.id).update(
+            submitted_at=None,
+            created_at=self.make_local_datetime_for_date(date(2026, 5, 6), hour=9),
+        )
 
         delayed_not_mastered = self.create_assignment(
             student=self.child_a,
             title="递归练习",
             due_date=date(2026, 5, 7),
+            status=HomeworkAssignment.STATUS_COMPLETED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 8)),
         )
         self.add_direct_question(assignment=delayed_not_mastered)
         self.create_submission(
@@ -443,6 +546,8 @@ class StudentLearningApiTests(TestCase):
             student=self.child_a,
             title="字符串练习",
             due_date=date(2026, 5, 10),
+            status=HomeworkAssignment.STATUS_REVIEWED,
+            completed_at=self.make_local_datetime_for_date(date(2026, 5, 10)),
         )
         self.add_direct_question(assignment=zero_total_assignment)
         self.create_submission(
@@ -474,23 +579,87 @@ class StudentLearningApiTests(TestCase):
         }
         self.assertEqual(knowledge_points["循环结构练习"]["source"], "HomeworkAssignment.title")
         self.assertEqual(knowledge_points["循环结构练习"]["mastery_status"], "已掌握")
-        self.assertEqual(knowledge_points["循环结构练习"]["error_rate"], 0.0)
+        self.assertEqual(knowledge_points["循环结构练习"]["correct_rate"], 1.0)
+        self.assertEqual(knowledge_points["循环结构练习"]["correct_rate_text"], "100%")
         self.assertEqual(knowledge_points["数组练习"]["mastery_status"], "基本掌握")
-        self.assertEqual(knowledge_points["数组练习"]["error_rate"], 0.2)
+        self.assertEqual(knowledge_points["数组练习"]["correct_rate"], 0.8)
+        self.assertEqual(knowledge_points["数组练习"]["correct_rate_text"], "80%")
         self.assertEqual(knowledge_points["递归练习"]["mastery_status"], "未掌握")
-        self.assertEqual(knowledge_points["递归练习"]["error_rate"], 0.4)
+        self.assertEqual(knowledge_points["递归练习"]["correct_rate"], 0.6)
+        self.assertEqual(knowledge_points["递归练习"]["correct_rate_text"], "60%")
         self.assertEqual(knowledge_points["条件判断练习"]["mastery_status"], "未作答")
-        self.assertIsNone(knowledge_points["条件判断练习"]["error_rate"])
+        self.assertIsNone(knowledge_points["条件判断练习"]["correct_rate"])
+        self.assertEqual(knowledge_points["条件判断练习"]["correct_rate_text"], "暂无")
         self.assertEqual(knowledge_points["函数练习"]["mastery_status"], "未作答")
-        self.assertIsNone(knowledge_points["函数练习"]["error_rate"])
+        self.assertIsNone(knowledge_points["函数练习"]["correct_rate"])
+        self.assertEqual(knowledge_points["函数练习"]["correct_rate_text"], "暂无")
         self.assertEqual(knowledge_points["字符串练习"]["mastery_status"], "未掌握")
-        self.assertIsNone(knowledge_points["字符串练习"]["error_rate"])
+        self.assertIsNone(knowledge_points["字符串练习"]["correct_rate"])
+        self.assertEqual(knowledge_points["字符串练习"]["correct_rate_text"], "暂无")
         self.assertEqual(knowledge_points["循环结构练习"]["assignment_id"], on_time_mastered.id)
         self.assertEqual(knowledge_points["数组练习"]["assignment_id"], on_time_basic.id)
         self.assertEqual(knowledge_points["递归练习"]["assignment_id"], delayed_not_mastered.id)
         self.assertEqual(knowledge_points["条件判断练习"]["assignment_id"], in_progress_assignment.id)
         self.assertEqual(knowledge_points["函数练习"]["assignment_id"], no_submission_assignment.id)
         self.assertEqual(knowledge_points["字符串练习"]["assignment_id"], zero_total_assignment.id)
+
+    def test_assignment_status_drives_completion_counts_while_submission_only_affects_mastery(self) -> None:
+        assigned_with_completed_submission = self.create_assignment(
+            student=self.child_a,
+            title="已作答但未标完成",
+            due_date=date(2026, 5, 5),
+            status=HomeworkAssignment.STATUS_ASSIGNED,
+        )
+        self.add_direct_question(assignment=assigned_with_completed_submission)
+        self.create_submission(
+            assignment=assigned_with_completed_submission,
+            student=self.child_a,
+            status=HomeworkSubmission.STATUS_REVIEWED,
+            submitted_at=self.make_local_datetime_for_date(date(2026, 5, 5)),
+            correct_count=3,
+            wrong_count=0,
+        )
+
+        reviewed_without_submission = self.create_assignment(
+            student=self.child_a,
+            title="已评阅但未提交客观题",
+            due_date=date(2026, 5, 6),
+            status=HomeworkAssignment.STATUS_REVIEWED,
+        )
+        self.add_direct_question(assignment=reviewed_without_submission)
+
+        completed_without_completed_at = self.create_assignment(
+            student=self.child_a,
+            title="状态完成但无完成时间",
+            due_date=date(2026, 5, 7),
+            status=HomeworkAssignment.STATUS_COMPLETED,
+        )
+
+        self.create_assignment(
+            student=self.child_a,
+            title="已取消作业",
+            due_date=date(2026, 5, 8),
+            status=HomeworkAssignment.STATUS_CANCELLED,
+        )
+
+        self.sign_in(self.principal)
+        response = self.client.get(self.principal_url(), {"anchor_date": self.anchor_date.isoformat()})
+
+        self.assertEqual(response.status_code, 200)
+        row = self.get_student_row(response.json(), self.child_a)
+        self.assertEqual(row["week"]["assignment_count"], 3)
+        self.assertEqual(row["week"]["completed_count"], 2)
+        self.assertEqual(row["week"]["incomplete_count"], 1)
+        self.assertEqual(row["week"]["on_time_completed_count"], 0)
+        self.assertEqual(row["week"]["delayed_completed_count"], 0)
+
+        knowledge_points = {
+            item["name"]: item
+            for item in row["knowledge_points_by_period"]["week"]
+        }
+        self.assertEqual(knowledge_points["已作答但未标完成"]["mastery_status"], "已掌握")
+        self.assertEqual(knowledge_points["已评阅但未提交客观题"]["mastery_status"], "未作答")
+        self.assertIsNone(knowledge_points["状态完成但无完成时间"]["mastery_status"])
 
     def test_requirement_homework_completion_and_delayed_rules(self) -> None:
         self.create_assignment(
@@ -524,46 +693,51 @@ class StudentLearningApiTests(TestCase):
         self.assertEqual(child_row["week"]["on_time_completed_count"], 1)
         self.assertEqual(child_row["week"]["delayed_completed_count"], 1)
         self.assertEqual(child_row["week"]["incomplete_count"], 1)
+        self.assertEqual(child_row["month"]["assignment_count"], 3)
+        self.assertEqual(child_row["month"]["completed_count"], 2)
+        self.assertEqual(child_row["quarter"]["assignment_count"], 3)
+        self.assertEqual(child_row["quarter"]["completed_count"], 2)
 
         knowledge_points = {
             item["name"]: item
             for item in child_row["knowledge_points_by_period"]["week"]
         }
         self.assertIsNone(knowledge_points["阅读打卡"]["mastery_status"])
-        self.assertIsNone(knowledge_points["阅读打卡"]["error_rate"])
+        self.assertIsNone(knowledge_points["阅读打卡"]["correct_rate"])
+        self.assertEqual(knowledge_points["阅读打卡"]["correct_rate_text"], "暂无")
         self.assertIsNone(knowledge_points["背诵作业"]["mastery_status"])
         self.assertIsNone(knowledge_points["录音作业"]["mastery_status"])
 
     def test_parent_week_returns_only_current_child_lesson_feedbacks(self) -> None:
-        summary = self.create_summary(
-            title="家长可见课堂总结",
-            highlights="回答问题积极。",
-            areas_for_growth="审题速度还可以更快。",
-        )
-        other_summary = self.create_summary(
-            title="其他孩子总结",
-            highlights="不应泄露",
-            areas_for_growth="不应泄露",
-            created_by=self.other_teacher,
-        )
         feedback_assignment = self.create_assignment(
             student=self.child_a,
             title="张三课堂作业",
             due_date=date(2026, 5, 6),
-            summary=summary,
+            highlights="回答问题积极。",
+            areas_for_growth="审题速度还可以更快。",
+        )
+        feedback_import_job = self.attach_source_import_job(
+            assignment=feedback_assignment,
+            source_filename="child-a-feedback.txt",
         )
         sibling_assignment = self.create_assignment(
-            student=self.child_a,
-            title="张三额外作业",
+            student=self.child_b,
+            title="李四课堂作业",
             due_date=date(2026, 5, 7),
-            summary=summary,
+            highlights="不应泄露",
+            areas_for_growth="不应泄露",
+        )
+        self.attach_source_import_job(
+            assignment=sibling_assignment,
+            source_filename="child-b-feedback.txt",
         )
         self.create_assignment(
             student=self.other_child,
             title="王五课堂作业",
             due_date=date(2026, 5, 6),
             teacher=self.other_teacher,
-            summary=other_summary,
+            highlights="更不应泄露",
+            areas_for_growth="更不应泄露",
         )
 
         self.sign_in(self.parent)
@@ -578,10 +752,10 @@ class StudentLearningApiTests(TestCase):
             week["lesson_feedbacks"],
             [
                 {
-                    "summary_id": summary.id,
-                    "assignment_ids": [feedback_assignment.id, sibling_assignment.id],
-                    "titles": ["张三课堂作业", "张三额外作业"],
-                    "due_dates": ["2026-05-06", "2026-05-07"],
+                    "assignment_id": feedback_assignment.id,
+                    "title": "张三课堂作业",
+                    "due_date": self.serialize_assignment_due_date(feedback_assignment),
+                    "source_import_job_id": feedback_import_job.id,
                     "highlights": "回答问题积极。",
                     "areas_for_growth": "审题速度还可以更快。",
                 }
@@ -589,13 +763,13 @@ class StudentLearningApiTests(TestCase):
         )
         self.assertEqual(week["highlights"], ["回答问题积极。"])
         self.assertEqual(week["areas_for_growth"], ["审题速度还可以更快。"])
-        all_titles = {
-            title
-            for child in response.json()["children"]
-            for item in child["week"]["lesson_feedbacks"]
-            for title in item["titles"]
-        }
-        self.assertNotIn("王五课堂作业", all_titles)
+        sibling_row = self.get_child_row(response.json(), self.child_b)
+        self.assertEqual(
+            sibling_row["week"]["lesson_feedbacks"][0]["title"],
+            "李四课堂作业",
+        )
+        self.assertEqual(sibling_row["week"]["highlights"], ["不应泄露"])
+        self.assertNotIn("李四课堂作业", [item["title"] for item in week["lesson_feedbacks"]])
 
     def test_parent_api_only_returns_current_parents_students_with_stats(self) -> None:
         assignment = self.create_assignment(

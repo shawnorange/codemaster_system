@@ -123,6 +123,7 @@
                     topic_subtitle: normalizeText(row.topic_subtitle),
                     published_at_display: normalizeText(row.published_at_display),
                     published_at_value: normalizeText(row.published_at_value),
+                    published_at_sort_value: normalizeText(row.published_at_sort_value),
                     teacher_name: normalizeText(row.teacher_name),
                     status_text: normalizeText(row.status_text),
                     status_label: normalizeText(row.status_label || row.status_text),
@@ -173,7 +174,15 @@
                 paginationSize: 10,
                 paginationSizeSelector: [10, 15, 50, 100],
                 paginationCounter: "rows",
+                initialSort: [
+                    {column: "published_at_sort_value", dir: "desc"},
+                ],
                 columns: [
+                    {
+                        title: "排序值",
+                        field: "published_at_sort_value",
+                        visible: false,
+                    },
                     {
                         title: "专题名称",
                         field: "display_title",

@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Q, QuerySet, Sum
+from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.safestring import mark_safe
@@ -23,10 +24,12 @@ from .content_visibility import (
 from .course_identity import resolve_course_slug, summarize_course_level_labels
 from .homework_completion_stats import (
     build_homework_completion_stats,
+    get_homework_due_localdate,
     get_homework_submission_effective_submitted_at,
     normalize_homework_completion_period_type,
     resolve_homework_completion_period_datetimes,
     resolve_homework_completion_period_dates,
+    resolve_homework_due_datetime_range,
 )
 from .homework_batch import (
     build_homework_import_job_source_metadata,
@@ -1134,10 +1137,9 @@ def resolve_teacher_homework_stats_period_bounds(
 
 
 def resolve_homework_assignment_week_window(assignment: HomeworkAssignment) -> tuple[datetime, datetime, str]:
-    start_date, end_date, label = resolve_homework_completion_period_dates("week", anchor_date=assignment.due_date)
-    tz = timezone.get_current_timezone()
-    start_at = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), tz)
-    end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()), tz)
+    assignment_due_date = get_homework_due_localdate(assignment.due_date) or timezone.localdate()
+    start_date, end_date, label = resolve_homework_completion_period_dates("week", anchor_date=assignment_due_date)
+    start_at, end_at = resolve_homework_due_datetime_range(start_date, end_date)
     return start_at, end_at, label
 
 
@@ -1153,8 +1155,7 @@ def filter_teacher_homework_stats_assignments(
     start_at: datetime,
     end_at: datetime,
 ) -> tuple[QuerySet[HomeworkAssignment], str]:
-    period_end_date = timezone.localtime(end_at - timedelta(seconds=1)).date()
-    return queryset.filter(due_date__range=(timezone.localtime(start_at).date(), period_end_date)), "截止日期"
+    return queryset.filter(due_date__gte=start_at, due_date__lt=end_at), "截止日期"
 
 
 def normalize_homework_knowledge_point_name(source_filename: str) -> str:
@@ -1558,11 +1559,11 @@ def build_teacher_homework_student_detail_rows(
     ]
 
 
-def format_teacher_homework_error_rate_text(error_rate: object) -> str:
-    if error_rate is None:
+def format_teacher_homework_correct_rate_text(correct_rate: object) -> str:
+    if correct_rate is None:
         return "暂无"
     try:
-        numeric_rate = float(error_rate)
+        numeric_rate = float(correct_rate)
     except (TypeError, ValueError):
         return "暂无"
     return format_completion_rate(max(numeric_rate, 0.0) * 100)
@@ -1575,11 +1576,14 @@ def build_teacher_homework_knowledge_point_lines(
     for knowledge_point in knowledge_points:
         name = str(knowledge_point.get("name") or "").strip() or "未命名作业"
         mastery_status = knowledge_point.get("mastery_status")
-        error_rate_text = format_teacher_homework_error_rate_text(knowledge_point.get("error_rate"))
+        correct_rate_text = (
+            str(knowledge_point.get("correct_rate_text") or "").strip()
+            or format_teacher_homework_correct_rate_text(knowledge_point.get("correct_rate"))
+        )
         if mastery_status is None:
             lines.append(f"{name}｜要求型作业")
             continue
-        lines.append(f"{name}｜{str(mastery_status).strip() or '未作答'}｜错误率 {error_rate_text}")
+        lines.append(f"{name}｜{str(mastery_status).strip() or '未作答'}｜正确率 {correct_rate_text}")
     return lines
 
 
@@ -1589,9 +1593,12 @@ def build_teacher_homework_knowledge_point_short_lines(
     lines: list[str] = []
     for knowledge_point in knowledge_points:
         mastery_status = knowledge_point.get("mastery_status")
-        error_rate = knowledge_point.get("error_rate")
-        if error_rate is not None:
-            lines.append(format_teacher_homework_error_rate_text(error_rate))
+        correct_rate = knowledge_point.get("correct_rate")
+        if correct_rate is not None:
+            lines.append(
+                str(knowledge_point.get("correct_rate_text") or "").strip()
+                or format_teacher_homework_correct_rate_text(correct_rate)
+            )
         elif mastery_status == "未作答":
             lines.append("未作答")
         else:
@@ -1603,17 +1610,20 @@ def build_teacher_homework_lesson_feedback_search_text(
     lesson_feedbacks: list[dict[str, object]],
 ) -> str:
     if not lesson_feedbacks:
-        return "本周暂无课后总结"
+        return "本周暂无可评价作业"
     parts: list[str] = []
     for item in lesson_feedbacks:
-        titles = "、".join(str(title).strip() for title in item.get("titles") or [] if str(title).strip())
-        due_dates = "、".join(str(value).strip() for value in item.get("due_dates") or [] if str(value).strip())
+        assignment_id = int(item.get("assignment_id") or 0)
+        title = str(item.get("title") or "").strip()
+        due_date = str(item.get("due_date") or "").strip()
+        source_import_job_id = int(item.get("source_import_job_id") or 0)
         highlights = str(item.get("highlights") or "").strip()
         areas_for_growth = str(item.get("areas_for_growth") or "").strip()
         section_parts = [
-            f"summary_id {int(item.get('summary_id') or 0)}",
-            titles,
-            due_dates,
+            f"assignment_id {assignment_id}" if assignment_id else "",
+            due_date,
+            title,
+            f"source_import_job_id {source_import_job_id}" if source_import_job_id else "",
             highlights,
             areas_for_growth,
         ]
@@ -1646,7 +1656,7 @@ def build_teacher_homework_student_table_column_titles(*, selected_period: str) 
         "延迟完成",
         "未完成",
         "未设置截止日期",
-        "知识点掌握",
+        "正确率",
         "教师评价",
         "操作",
     ]
@@ -1685,7 +1695,6 @@ def build_teacher_homework_submission_detail_rows(
     period_start: datetime,
     period_end: datetime,
 ) -> list[dict[str, object]]:
-    period_end_date = timezone.localtime(period_end - timedelta(seconds=1)).date()
     submissions = list(
         HomeworkSubmission.objects.select_related(
             "assignment",
@@ -1697,7 +1706,8 @@ def build_teacher_homework_submission_detail_rows(
             student_id=F("assignment__student_id"),
             assignment__teacher=portal_user,
             assignment__is_active=True,
-            assignment__due_date__range=(timezone.localtime(period_start).date(), period_end_date),
+            assignment__due_date__gte=period_start,
+            assignment__due_date__lt=period_end,
             is_active=True,
         ).order_by(
             "-submitted_at",
@@ -1974,10 +1984,13 @@ def serialize_lesson_hour(record: LessonHourLedger) -> dict:
     }
 
 
-def format_date(value: date | None) -> str:
+def format_date(value: date | datetime | None) -> str:
     if not value:
         return "暂无"
-    return value.strftime("%Y-%m-%d")
+    normalized_date = get_homework_due_localdate(value)
+    if normalized_date is None:
+        return "暂无"
+    return normalized_date.strftime("%Y-%m-%d")
 
 
 def get_week_date_range(today: date | None = None) -> tuple[date, date]:
@@ -2414,10 +2427,13 @@ def serialize_homework_assignment(assignment: HomeworkAssignment) -> dict:
         "content_route_path": assignment.content.route_path,
         "assigned_at": assignment.assigned_at,
         "assigned_at_text": format_datetime(assignment.assigned_at),
+        "created_at": assignment.created_at,
         "completed_at": assignment.completed_at,
         "completed_at_text": format_datetime(assignment.completed_at) if assignment.completed_at else "未完成",
         "reviewed_at": assignment.reviewed_at,
         "reviewed_at_text": format_datetime(assignment.reviewed_at) if assignment.reviewed_at else "未评阅",
+        "highlights": str(assignment.highlights or "").strip(),
+        "areas_for_growth": str(assignment.areas_for_growth or "").strip(),
         "online_question_count": online_question_count,
         "is_online_homework": online_question_count > 0,
         "homework_mode_text": f"在线选择题 {online_question_count} 题" if online_question_count else "知识点任务型作业",
@@ -2608,7 +2624,11 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
 
 def build_student_homework_list_context(portal_user: PortalUser) -> dict:
     student = get_student_by_user(portal_user)
-    assignments = list(get_student_homework_queryset(student))
+    assignments = list(
+        get_student_homework_queryset(student)
+        .annotate(student_list_sort_assigned_at=Coalesce("assigned_at", "created_at"))
+        .order_by(F("student_list_sort_assigned_at").desc(nulls_last=True), "-id")
+    )
     completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
     pending_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
     completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
@@ -2619,7 +2639,7 @@ def build_student_homework_list_context(portal_user: PortalUser) -> dict:
         item["summary_href"] = reverse("student-homework-summary", args=[item["id"]]) if item["has_summary"] else ""
     return {
         "page_title": "我的作业",
-        "page_description": "这里集中展示当前学生账号下的全部作业，按截止日期倒序排列。",
+        "page_description": "这里集中展示当前学生账号下的全部作业，按布置时间倒序排列。",
         "breadcrumbs": [
             {"label": "学生课程页", "href": reverse("student-courses")},
             {"label": "练习", "href": reverse("student-practice")},
@@ -2822,9 +2842,10 @@ def build_homework_assignment_table_rows(homework_items: list[dict]) -> list[dic
         topic_title = str(item.get("content_title") or assignment_title).strip()
         level_label = str(item.get("content_level_label") or "").strip()
         topic_subtitle = str(item.get("content_path_label") or "").strip()
-        published_at = item.get("assigned_at")
-        published_at_display = str(item.get("assigned_at_text") or "").strip()
+        published_at = item.get("assigned_at") or item.get("created_at")
+        published_at_display = str(item.get("assigned_at_text") or format_datetime(item.get("created_at")) or "").strip()
         published_at_value = published_at.strftime("%Y-%m-%d") if published_at else ""
+        published_at_sort_value = published_at.isoformat() if published_at else ""
         display_title = assignment_title or topic_title
         knowledge_point = topic_title if topic_title and topic_title != display_title else level_label
         if not knowledge_point:
@@ -2842,6 +2863,7 @@ def build_homework_assignment_table_rows(homework_items: list[dict]) -> list[dic
                 "topic_subtitle": topic_subtitle,
                 "published_at_display": published_at_display,
                 "published_at_value": str(published_at_value or "").strip(),
+                "published_at_sort_value": str(published_at_sort_value or "").strip(),
                 "teacher_name": str(item.get("teacher_name") or "").strip(),
                 "status_text": status_text,
                 "status_label": status_text,
@@ -3146,7 +3168,7 @@ def build_student_homework_detail_context(portal_user: PortalUser, assignment_id
         ),
         "practice_label": "重新练习" if submission_rows else "开始第一次练习",
         "blank_print_href": reverse("student-homework-print-blank", args=[assignment.id]) if has_online_questions else "",
-        "submission_empty_message": "这份作业还没有提交记录。开始第一次练习后，每次提交都会新增一条 submission 历史记录。",
+        "submission_empty_message": "这份作业还没有提交记录。开始第一次练习后，每次提交都会新增一条历史记录。",
         "allow_content_entry": True,
         "allow_completion_actions": True,
         "show_mark_completed": serialized["can_mark_completed"] and not has_online_questions,
@@ -3584,9 +3606,10 @@ def build_parent_homework_print_context(
 def build_weekly_homework_summary(student: Student) -> dict:
     # 本周口径统一按 due_date 所在周计算；assigned_at 只用于排序和展示。
     week_start, week_end = get_week_date_range()
+    week_start_at, week_end_at = resolve_homework_due_datetime_range(week_start, week_end)
     week_queryset = (
         HomeworkAssignment.objects.select_related("teacher", "content", "content__course", "content__level")
-        .filter(student=student, is_active=True, due_date__range=(week_start, week_end))
+        .filter(student=student, is_active=True, due_date__gte=week_start_at, due_date__lt=week_end_at)
         .order_by("-due_date", "-assigned_at", "-id")
     )
     assignments = list(week_queryset)
@@ -4334,6 +4357,7 @@ def build_teacher_homework_stats_context(
         anchor_date=selected_anchor_date,
         include_teacher_fields=True,
         teacher=portal_user,
+        use_assignment_status_completion=False,
     )
     learning_rows_by_student_id = {
         int(item["student_id"]): item
@@ -4467,7 +4491,7 @@ def build_teacher_homework_stats_context(
                     "teacher_feedback_disabled_reason": (
                         ""
                         if lesson_feedbacks
-                        else "本周暂无课后总结，无法填写教师评价"
+                        else "本周暂无可评价作业，无法填写教师评价"
                     ),
                     "lesson_feedback_search_text": build_teacher_homework_lesson_feedback_search_text(
                         lesson_feedbacks
@@ -5220,7 +5244,7 @@ def build_teacher_homework_batch_create_context(
             {"title": "题目来源", "description": "HomeworkImportJob 现在是可选项；如果选了题源，整批 assignment 会共享同一条 source_import_job。"},
             {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description；如果不选题源，也可以作为纯要求型作业保存。"},
             {"title": "目标知识点", "description": "纯要求型作业仍需绑定一个 CourseContent，因为 HomeworkAssignment.content 是现有必填字段。"},
-            {"title": "课后总结", "description": "上传 / 粘贴 HTML，或填写亮点表现 / 待提升点时，只会创建 1 条 HomeworkSummary，并挂到整批 assignment 上复用。"},
+            {"title": "课后总结", "description": "上传 / 粘贴 HTML 时会创建 1 条 HomeworkSummary；亮点表现 / 待提升点会分别写入每个学生自己的 HomeworkAssignment。"},
             {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
         ],
     }

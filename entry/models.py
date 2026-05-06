@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
+
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from django.utils import timezone
@@ -287,9 +289,11 @@ class HomeworkAssignment(models.Model):
     )
     title = models.CharField("作业标题", max_length=255)
     description = models.TextField("作业说明", blank=True)
-    due_date = models.DateField("截止日期")
+    due_date = models.DateTimeField("截止日期")
     status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_ASSIGNED)
     teacher_comment = models.TextField("教师评语", blank=True)
+    highlights = models.TextField("亮点表现", blank=True, default="")
+    areas_for_growth = models.TextField("待提升点", blank=True, default="")
     summary = models.ForeignKey(
         "HomeworkSummary",
         on_delete=models.SET_NULL,
@@ -323,6 +327,35 @@ class HomeworkAssignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.student.display_name} - {self.title}"
+
+    @staticmethod
+    def build_due_datetime_for_date(target_date: date) -> datetime:
+        tz = timezone.get_current_timezone()
+        return timezone.make_aware(datetime.combine(target_date, time(23, 59, 59)), tz)
+
+    @classmethod
+    def normalize_due_date_value(cls, value: date | datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if timezone.is_aware(value):
+                return value
+            return timezone.make_aware(value, timezone.get_current_timezone())
+        return cls.build_due_datetime_for_date(value)
+
+    @staticmethod
+    def get_due_localdate(value: date | datetime | None) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if timezone.is_aware(value):
+                return timezone.localtime(value).date()
+            return value.date()
+        return value
+
+    def save(self, *args, **kwargs):
+        self.due_date = self.normalize_due_date_value(self.due_date)
+        super().save(*args, **kwargs)
 
     def get_effective_questions_queryset(self):
         direct_questions = self.questions.filter(is_active=True).order_by("question_no", "id")
@@ -374,8 +407,6 @@ class HomeworkAssignment(models.Model):
 class HomeworkSummary(models.Model):
     title = models.CharField("总结标题", max_length=255, blank=True, default="")
     summary_html = models.TextField("总结 HTML", blank=True, default="")
-    highlights = models.TextField("亮点表现", blank=True, default="")
-    areas_for_growth = models.TextField("待提升点", blank=True, default="")
     created_by = models.ForeignKey(
         PortalUser,
         on_delete=models.SET_NULL,

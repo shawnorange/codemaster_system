@@ -1,6 +1,6 @@
 import logging
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -139,6 +139,7 @@ from .student_import import (
 from .student_learning_api import (
     build_student_learning_overview,
     build_student_week_lesson_feedback_payload,
+    get_student_week_lesson_feedback_assignments,
     normalize_student_learning_anchor_date,
 )
 from .topic_content.gesp2_enumeration.context import get_topic_page_context as get_gesp2_enumeration_page_context
@@ -261,6 +262,30 @@ def parse_iso_date(value: object) -> date | None:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def parse_homework_due_datetime_input(value: object) -> datetime | None:
+    parsed_date = parse_iso_date(value)
+    if parsed_date is None:
+        return None
+    return HomeworkAssignment.build_due_datetime_for_date(parsed_date)
+
+
+def select_primary_feedback_assignment(
+    assignments: list[HomeworkAssignment],
+) -> HomeworkAssignment | None:
+    if not assignments:
+        return None
+    return sorted(
+        assignments,
+        key=lambda assignment: (
+            1 if assignment.source_import_job_id else 0,
+            assignment.due_date.isoformat() if assignment.due_date else "",
+            assignment.assigned_at.isoformat() if assignment.assigned_at is not None else "",
+            int(assignment.id or 0),
+        ),
+        reverse=True,
+    )[0]
 
 
 def decode_uploaded_summary_html(uploaded_file: UploadedFile) -> str:
@@ -1168,9 +1193,9 @@ def teacher_homework_stats_lesson_feedback_save(request: HttpRequest) -> JsonRes
 
     portal_user = get_portal_user_from_request(request)
     student_id = normalize_positive_int(request.POST.get("student_id"), default=0, minimum=1)
-    summary_id = normalize_positive_int(request.POST.get("summary_id"), default=0, minimum=1)
-    if not student_id or not summary_id:
-        return JsonResponse({"error": "请选择有效的学生和课后总结。"}, status=400)
+    assignment_id = normalize_positive_int(request.POST.get("assignment_id"), default=0, minimum=1)
+    if not student_id or not assignment_id:
+        return JsonResponse({"error": "请选择有效的学生和作业。"}, status=400)
 
     student = (
         Student.objects.select_related("user", "parent_user", "teacher_user")
@@ -1180,25 +1205,21 @@ def teacher_homework_stats_lesson_feedback_save(request: HttpRequest) -> JsonRes
     if student is None:
         return JsonResponse({"error": "未找到该学生"}, status=404)
 
-    week_start, week_end, _ = resolve_homework_completion_period_dates("week", anchor_date=anchor_date)
-    summary = (
-        HomeworkSummary.objects.filter(
-            id=summary_id,
-            assignments__teacher=portal_user,
-            assignments__student=student,
-            assignments__is_active=True,
-            assignments__due_date__range=(week_start, week_end),
-        )
-        .exclude(assignments__status=HomeworkAssignment.STATUS_CANCELLED)
-        .distinct()
-        .first()
+    candidate_assignments = get_student_week_lesson_feedback_assignments(
+        student=student,
+        anchor_date=anchor_date,
+        teacher=portal_user,
     )
-    if summary is None:
+    assignment = next(
+        (item for item in candidate_assignments if int(item.id) == assignment_id),
+        None,
+    )
+    if assignment is None:
         return JsonResponse({"error": "未找到可编辑的课堂评价"}, status=404)
 
-    summary.highlights = normalize_preserved_multiline_text(request.POST.get("highlights", "")).strip()
-    summary.areas_for_growth = normalize_preserved_multiline_text(request.POST.get("areas_for_growth", "")).strip()
-    summary.save(update_fields=["highlights", "areas_for_growth", "updated_at"])
+    assignment.highlights = normalize_preserved_multiline_text(request.POST.get("highlights", "")).strip()
+    assignment.areas_for_growth = normalize_preserved_multiline_text(request.POST.get("areas_for_growth", "")).strip()
+    assignment.save(update_fields=["highlights", "areas_for_growth", "updated_at"])
 
     payload = build_student_week_lesson_feedback_payload(
         student=student,
@@ -1427,10 +1448,8 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         elif not selected_import_job_id and not assignment_requirement_text:
             error_message = "请选择题源或填写作业要求"
         else:
-            try:
-                due_date_value = date.fromisoformat(due_date_raw)
-            except ValueError:
-                due_date_value = None
+            due_date_value = parse_homework_due_datetime_input(due_date_raw)
+            if due_date_value is None:
                 error_message = "请选择有效的截止日期。"
 
             summary_html_value = ""
@@ -1446,13 +1465,9 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 except ValidationError as exc:
                     error_message = "；".join(exc.messages) if exc.messages else str(exc)
                 else:
-                    summary_content_present = bool(
-                        summary_html_value
-                        or summary_highlights
-                        or summary_areas_for_growth
-                    )
+                    summary_content_present = bool(summary_html_value)
                     if summary_title and not summary_content_present:
-                        error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容，也没有填写亮点表现 / 待提升点。"
+                        error_message = "已填写课后总结标题，但还没有上传或粘贴 HTML 内容。"
 
             visible_import_job = None
             source_content = None
@@ -1540,8 +1555,6 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                                     created_summary = HomeworkSummary.objects.create(
                                         title=final_summary_title,
                                         summary_html=summary_html_value,
-                                        highlights=summary_highlights,
-                                        areas_for_growth=summary_areas_for_growth,
                                         created_by=portal_user,
                                     )
                                 for student in selected_students:
@@ -1558,6 +1571,8 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                                         description=assignment_requirement,
                                         due_date=due_date_value,
                                         status=HomeworkAssignment.STATUS_ASSIGNED,
+                                        highlights=summary_highlights,
+                                        areas_for_growth=summary_areas_for_growth,
                                         summary=created_summary,
                                         source_import_job=visible_import_job if creation_mode == "with_source" else None,
                                         assigned_at=timezone.now(),
@@ -2976,9 +2991,8 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
                     homework_form_values=form_values,
                     homework_error_message="请选择当前教师负责范围内的知识点作为作业目标。",
                 )
-            try:
-                due_date_value = date.fromisoformat(due_date_raw)
-            except ValueError:
+            due_date_value = parse_homework_due_datetime_input(due_date_raw)
+            if due_date_value is None:
                 return render_detail(
                     homework_form_values=form_values,
                     homework_error_message="请选择有效的截止日期。",
@@ -3065,16 +3079,21 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
                 start_date=start_date_value,
                 end_date=end_date_value,
             )
-            summary = HomeworkSummary.objects.create(
-                title=final_title,
-                summary_html=summary_html,
-                highlights=summary_highlights,
-                areas_for_growth=summary_areas_for_growth,
-                created_by=portal_user,
-            )
-            HomeworkAssignment.objects.filter(
-                id__in=[assignment.id for assignment in matched_assignments]
-            ).update(summary=summary, updated_at=timezone.now())
+            summary = None
+            if summary_html:
+                summary = HomeworkSummary.objects.create(
+                    title=final_title,
+                    summary_html=summary_html,
+                    created_by=portal_user,
+                )
+                HomeworkAssignment.objects.filter(
+                    id__in=[assignment.id for assignment in matched_assignments]
+                ).update(summary=summary, updated_at=timezone.now())
+            primary_feedback_assignment = select_primary_feedback_assignment(matched_assignments)
+            if primary_feedback_assignment is not None and (summary_highlights or summary_areas_for_growth):
+                primary_feedback_assignment.highlights = summary_highlights
+                primary_feedback_assignment.areas_for_growth = summary_areas_for_growth
+                primary_feedback_assignment.save(update_fields=["highlights", "areas_for_growth", "updated_at"])
             return redirect(
                 build_redirect_with_query(
                     reverse("teacher-student-detail", args=[student_id]),

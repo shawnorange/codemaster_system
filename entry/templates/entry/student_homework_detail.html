@@ -86,16 +86,8 @@
                             </div>
                             <span class="state-pill state-pill--{{ assignment.status_tone }}">{{ assignment.status_text }}</span>
                         </div>
-                        <p class="content-access-card__description">
-                            {% if has_online_questions %}
-                                当前这份作业已经进入在线题模式。你可以查看历史 submission，或开始一次新的练习，不会覆盖旧记录。
-                            {% else %}
-                                这份作业仍是知识点任务型作业，按原有流程进入知识点页完成任务即可。
-                            {% endif %}
-                        </p>
                         <div class="content-access-card__footer">
                             {% if allow_content_entry %}
-                                <span>{{ assignment.content_route_path }}</span>
                                 <div class="portal-action-row" style="margin: 0;">
                                     <a href="{{ assignment.content_route_path }}" target="_blank" rel="noopener">打开知识点</a>
                                     {% if has_online_questions and practice_href %}
@@ -118,13 +110,33 @@
                     </article>
                 </div>
 
+                <div class="student-homework-feedback-card">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Weekly Feedback</p>
+                        <h3>老师本周反馈</h3>
+                    </div>
+                    {% if not assignment.highlights and not assignment.areas_for_growth %}
+                        <div class="entry-hint-bar">老师暂未填写本周反馈</div>
+                    {% endif %}
+                    <div class="student-homework-feedback-card__grid">
+                        <article class="metric-card student-homework-feedback-card__item">
+                            <p class="metric-card__label">本周闪光点</p>
+                            <div class="student-homework-feedback-text">{{ assignment.highlights|default:"暂无填写" }}</div>
+                        </article>
+                        <article class="metric-card student-homework-feedback-card__item">
+                            <p class="metric-card__label">本周不足点</p>
+                            <div class="student-homework-feedback-text">{{ assignment.areas_for_growth|default:"暂无填写" }}</div>
+                        </article>
+                    </div>
+                </div>
+
                 {% if has_online_questions %}
-                    <section class="record-panel record-panel--recent" style="margin-top: 18px;">
-                        <div class="section-heading section-heading--compact">
-                            <p class="section-heading__eyebrow">Submission History</p>
-                            <h3>提交记录</h3>
-                            <p>一个 assignment 对应多条 HomeworkSubmission。进入详情后可查看整份结果、错题页和打印页。</p>
-                        </div>
+                    <div class="section-heading section-heading--compact" style="margin-top: 18px;">
+                        <p class="section-heading__eyebrow">Submission History</p>
+                        <h3>提交记录</h3>
+                        <p>进入详情后可查看整份结果、错题页和打印页。</p>
+                    </div>
+                    <section class="record-panel record-panel--recent">
 
                         {% if latest_submission %}
                             <div class="teacher-mini-stat-grid">

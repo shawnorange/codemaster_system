@@ -26,6 +26,20 @@ HOMEWORK_COMPLETION_STATE_COMPLETED = "completed"
 HOMEWORK_COMPLETION_STATE_INCOMPLETE = "incomplete"
 
 
+def get_homework_due_localdate(value: date | datetime | None) -> date | None:
+    return HomeworkAssignment.get_due_localdate(value)
+
+
+def resolve_homework_due_datetime_range(
+    start_date: date,
+    end_date: date,
+) -> tuple[datetime, datetime]:
+    tz = timezone.get_current_timezone()
+    start_at = timezone.make_aware(datetime.combine(start_date, time.min), tz)
+    end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min), tz)
+    return start_at, end_at
+
+
 def normalize_homework_completion_period_type(period_type: str) -> str:
     normalized = str(period_type or "").strip().lower()
     return normalized if normalized in {"week", "month", "quarter"} else "week"
@@ -69,9 +83,7 @@ def resolve_homework_completion_period_datetimes(
     anchor_date: date | None = None,
 ) -> tuple[datetime, datetime, date, date, str]:
     start_date, end_date, label = resolve_homework_completion_period_dates(period_type, anchor_date=anchor_date)
-    tz = timezone.get_current_timezone()
-    start_at = timezone.make_aware(datetime.combine(start_date, time.min), tz)
-    end_at = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min), tz)
+    start_at, end_at = resolve_homework_due_datetime_range(start_date, end_date)
     return start_at, end_at, start_date, end_date, label
 
 
@@ -120,6 +132,7 @@ def build_homework_completion_stats(
     )
     period_start = period_start or default_period_start
     period_end = period_end or default_period_end
+    period_start_at, period_end_at = resolve_homework_due_datetime_range(period_start, period_end)
 
     managed_students_queryset = Student.objects.select_related("user", "teacher_user").filter(teacher_user=teacher)
     if student is not None:
@@ -210,7 +223,8 @@ def build_homework_completion_stats(
 
     period_assignment_queryset = assignment_queryset.filter(
         due_date__isnull=False,
-        due_date__range=(period_start, period_end),
+        due_date__gte=period_start_at,
+        due_date__lt=period_end_at,
     )
     assignment_items: list[dict[str, object]] = []
     for assignment in period_assignment_queryset:

@@ -166,7 +166,7 @@
                                                     <div>
                                                         {{ detail.name }}：
                                                         {% if detail.mastery_status %}
-                                                            {{ detail.mastery_status }}，错误率 {% if detail.error_rate == None %}暂无{% else %}{{ detail.error_rate|floatformat:2 }}{% endif %}
+                                                            {{ detail.mastery_status }}，正确率 {{ detail.correct_rate_text|default:"暂无" }}
                                                         {% else %}
                                                             要求型作业
                                                         {% endif %}
@@ -175,7 +175,7 @@
                                             {% else %}
                                                 <div>暂无知识点统计</div>
                                             {% endif %}
-                                            <div>教师评价：{% if item.lesson_feedback_available %}本周共有 {{ item.lesson_feedback_count }} 条课堂总结，请使用上方表格按钮编辑{% else %}本周暂无课后总结，无法填写教师评价{% endif %}</div>
+                                            <div>教师评价：{% if item.lesson_feedback_available %}本周共有 {{ item.lesson_feedback_count }} 条可评价作业，请使用上方表格按钮编辑{% else %}本周暂无可评价作业，无法填写教师评价{% endif %}</div>
                                         {% else %}
                                             <strong>{{ item.display_name }}</strong>
                                             <span>当前级别 {{ item.primary_level_name }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
@@ -204,18 +204,33 @@
                 <div>
                     <p class="section-heading__eyebrow">Lesson Feedback</p>
                     <h3 id="teacher-homework-stats-lesson-feedback-title">教师评价</h3>
-                    <p id="teacher-homework-stats-lesson-feedback-meta">本周课堂总结按 summary_id 去重后展示。</p>
+                    <p id="teacher-homework-stats-lesson-feedback-meta">本周按作业记录展示教师评价。</p>
                 </div>
                 <button type="button" class="teacher-modal-close" id="teacher-homework-stats-lesson-feedback-close" aria-label="关闭弹窗">×</button>
             </div>
 
             <div id="teacher-homework-stats-lesson-feedback-status" class="entry-hint-bar" hidden></div>
-            <div id="teacher-homework-stats-lesson-feedback-loading" class="entry-hint-bar" hidden>正在加载课堂总结...</div>
-            <div id="teacher-homework-stats-lesson-feedback-empty" class="entry-hint-bar" hidden>本周暂无课后总结，无法填写教师评价。</div>
-            <div id="teacher-homework-stats-lesson-feedback-list" class="content-access-list"></div>
+            <div id="teacher-homework-stats-lesson-feedback-loading" class="entry-hint-bar" hidden>正在加载可评价作业...</div>
+            <div id="teacher-homework-stats-lesson-feedback-empty" class="entry-hint-bar" hidden>本周暂无可评价作业，无法填写教师评价。</div>
+            <div id="teacher-homework-stats-lesson-feedback-editor" hidden>
+                <label class="portal-form-field">
+                    <span>选择作业</span>
+                    <select id="teacher-homework-stats-lesson-feedback-assignment"></select>
+                </label>
+                <div id="teacher-homework-stats-lesson-feedback-assignment-meta" class="entry-hint-bar" hidden></div>
+                <label class="portal-form-field">
+                    <span>闪光点</span>
+                    <textarea id="teacher-homework-stats-lesson-feedback-highlights" rows="4"></textarea>
+                </label>
+                <label class="portal-form-field">
+                    <span>需改进点</span>
+                    <textarea id="teacher-homework-stats-lesson-feedback-areas-for-growth" rows="4"></textarea>
+                </label>
+            </div>
 
             <div class="topic-access-modal__footer">
                 <button type="button" class="teacher-anchor-link" id="teacher-homework-stats-lesson-feedback-cancel">关闭</button>
+                <button type="button" class="login-button" id="teacher-homework-stats-lesson-feedback-save">保存</button>
             </div>
         </div>
     </dialog>
@@ -244,12 +259,18 @@
             var lessonFeedbackStatus = document.getElementById("teacher-homework-stats-lesson-feedback-status");
             var lessonFeedbackLoading = document.getElementById("teacher-homework-stats-lesson-feedback-loading");
             var lessonFeedbackEmpty = document.getElementById("teacher-homework-stats-lesson-feedback-empty");
-            var lessonFeedbackList = document.getElementById("teacher-homework-stats-lesson-feedback-list");
+            var lessonFeedbackEditor = document.getElementById("teacher-homework-stats-lesson-feedback-editor");
+            var lessonFeedbackAssignmentSelect = document.getElementById("teacher-homework-stats-lesson-feedback-assignment");
+            var lessonFeedbackAssignmentMeta = document.getElementById("teacher-homework-stats-lesson-feedback-assignment-meta");
+            var lessonFeedbackHighlightsField = document.getElementById("teacher-homework-stats-lesson-feedback-highlights");
+            var lessonFeedbackAreasField = document.getElementById("teacher-homework-stats-lesson-feedback-areas-for-growth");
             var lessonFeedbackCloseButton = document.getElementById("teacher-homework-stats-lesson-feedback-close");
             var lessonFeedbackCancelButton = document.getElementById("teacher-homework-stats-lesson-feedback-cancel");
+            var lessonFeedbackSaveButton = document.getElementById("teacher-homework-stats-lesson-feedback-save");
             var lessonFeedbackCsrfForm = document.getElementById("teacher-homework-stats-lesson-feedback-csrf-form");
             var activeLessonFeedbackStudentId = 0;
             var activeLessonFeedbackStudentName = "";
+            var activeLessonFeedbackItems = [];
 
             function escapeHtml(value) {
                 return String(value == null ? "" : value)
@@ -306,7 +327,7 @@
                     lessonFeedbackTitle.textContent = "教师评价";
                 }
                 if (lessonFeedbackMeta) {
-                    lessonFeedbackMeta.textContent = (studentName || "当前学生") + " · 本周课堂总结按 summary_id 去重后展示";
+                    lessonFeedbackMeta.textContent = (studentName || "当前学生") + " · 本周按 assignment 选择作业后保存教师评价";
                 }
                 if (typeof lessonFeedbackModal.showModal === "function") {
                     lessonFeedbackModal.showModal();
@@ -317,14 +338,15 @@
 
             function buildLessonFeedbackSearchText(lessonFeedbacks) {
                 if (!Array.isArray(lessonFeedbacks) || !lessonFeedbacks.length) {
-                    return "本周暂无课后总结";
+                    return "本周暂无可评价作业";
                 }
                 return lessonFeedbacks
                     .map(function (item) {
                         return [
-                            "summary_id " + String(item.summary_id || ""),
-                            Array.isArray(item.titles) ? item.titles.join("、") : "",
-                            Array.isArray(item.due_dates) ? item.due_dates.join("、") : "",
+                            "assignment_id " + String(item.assignment_id || ""),
+                            String(item.due_date || "").trim(),
+                            String(item.title || "").trim(),
+                            item.source_import_job_id ? "source_import_job_id " + String(item.source_import_job_id || "") : "",
                             String(item.highlights || "").trim(),
                             String(item.areas_for_growth || "").trim()
                         ]
@@ -332,6 +354,14 @@
                             .join(" | ");
                     })
                     .join(" || ");
+            }
+
+            function formatLessonFeedbackDueDate(value) {
+                var text = String(value || "").trim();
+                if (!text) {
+                    return "";
+                }
+                return text.indexOf("T") >= 0 ? text.split("T")[0] : text;
             }
 
             function updateLessonFeedbackRow(payload) {
@@ -354,52 +384,83 @@
                         areas_for_growth: areasForGrowth,
                         lesson_feedback_count: lessonFeedbacks.length,
                         lesson_feedback_available: lessonFeedbacks.length > 0,
-                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周暂无课后总结，无法填写教师评价",
+                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周暂无可评价作业，无法填写教师评价",
                         lesson_feedback_search_text: buildLessonFeedbackSearchText(lessonFeedbacks)
                     })
                 );
             }
 
-            function renderLessonFeedbackCards(payload) {
-                if (!lessonFeedbackList || !lessonFeedbackEmpty) {
+            function getSelectedLessonFeedbackAssignmentId() {
+                if (!lessonFeedbackAssignmentSelect) {
+                    return 0;
+                }
+                return Number(lessonFeedbackAssignmentSelect.value || 0) || 0;
+            }
+
+            function findLessonFeedbackItem(assignmentId) {
+                return activeLessonFeedbackItems.find(function (item) {
+                    return Number(item.assignment_id || 0) === Number(assignmentId || 0);
+                }) || null;
+            }
+
+            function renderSelectedLessonFeedbackItem() {
+                if (!lessonFeedbackAssignmentMeta || !lessonFeedbackHighlightsField || !lessonFeedbackAreasField) {
+                    return;
+                }
+                var item = findLessonFeedbackItem(getSelectedLessonFeedbackAssignmentId());
+                if (!item) {
+                    lessonFeedbackAssignmentMeta.hidden = true;
+                    lessonFeedbackHighlightsField.value = "";
+                    lessonFeedbackAreasField.value = "";
+                    if (lessonFeedbackSaveButton) {
+                        lessonFeedbackSaveButton.disabled = true;
+                    }
+                    return;
+                }
+                lessonFeedbackAssignmentMeta.hidden = false;
+                lessonFeedbackAssignmentMeta.innerHTML = [
+                    "assignment_id " + escapeHtml(item.assignment_id),
+                    item.due_date ? "截止 " + escapeHtml(formatLessonFeedbackDueDate(item.due_date)) : "",
+                    item.title ? escapeHtml(item.title) : "",
+                    item.source_import_job_id ? "source_import_job_id " + escapeHtml(item.source_import_job_id) : "无题源作业"
+                ].filter(Boolean).join(" ｜ ");
+                lessonFeedbackHighlightsField.value = String(item.highlights || "");
+                lessonFeedbackAreasField.value = String(item.areas_for_growth || "");
+                if (lessonFeedbackSaveButton) {
+                    lessonFeedbackSaveButton.disabled = false;
+                }
+            }
+
+            function renderLessonFeedbackEditor(payload, preferredAssignmentId) {
+                if (!lessonFeedbackAssignmentSelect || !lessonFeedbackEditor || !lessonFeedbackEmpty) {
                     return;
                 }
                 var week = payload && payload.week ? payload.week : {};
                 var lessonFeedbacks = Array.isArray(week.lesson_feedbacks) ? week.lesson_feedbacks : [];
-                lessonFeedbackList.innerHTML = "";
+                activeLessonFeedbackItems = lessonFeedbacks.slice();
                 if (!lessonFeedbacks.length) {
                     lessonFeedbackEmpty.hidden = false;
+                    lessonFeedbackEditor.hidden = true;
+                    lessonFeedbackAssignmentSelect.innerHTML = "";
+                    renderSelectedLessonFeedbackItem();
                     return;
                 }
                 lessonFeedbackEmpty.hidden = true;
-                lessonFeedbackList.innerHTML = lessonFeedbacks
+                lessonFeedbackEditor.hidden = false;
+                lessonFeedbackAssignmentSelect.innerHTML = lessonFeedbacks
                     .map(function (item) {
-                        return (
-                            '<article class="content-access-card content-access-card--open">' +
-                                '<div class="content-access-card__top">' +
-                                    '<div>' +
-                                        '<h5>课堂总结 #' + escapeHtml(item.summary_id) + '</h5>' +
-                                        '<p>assignment_ids：' + escapeHtml((item.assignment_ids || []).join(", ")) + '</p>' +
-                                        '<p>作业：' + escapeHtml((item.titles || []).join("、") || "暂无关联作业") + '</p>' +
-                                        '<p>截止日期：' + escapeHtml((item.due_dates || []).join("、") || "暂无") + '</p>' +
-                                    '</div>' +
-                                    '<span class="state-pill state-pill--open">' + escapeHtml(String((item.assignment_ids || []).length || 0)) + ' 条作业</span>' +
-                                '</div>' +
-                                '<label class="portal-form-field">' +
-                                    '<span>闪光点</span>' +
-                                    '<textarea rows="4" data-feedback-field="highlights" data-summary-id="' + escapeHtml(item.summary_id) + '">' + escapeHtml(item.highlights || "") + '</textarea>' +
-                                '</label>' +
-                                '<label class="portal-form-field">' +
-                                    '<span>需改进点</span>' +
-                                    '<textarea rows="4" data-feedback-field="areas_for_growth" data-summary-id="' + escapeHtml(item.summary_id) + '">' + escapeHtml(item.areas_for_growth || "") + '</textarea>' +
-                                '</label>' +
-                                '<div class="topic-access-modal__footer">' +
-                                    '<button type="button" class="login-button" data-feedback-save="1" data-summary-id="' + escapeHtml(item.summary_id) + '">保存</button>' +
-                                '</div>' +
-                            '</article>'
-                        );
+                        var optionLabel = [formatLessonFeedbackDueDate(item.due_date), String(item.title || "").trim() || ("作业 #" + String(item.assignment_id || ""))]
+                            .filter(Boolean)
+                            .join(" ｜ ");
+                        return '<option value="' + escapeHtml(item.assignment_id) + '">' + escapeHtml(optionLabel) + '</option>';
                     })
                     .join("");
+                var selectedAssignmentId = Number(preferredAssignmentId || 0);
+                if (!findLessonFeedbackItem(selectedAssignmentId)) {
+                    selectedAssignmentId = Number(lessonFeedbacks[0].assignment_id || 0);
+                }
+                lessonFeedbackAssignmentSelect.value = String(selectedAssignmentId || "");
+                renderSelectedLessonFeedbackItem();
             }
 
             async function fetchLessonFeedbackPayload(studentId) {
@@ -431,12 +492,28 @@
                 if (lessonFeedbackEmpty) {
                     lessonFeedbackEmpty.hidden = true;
                 }
-                if (lessonFeedbackList) {
-                    lessonFeedbackList.innerHTML = "";
+                if (lessonFeedbackEditor) {
+                    lessonFeedbackEditor.hidden = true;
+                }
+                if (lessonFeedbackAssignmentSelect) {
+                    lessonFeedbackAssignmentSelect.innerHTML = "";
+                }
+                if (lessonFeedbackAssignmentMeta) {
+                    lessonFeedbackAssignmentMeta.hidden = true;
+                    lessonFeedbackAssignmentMeta.innerHTML = "";
+                }
+                if (lessonFeedbackHighlightsField) {
+                    lessonFeedbackHighlightsField.value = "";
+                }
+                if (lessonFeedbackAreasField) {
+                    lessonFeedbackAreasField.value = "";
+                }
+                if (lessonFeedbackSaveButton) {
+                    lessonFeedbackSaveButton.disabled = true;
                 }
                 try {
                     var payload = await fetchLessonFeedbackPayload(activeLessonFeedbackStudentId);
-                    renderLessonFeedbackCards(payload);
+                    renderLessonFeedbackEditor(payload);
                 } catch (error) {
                     if (lessonFeedbackEmpty) {
                         lessonFeedbackEmpty.hidden = false;
@@ -447,19 +524,18 @@
                 }
             }
 
-            async function saveLessonFeedback(summaryId, button) {
-                if (!activeLessonFeedbackStudentId || !summaryId) {
+            async function saveLessonFeedback(button) {
+                var assignmentId = getSelectedLessonFeedbackAssignmentId();
+                if (!activeLessonFeedbackStudentId || !assignmentId) {
                     return;
                 }
-                var highlightsField = lessonFeedbackList ? lessonFeedbackList.querySelector('[data-feedback-field="highlights"][data-summary-id="' + String(summaryId) + '"]') : null;
-                var areasField = lessonFeedbackList ? lessonFeedbackList.querySelector('[data-feedback-field="areas_for_growth"][data-summary-id="' + String(summaryId) + '"]') : null;
                 var payload = new URLSearchParams();
                 payload.set("student_id", String(activeLessonFeedbackStudentId));
-                payload.set("summary_id", String(summaryId));
+                payload.set("assignment_id", String(assignmentId));
                 payload.set("period", "week");
                 payload.set("anchor_date", anchorDate);
-                payload.set("highlights", highlightsField ? String(highlightsField.value || "") : "");
-                payload.set("areas_for_growth", areasField ? String(areasField.value || "") : "");
+                payload.set("highlights", lessonFeedbackHighlightsField ? String(lessonFeedbackHighlightsField.value || "") : "");
+                payload.set("areas_for_growth", lessonFeedbackAreasField ? String(lessonFeedbackAreasField.value || "") : "");
 
                 if (button) {
                     button.disabled = true;
@@ -480,7 +556,7 @@
                     if (!response.ok) {
                         throw new Error(result.error || "保存课堂评价失败");
                     }
-                    renderLessonFeedbackCards(result);
+                    renderLessonFeedbackEditor(result, assignmentId);
                     updateLessonFeedbackRow(result);
                     setLessonFeedbackStatus(result.message || "保存成功", "success");
                 } catch (error) {
@@ -492,17 +568,12 @@
                 }
             }
 
-            if (lessonFeedbackList) {
-                lessonFeedbackList.addEventListener("click", function (event) {
-                    var target = event.target;
-                    if (!(target instanceof HTMLElement)) {
-                        return;
-                    }
-                    var saveButton = target.closest("[data-feedback-save]");
-                    if (!saveButton) {
-                        return;
-                    }
-                    saveLessonFeedback(saveButton.getAttribute("data-summary-id"), saveButton);
+            if (lessonFeedbackAssignmentSelect) {
+                lessonFeedbackAssignmentSelect.addEventListener("change", renderSelectedLessonFeedbackItem);
+            }
+            if (lessonFeedbackSaveButton) {
+                lessonFeedbackSaveButton.addEventListener("click", function () {
+                    saveLessonFeedback(lessonFeedbackSaveButton);
                 });
             }
 

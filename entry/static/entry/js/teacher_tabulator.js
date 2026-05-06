@@ -551,9 +551,14 @@
                 .map(function (detail) {
                     var longTitle;
                     var shortText;
-                    if (detail.error_rate !== null && typeof detail.error_rate !== "undefined") {
-                        shortText = formatFractionAsPercent(detail.error_rate);
-                        longTitle = (String(detail.name || "").trim() || "未命名作业") + "｜错误率 " + shortText;
+                    if (detail.correct_rate !== null && typeof detail.correct_rate !== "undefined") {
+                        shortText = String(detail.correct_rate_text || "").trim() || formatFractionAsPercent(detail.correct_rate);
+                        longTitle =
+                            (String(detail.name || "").trim() || "未命名作业") +
+                            "｜" +
+                            (String(detail.mastery_status || "").trim() || "未作答") +
+                            "｜正确率 " +
+                            shortText;
                     } else if (String(detail.mastery_status || "") === "未作答") {
                         shortText = "未作答";
                         longTitle = (String(detail.name || "").trim() || "未命名作业") + "｜未作答";
@@ -583,9 +588,9 @@
         var available = !!rowData.lesson_feedback_available;
         var hint = available
             ? rowData.lesson_feedback_count > 1
-                ? "共 " + String(rowData.lesson_feedback_count || 0) + " 条课堂总结"
-                : "本周 1 条课堂总结"
-            : String(rowData.teacher_feedback_disabled_reason || "本周暂无课后总结，无法填写教师评价");
+                ? "共 " + String(rowData.lesson_feedback_count || 0) + " 条可评价作业"
+                : "本周 1 条可评价作业"
+            : String(rowData.teacher_feedback_disabled_reason || "本周暂无可评价作业，无法填写教师评价");
         return (
             '<div class="teacher-homework-stats-datagrid__multiline">' +
             actionControlButton(
@@ -699,7 +704,7 @@
                 { title: "未完成", field: "incomplete_count", sorter: "number", hozAlign: "center", width: 92, responsive: 1 },
                 { title: "未设置截止日期", field: "excluded_undated_count", sorter: "number", hozAlign: "center", width: 126, responsive: 3 },
                 {
-                    title: "知识点掌握",
+                    title: "正确率",
                     field: "knowledge_points_short_text",
                     minWidth: 110,
                     width: 118,
