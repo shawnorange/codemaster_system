@@ -160,7 +160,7 @@
                                     <article class="entry-hint-bar">
                                         {% if selected_period == "week" %}
                                             <strong>{{ item.display_name }}</strong>
-                                            <span>当前级别 {{ item.primary_level_name }}，本周应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
+                                            <span>当前级别 {{ item.primary_level_name }}，本周应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}</span>
                                             {% if item.knowledge_points %}
                                                 {% for detail in item.knowledge_points %}
                                                     <div>

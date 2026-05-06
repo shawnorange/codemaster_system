@@ -159,6 +159,51 @@
         );
     }
 
+    function requestTableRedraw(table) {
+        if (!table || typeof table.redraw !== "function") {
+            return;
+        }
+        if (typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(function () {
+                table.redraw(true);
+            });
+            return;
+        }
+        window.setTimeout(function () {
+            table.redraw(true);
+        }, 0);
+    }
+
+    function attachResponsiveTableRedraw(table, container) {
+        if (!table || !container) {
+            return;
+        }
+
+        table.on("tableBuilt", function () {
+            requestTableRedraw(table);
+        });
+
+        if (typeof ResizeObserver === "function") {
+            var handleResize = debounce(function () {
+                requestTableRedraw(table);
+            }, 80);
+            var resizeObserver = new ResizeObserver(function () {
+                handleResize();
+            });
+            resizeObserver.observe(container);
+            return;
+        }
+
+        if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+            window.addEventListener(
+                "resize",
+                debounce(function () {
+                    requestTableRedraw(table);
+                }, 120)
+            );
+        }
+    }
+
     function buildSingleSelectTable(config) {
         var data = readJsonScript(config.dataScriptId);
         var hiddenInput = document.getElementById(config.hiddenInputId);
@@ -689,9 +734,8 @@
                 {
                     title: "学生姓名",
                     field: "display_name",
-                    width: 128,
-                    minWidth: 112,
-                    maxWidth: 148,
+                    minWidth: 120,
+                    widthGrow: 1.3,
                     responsive: 0,
                     formatter: function (cell) {
                         var value = String(cell.getValue() || "");
@@ -702,27 +746,22 @@
                     title: "当前级别",
                     field: "primary_level_name",
                     hozAlign: "center",
-                    width: 118,
-                    minWidth: 104,
-                    maxWidth: 132,
+                    minWidth: 96,
+                    widthGrow: 0.8,
                     responsive: 1,
                     formatter: function (cell) {
                         var value = String(cell.getValue() || "");
                         return '<span class="teacher-homework-stats-datagrid__ellipsis" title="' + escapeHtml(value) + '">' + escapeHtml(value) + "</span>";
                     },
                 },
-                { title: "应完成", field: "assignment_count", sorter: "number", hozAlign: "center", width: 96, responsive: 1 },
-                { title: "已完成", field: "completed_count", sorter: "number", hozAlign: "center", width: 92, responsive: 1 },
-                { title: "按时完成", field: "on_time_completed_count", sorter: "number", hozAlign: "center", width: 108, responsive: 2 },
-                { title: "延迟完成", field: "delayed_completed_count", sorter: "number", hozAlign: "center", width: 108, responsive: 2 },
-                { title: "未完成", field: "incomplete_count", sorter: "number", hozAlign: "center", width: 92, responsive: 1 },
-                { title: "未设置截止日期", field: "excluded_undated_count", sorter: "number", hozAlign: "center", width: 126, responsive: 3 },
+                { title: "应完成", field: "assignment_count", sorter: "number", hozAlign: "center", minWidth: 86, widthGrow: 0.55, responsive: 1 },
+                { title: "已完成", field: "completed_count", sorter: "number", hozAlign: "center", minWidth: 84, widthGrow: 0.55, responsive: 1 },
+                { title: "按时完成", field: "on_time_completed_count", sorter: "number", hozAlign: "center", minWidth: 96, widthGrow: 0.7, responsive: 2 },
                 {
                     title: "正确率",
                     field: "knowledge_points_short_text",
                     minWidth: 110,
-                    width: 118,
-                    widthGrow: 0.8,
+                    widthGrow: 1.1,
                     headerSort: false,
                     responsive: 2,
                     cssClass: "teacher-homework-stats-datagrid__cell--rates",
@@ -733,8 +772,8 @@
                 {
                     title: "教师评价",
                     field: "lesson_feedback_count",
-                    width: 156,
-                    minWidth: 148,
+                    minWidth: 156,
+                    widthGrow: 1.25,
                     headerSort: false,
                     responsive: 0,
                     hozAlign: "center",
@@ -757,8 +796,8 @@
                     title: "操作",
                     field: "detail_href",
                     hozAlign: "center",
-                    width: 118,
                     minWidth: 102,
+                    widthGrow: 0.7,
                     headerSort: false,
                     responsive: 0,
                     formatter: function (cell) {
@@ -788,6 +827,7 @@
             config.searchInputId,
             searchFilter
         );
+        attachResponsiveTableRedraw(table, container);
         return table;
     }
 

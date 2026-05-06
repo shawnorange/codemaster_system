@@ -19,6 +19,16 @@
     overflow-x: auto;
 }
 
+.teacher-homework-stats-table .tabulator-tableholder {
+    overflow-x: auto;
+    background: #ffffff;
+}
+
+.teacher-homework-stats-table .tabulator-table,
+.teacher-homework-stats-table .tabulator-header .tabulator-headers {
+    min-width: 100%;
+}
+
 .teacher-homework-stats-table .tabulator-cell {
     overflow: visible;
 }
