@@ -212,20 +212,22 @@
             <div id="teacher-homework-stats-lesson-feedback-status" class="entry-hint-bar" hidden></div>
             <div id="teacher-homework-stats-lesson-feedback-loading" class="entry-hint-bar" hidden>正在加载可评价作业...</div>
             <div id="teacher-homework-stats-lesson-feedback-empty" class="entry-hint-bar" hidden>本周暂无可评价作业，无法填写教师评价。</div>
-            <div id="teacher-homework-stats-lesson-feedback-editor" hidden>
-                <label class="portal-form-field">
+            <div id="teacher-homework-stats-lesson-feedback-editor" class="teacher-homework-stats-lesson-feedback-form record-form" hidden>
+                <label class="teacher-homework-stats-lesson-feedback-field teacher-homework-stats-lesson-feedback-field--select">
                     <span>选择作业</span>
                     <select id="teacher-homework-stats-lesson-feedback-assignment"></select>
                 </label>
-                <div id="teacher-homework-stats-lesson-feedback-assignment-meta" class="entry-hint-bar" hidden></div>
-                <label class="portal-form-field">
-                    <span>闪光点</span>
-                    <textarea id="teacher-homework-stats-lesson-feedback-highlights" rows="4"></textarea>
-                </label>
-                <label class="portal-form-field">
-                    <span>需改进点</span>
-                    <textarea id="teacher-homework-stats-lesson-feedback-areas-for-growth" rows="4"></textarea>
-                </label>
+                <div id="teacher-homework-stats-lesson-feedback-assignment-meta" class="entry-hint-bar teacher-homework-stats-lesson-feedback-assignment-meta" hidden></div>
+                <div class="teacher-homework-stats-lesson-feedback-stack">
+                    <label class="teacher-homework-stats-lesson-feedback-field">
+                        <span>闪光点</span>
+                        <textarea id="teacher-homework-stats-lesson-feedback-highlights" rows="4" placeholder="填写学生这周表现突出的点"></textarea>
+                    </label>
+                    <label class="teacher-homework-stats-lesson-feedback-field">
+                        <span>需改进点</span>
+                        <textarea id="teacher-homework-stats-lesson-feedback-areas-for-growth" rows="4" placeholder="填写后续需要加强的点"></textarea>
+                    </label>
+                </div>
             </div>
 
             <div class="topic-access-modal__footer">

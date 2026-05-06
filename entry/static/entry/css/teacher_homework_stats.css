@@ -83,6 +83,48 @@
     color: #1f3653;
 }
 
+.teacher-homework-stats-lesson-feedback-form {
+    display: grid;
+    gap: 16px;
+    margin-top: 4px;
+}
+
+.teacher-homework-stats-lesson-feedback-field {
+    display: grid;
+    gap: 10px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    border: 1px solid rgba(15, 103, 184, 0.1);
+    background: rgba(248, 252, 255, 0.92);
+    box-shadow: 0 10px 24px rgba(15, 103, 184, 0.05);
+}
+
+.teacher-homework-stats-lesson-feedback-field > span {
+    display: block;
+    color: #58708d;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.teacher-homework-stats-lesson-feedback-field--select select {
+    background-color: rgba(255, 255, 255, 0.95);
+}
+
+.teacher-homework-stats-lesson-feedback-assignment-meta {
+    margin: 0;
+}
+
+.teacher-homework-stats-lesson-feedback-stack {
+    display: grid;
+    gap: 14px;
+}
+
+.teacher-homework-stats-lesson-feedback-field textarea {
+    min-height: 120px;
+    white-space: pre-wrap;
+}
+
 @media (max-width: 960px) {
     .teacher-homework-stats-filters {
         grid-template-columns: 1fr;
