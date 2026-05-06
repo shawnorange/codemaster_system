@@ -4465,6 +4465,17 @@ def build_teacher_homework_stats_context(
             knowledge_point_lines = build_teacher_homework_knowledge_point_lines(knowledge_points)
             knowledge_point_short_lines = build_teacher_homework_knowledge_point_short_lines(knowledge_points)
             lesson_feedbacks = list(selected_period_summary.get("lesson_feedbacks") or [])
+            lesson_feedback_entered = any(
+                str(item.get("highlights") or "").strip()
+                or str(item.get("areas_for_growth") or "").strip()
+                for item in lesson_feedbacks
+                if isinstance(item, dict)
+            )
+            lesson_feedback_status_text = (
+                "本周无作业不可评价"
+                if not lesson_feedbacks
+                else ("本周已评价" if lesson_feedback_entered else "本周未评价")
+            )
             highlights = [
                 str(item).strip()
                 for item in selected_period_summary.get("highlights") or []
@@ -4487,11 +4498,13 @@ def build_teacher_homework_stats_context(
                     "areas_for_growth": areas_for_growth,
                     "lesson_feedback_count": len(lesson_feedbacks),
                     "lesson_feedback_available": bool(lesson_feedbacks),
+                    "lesson_feedback_entered": lesson_feedback_entered,
+                    "lesson_feedback_status_text": lesson_feedback_status_text,
                     "lesson_feedback_action_text": "教师评价",
                     "teacher_feedback_disabled_reason": (
                         ""
                         if lesson_feedbacks
-                        else "本周暂无可评价作业，无法填写教师评价"
+                        else "本周无作业不可评价"
                     ),
                     "lesson_feedback_search_text": build_teacher_homework_lesson_feedback_search_text(
                         lesson_feedbacks

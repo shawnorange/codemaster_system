@@ -355,6 +355,7 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertEqual(len(table_rows), 1)
         self.assertEqual(table_rows[0]["assignment_count"], 1)
         self.assertEqual(table_rows[0]["completed_count"], 1)
+        self.assertEqual(table_rows[0]["lesson_feedback_status_text"], "本周无作业不可评价")
         self.assertEqual(table_rows[0]["knowledge_points_by_period"]["week"][0]["assignment_id"], requirement_assignment.id)
 
     def test_week_student_detail_keeps_student_level_knowledge_points_and_teacher_feedback_button(self) -> None:
@@ -403,6 +404,7 @@ class TeacherHomeworkStatsTests(TestCase):
         self.assertEqual(row["knowledge_points_short_text"], "100%\n—")
         self.assertTrue(row["lesson_feedback_available"])
         self.assertEqual(row["lesson_feedback_count"], 1)
+        self.assertEqual(row["lesson_feedback_status_text"], "本周已评价")
         self.assertEqual(
             row["lesson_feedbacks"][0],
             {
@@ -413,6 +415,41 @@ class TeacherHomeworkStatsTests(TestCase):
                 "highlights": "课堂专注",
                 "areas_for_growth": "边界条件需要加强",
             },
+        )
+
+    def test_week_student_detail_marks_lesson_feedback_as_pending_when_assignment_not_evaluated(self) -> None:
+        self.sign_in(self.teacher)
+        today = timezone.localdate()
+        pending_assignment = self.create_assignment(
+            teacher=self.teacher,
+            student=self.student,
+            title="待评价作业",
+            due_date=today,
+        )
+        import_job = self.attach_source_import_job(
+            assignment=pending_assignment,
+            source_filename="pending-week-feedback.txt",
+        )
+
+        response = self.client.get(reverse("teacher-homework-stats"), {"period": "week"})
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.context["student_table_rows"] if item["student_id"] == self.student.id)
+        self.assertTrue(row["lesson_feedback_available"])
+        self.assertEqual(row["lesson_feedback_count"], 1)
+        self.assertEqual(row["lesson_feedback_status_text"], "本周未评价")
+        self.assertEqual(
+            row["lesson_feedbacks"],
+            [
+                {
+                    "assignment_id": pending_assignment.id,
+                    "title": "待评价作业",
+                    "due_date": self.serialize_assignment_due_date(pending_assignment),
+                    "source_import_job_id": import_job.id,
+                    "highlights": "",
+                    "areas_for_growth": "",
+                }
+            ],
         )
 
     def test_teacher_lesson_feedback_api_returns_ordered_assignment_candidates(self) -> None:

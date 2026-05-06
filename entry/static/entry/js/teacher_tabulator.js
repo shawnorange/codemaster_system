@@ -586,11 +586,22 @@
 
     function renderTeacherLessonFeedbackCell(rowData) {
         var available = !!rowData.lesson_feedback_available;
+        var lessonFeedbacks = Array.isArray(rowData.lesson_feedbacks) ? rowData.lesson_feedbacks : [];
+        var hasEnteredFeedback = lessonFeedbacks.some(function (item) {
+            return !!String(item && item.highlights ? item.highlights : "").trim() || !!String(item && item.areas_for_growth ? item.areas_for_growth : "").trim();
+        });
+        var statusText =
+            String(rowData.lesson_feedback_status_text || "").trim() ||
+            (!lessonFeedbacks.length
+                ? String(rowData.teacher_feedback_disabled_reason || "本周无作业不可评价")
+                : hasEnteredFeedback
+                  ? "本周已评价"
+                  : "本周未评价");
         var hint = available
             ? rowData.lesson_feedback_count > 1
                 ? "共 " + String(rowData.lesson_feedback_count || 0) + " 条可评价作业"
                 : "本周 1 条可评价作业"
-            : String(rowData.teacher_feedback_disabled_reason || "本周暂无可评价作业，无法填写教师评价");
+            : statusText;
         return (
             '<div class="teacher-homework-stats-datagrid__multiline">' +
             actionControlButton(
@@ -601,7 +612,7 @@
                 !available
             ) +
             '<div class="teacher-homework-stats-datagrid__empty">' +
-            escapeHtml(hint) +
+            escapeHtml(statusText) +
             "</div>" +
             "</div>"
         );

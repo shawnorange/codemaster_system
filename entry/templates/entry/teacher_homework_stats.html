@@ -175,7 +175,7 @@
                                             {% else %}
                                                 <div>暂无知识点统计</div>
                                             {% endif %}
-                                            <div>教师评价：{% if item.lesson_feedback_available %}本周共有 {{ item.lesson_feedback_count }} 条可评价作业，请使用上方表格按钮编辑{% else %}本周暂无可评价作业，无法填写教师评价{% endif %}</div>
+                                            <div>教师评价：{{ item.lesson_feedback_status_text|default:"本周无作业不可评价" }}</div>
                                         {% else %}
                                             <strong>{{ item.display_name }}</strong>
                                             <span>当前级别 {{ item.primary_level_name }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
@@ -366,6 +366,19 @@
                 return text.indexOf("T") >= 0 ? text.split("T")[0] : text;
             }
 
+            function hasEnteredLessonFeedback(lessonFeedbacks) {
+                return Array.isArray(lessonFeedbacks) && lessonFeedbacks.some(function (item) {
+                    return !!String(item && item.highlights ? item.highlights : "").trim() || !!String(item && item.areas_for_growth ? item.areas_for_growth : "").trim();
+                });
+            }
+
+            function getLessonFeedbackStatusText(lessonFeedbacks) {
+                if (!Array.isArray(lessonFeedbacks) || !lessonFeedbacks.length) {
+                    return "本周无作业不可评价";
+                }
+                return hasEnteredLessonFeedback(lessonFeedbacks) ? "本周已评价" : "本周未评价";
+            }
+
             function updateLessonFeedbackRow(payload) {
                 if (!studentTable || !payload || !payload.student) {
                     return;
@@ -386,7 +399,9 @@
                         areas_for_growth: areasForGrowth,
                         lesson_feedback_count: lessonFeedbacks.length,
                         lesson_feedback_available: lessonFeedbacks.length > 0,
-                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周暂无可评价作业，无法填写教师评价",
+                        lesson_feedback_entered: hasEnteredLessonFeedback(lessonFeedbacks),
+                        lesson_feedback_status_text: getLessonFeedbackStatusText(lessonFeedbacks),
+                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周无作业不可评价",
                         lesson_feedback_search_text: buildLessonFeedbackSearchText(lessonFeedbacks)
                     })
                 );
@@ -543,6 +558,7 @@
                     button.disabled = true;
                 }
                 setLessonFeedbackStatus("", "");
+                var alertMessage = "";
                 try {
                     var response = await window.fetch(lessonFeedbackSaveUrl, {
                         method: "POST",
@@ -560,14 +576,18 @@
                     }
                     renderLessonFeedbackEditor(result, assignmentId);
                     updateLessonFeedbackRow(result);
-                    setLessonFeedbackStatus(result.message || "保存成功", "success");
+                    alertMessage = result.message || "保存成功";
+                    setLessonFeedbackStatus(alertMessage, "success");
                 } catch (error) {
-                    setLessonFeedbackStatus(error && error.message ? error.message : "保存课堂评价失败", "error");
+                    alertMessage = error && error.message ? error.message : "保存课堂评价失败";
+                    setLessonFeedbackStatus(alertMessage, "error");
                 } finally {
                     if (button) {
                         button.disabled = false;
                     }
                 }
+                window.alert(alertMessage);
+                closeLessonFeedbackModal();
             }
 
             if (lessonFeedbackAssignmentSelect) {
