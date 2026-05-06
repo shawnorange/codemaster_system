@@ -64,6 +64,12 @@
     color: #6e8198;
 }
 
+.teacher-homework-stats-datagrid__empty--pending,
+.teacher-homework-stats-lesson-feedback-status--pending {
+    color: #c53b32;
+    font-weight: 700;
+}
+
 .teacher-homework-stats-datagrid__submission-count,
 .teacher-homework-stats-datagrid__multiline {
     overflow-wrap: anywhere;

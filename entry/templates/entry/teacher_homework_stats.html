@@ -175,7 +175,12 @@
                                             {% else %}
                                                 <div>暂无知识点统计</div>
                                             {% endif %}
-                                            <div>教师评价：{{ item.lesson_feedback_status_text|default:"本周无作业不可评价" }}</div>
+                                            <div>
+                                                教师评价：
+                                                <span class="{% if item.lesson_feedback_status_text == '本周未评价' %}teacher-homework-stats-lesson-feedback-status--pending{% endif %}">
+                                                    {{ item.lesson_feedback_status_text|default:"本周无作业不可评价" }}
+                                                </span>
+                                            </div>
                                         {% else %}
                                             <strong>{{ item.display_name }}</strong>
                                             <span>当前级别 {{ item.primary_level_name }}，{{ period_label }}应完成 {{ item.assignment_count }}，已完成 {{ item.completed_count }}，按时完成 {{ item.on_time_completed_count }}，延迟完成 {{ item.delayed_completed_count }}，未完成 {{ item.incomplete_count }}，未设置截止日期 {{ item.excluded_undated_count }}</span>
@@ -381,30 +386,45 @@
 
             function updateLessonFeedbackRow(payload) {
                 if (!studentTable || !payload || !payload.student) {
-                    return;
+                    return Promise.resolve();
                 }
                 var row = typeof studentTable.getRow === "function" ? studentTable.getRow(payload.student.student_id) : null;
                 if (!row) {
-                    return;
+                    return Promise.resolve();
                 }
                 var current = row.getData();
                 var week = payload.week || {};
                 var lessonFeedbacks = Array.isArray(week.lesson_feedbacks) ? week.lesson_feedbacks : [];
                 var highlights = Array.isArray(week.highlights) ? week.highlights : [];
                 var areasForGrowth = Array.isArray(week.areas_for_growth) ? week.areas_for_growth : [];
-                row.update(
-                    Object.assign({}, current, {
-                        lesson_feedbacks: lessonFeedbacks,
-                        highlights: highlights,
-                        areas_for_growth: areasForGrowth,
-                        lesson_feedback_count: lessonFeedbacks.length,
-                        lesson_feedback_available: lessonFeedbacks.length > 0,
-                        lesson_feedback_entered: hasEnteredLessonFeedback(lessonFeedbacks),
-                        lesson_feedback_status_text: getLessonFeedbackStatusText(lessonFeedbacks),
-                        teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周无作业不可评价",
-                        lesson_feedback_search_text: buildLessonFeedbackSearchText(lessonFeedbacks)
-                    })
-                );
+                var nextData = Object.assign({}, current, {
+                    lesson_feedbacks: lessonFeedbacks,
+                    highlights: highlights,
+                    areas_for_growth: areasForGrowth,
+                    lesson_feedback_count: lessonFeedbacks.length,
+                    lesson_feedback_available: lessonFeedbacks.length > 0,
+                    lesson_feedback_entered: hasEnteredLessonFeedback(lessonFeedbacks),
+                    lesson_feedback_status_text: getLessonFeedbackStatusText(lessonFeedbacks),
+                    teacher_feedback_disabled_reason: lessonFeedbacks.length ? "" : "本周无作业不可评价",
+                    lesson_feedback_search_text: buildLessonFeedbackSearchText(lessonFeedbacks)
+                });
+
+                function refreshRowDisplay() {
+                    if (typeof row.reformat === "function") {
+                        row.reformat();
+                    } else if (typeof studentTable.redraw === "function") {
+                        studentTable.redraw(true);
+                    }
+                }
+
+                var updateResult = row.update(nextData);
+                if (updateResult && typeof updateResult.then === "function") {
+                    return updateResult.then(function () {
+                        refreshRowDisplay();
+                    });
+                }
+                refreshRowDisplay();
+                return Promise.resolve();
             }
 
             function getSelectedLessonFeedbackAssignmentId() {
@@ -575,7 +595,7 @@
                         throw new Error(result.error || "保存课堂评价失败");
                     }
                     renderLessonFeedbackEditor(result, assignmentId);
-                    updateLessonFeedbackRow(result);
+                    await updateLessonFeedbackRow(result);
                     alertMessage = result.message || "保存成功";
                     setLessonFeedbackStatus(alertMessage, "success");
                 } catch (error) {

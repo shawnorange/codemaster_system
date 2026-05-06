@@ -602,6 +602,9 @@
                 ? "共 " + String(rowData.lesson_feedback_count || 0) + " 条可评价作业"
                 : "本周 1 条可评价作业"
             : statusText;
+        var statusClass = statusText === "本周未评价"
+            ? " teacher-homework-stats-datagrid__empty--pending"
+            : "";
         return (
             '<div class="teacher-homework-stats-datagrid__multiline">' +
             actionControlButton(
@@ -611,7 +614,7 @@
                 hint,
                 !available
             ) +
-            '<div class="teacher-homework-stats-datagrid__empty">' +
+            '<div class="teacher-homework-stats-datagrid__empty' + statusClass + '">' +
             escapeHtml(statusText) +
             "</div>" +
             "</div>"
