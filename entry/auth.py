@@ -16,6 +16,7 @@ from .models import PortalUser
 AUTH_COOKIE_NAME = "codemaster_auth"
 AUTH_COOKIE_MAX_AGE = 60 * 60 * 8
 AUTH_COOKIE_SALT = "codemaster.entry.auth"
+AUTHORIZATION_SCHEME = "Codemaster"
 DEFAULT_TEST_PASSWORD = str(getattr(settings, "DEFAULT_TEST_PASSWORD", "") or "")
 
 ROLE_CONFIG = {
@@ -29,7 +30,7 @@ ROLE_CONFIG = {
         "label": "家长",
         "landing_url_name": "parent-student-profile",
         "page_title": "家长学生档案",
-        "page_description": "家长端当前聚焦孩子基础信息、GESP4 已开放专题，以及教师评价、奖励、课时变动等最小真实记录。",
+        "page_description": "",
     },
     "teacher": {
         "label": "教师",
@@ -65,6 +66,13 @@ def build_user_payload(portal_user: PortalUser) -> dict[str, str]:
     }
 
 
+def build_auth_token(user: dict[str, str]) -> str:
+    return signing.dumps(
+        {"username": user["username"], "role": user["role"]},
+        salt=AUTH_COOKIE_SALT,
+    )
+
+
 def _query_portal_users() -> list[PortalUser]:
     try:
         return list(PortalUser.objects.filter(is_active=True).order_by("id"))
@@ -86,19 +94,32 @@ def list_test_accounts() -> list[dict[str, str]]:
     ]
 
 
-def authenticate_credentials(username: str, password: str) -> dict[str, str] | None:
+def get_active_portal_user(username: str) -> PortalUser | None:
     try:
-        portal_user = (
+        return (
             PortalUser.objects.filter(username=username, is_active=True)
             .order_by("id")
             .first()
         )
     except (OperationalError, ProgrammingError):
-        portal_user = None
+        return None
 
-    if portal_user and portal_user.check_password(password):
+
+def authenticate_portal_user(username: str, password: str) -> PortalUser | None:
+    portal_user = get_active_portal_user(username)
+    if portal_user is None:
+        return None
+    if not portal_user.check_password(password):
+        return None
+    return portal_user
+
+
+def authenticate_credentials(username: str, password: str) -> dict[str, str] | None:
+    portal_user = authenticate_portal_user(username, password)
+    if portal_user:
         return build_user_payload(portal_user)
 
+    portal_user = get_active_portal_user(username)
     if portal_user:
         return None
 
@@ -119,18 +140,35 @@ def authenticate_credentials(username: str, password: str) -> dict[str, str] | N
     }
 
 
-def get_authenticated_user(request: HttpRequest) -> dict[str, str] | None:
-    signed_payload = request.COOKIES.get(AUTH_COOKIE_NAME)
-    if not signed_payload:
-        return None
-
+def _load_signed_auth_payload(signed_payload: str) -> dict[str, Any] | None:
     try:
-        payload = signing.loads(
+        return signing.loads(
             signed_payload,
             salt=AUTH_COOKIE_SALT,
             max_age=AUTH_COOKIE_MAX_AGE,
         )
     except signing.BadSignature:
+        return None
+
+
+def _get_authorization_token(request: HttpRequest) -> str:
+    raw_value = str(
+        request.headers.get("Authorization")
+        or request.META.get("HTTP_AUTHORIZATION")
+        or ""
+    ).strip()
+    if not raw_value:
+        return ""
+
+    scheme, _, token = raw_value.partition(" ")
+    if scheme.lower() != AUTHORIZATION_SCHEME.lower():
+        return ""
+    return token.strip()
+
+
+def _resolve_authenticated_user_from_signed_payload(signed_payload: str) -> dict[str, str] | None:
+    payload = _load_signed_auth_payload(signed_payload)
+    if not payload:
         return None
 
     username = payload.get("username")
@@ -139,36 +177,45 @@ def get_authenticated_user(request: HttpRequest) -> dict[str, str] | None:
     if not role_config:
         return None
 
-    try:
-        portal_user = PortalUser.objects.filter(username=username, role=role, is_active=True).first()
-    except (OperationalError, ProgrammingError):
-        portal_user = None
+    portal_user = get_active_portal_user(str(username or ""))
+    if portal_user and portal_user.role == role:
+        return build_user_payload(portal_user)
 
     if portal_user:
-        return build_user_payload(portal_user)
+        return None
 
     if _query_portal_users():
         return None
 
-    account = TEST_ACCOUNTS.get(username)
+    account = TEST_ACCOUNTS.get(str(username or ""))
     if not account or account["role"] != role:
         return None
 
     return {
-        "username": username,
+        "username": str(username or ""),
         "role": role,
         "role_label": role_config["label"],
         "landing_url": reverse(role_config["landing_url_name"]),
     }
 
 
+def get_authenticated_user(request: HttpRequest) -> dict[str, str] | None:
+    authorization_token = _get_authorization_token(request)
+    if authorization_token:
+        user = _resolve_authenticated_user_from_signed_payload(authorization_token)
+        if user:
+            return user
+
+    signed_payload = str(request.COOKIES.get(AUTH_COOKIE_NAME) or "").strip()
+    if not signed_payload:
+        return None
+    return _resolve_authenticated_user_from_signed_payload(signed_payload)
+
+
 def set_auth_cookie(response: HttpResponse, user: dict[str, str]) -> None:
     response.set_cookie(
         AUTH_COOKIE_NAME,
-        signing.dumps(
-            {"username": user["username"], "role": user["role"]},
-            salt=AUTH_COOKIE_SALT,
-        ),
+        build_auth_token(user),
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
         samesite="Lax",

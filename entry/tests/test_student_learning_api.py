@@ -474,6 +474,10 @@ class StudentLearningApiTests(TestCase):
             status=HomeworkAssignment.STATUS_REVIEWED,
             completed_at=self.make_local_datetime_for_date(date(2026, 5, 5)),
         )
+        self.attach_source_import_job(
+            assignment=on_time_mastered,
+            source_filename="loop-mastery.txt",
+        )
         self.add_direct_question(assignment=on_time_mastered)
         self.create_submission(
             assignment=on_time_mastered,
@@ -490,6 +494,10 @@ class StudentLearningApiTests(TestCase):
             due_date=date(2026, 5, 6),
             status=HomeworkAssignment.STATUS_COMPLETED,
             completed_at=self.make_local_datetime_for_date(date(2026, 5, 6), hour=11),
+        )
+        self.attach_source_import_job(
+            assignment=on_time_basic,
+            source_filename="array-basic.pdf",
         )
         self.add_direct_question(assignment=on_time_basic)
         basic_submission = self.create_submission(
@@ -577,22 +585,27 @@ class StudentLearningApiTests(TestCase):
             item["name"]: item
             for item in row["knowledge_points_by_period"]["week"]
         }
-        self.assertEqual(knowledge_points["循环结构练习"]["source"], "HomeworkAssignment.title")
+        self.assertEqual(knowledge_points["循环结构练习"]["source"], "loop-mastery")
         self.assertEqual(knowledge_points["循环结构练习"]["mastery_status"], "已掌握")
         self.assertEqual(knowledge_points["循环结构练习"]["correct_rate"], 1.0)
         self.assertEqual(knowledge_points["循环结构练习"]["correct_rate_text"], "100%")
+        self.assertEqual(knowledge_points["数组练习"]["source"], "array-basic")
         self.assertEqual(knowledge_points["数组练习"]["mastery_status"], "基本掌握")
         self.assertEqual(knowledge_points["数组练习"]["correct_rate"], 0.8)
         self.assertEqual(knowledge_points["数组练习"]["correct_rate_text"], "80%")
+        self.assertEqual(knowledge_points["递归练习"]["source"], "")
         self.assertEqual(knowledge_points["递归练习"]["mastery_status"], "未掌握")
         self.assertEqual(knowledge_points["递归练习"]["correct_rate"], 0.6)
         self.assertEqual(knowledge_points["递归练习"]["correct_rate_text"], "60%")
+        self.assertEqual(knowledge_points["条件判断练习"]["source"], "")
         self.assertEqual(knowledge_points["条件判断练习"]["mastery_status"], "未作答")
         self.assertIsNone(knowledge_points["条件判断练习"]["correct_rate"])
         self.assertEqual(knowledge_points["条件判断练习"]["correct_rate_text"], "暂无")
+        self.assertEqual(knowledge_points["函数练习"]["source"], "")
         self.assertEqual(knowledge_points["函数练习"]["mastery_status"], "未作答")
         self.assertIsNone(knowledge_points["函数练习"]["correct_rate"])
         self.assertEqual(knowledge_points["函数练习"]["correct_rate_text"], "暂无")
+        self.assertEqual(knowledge_points["字符串练习"]["source"], "")
         self.assertEqual(knowledge_points["字符串练习"]["mastery_status"], "未掌握")
         self.assertIsNone(knowledge_points["字符串练习"]["correct_rate"])
         self.assertEqual(knowledge_points["字符串练习"]["correct_rate_text"], "暂无")
@@ -662,12 +675,16 @@ class StudentLearningApiTests(TestCase):
         self.assertIsNone(knowledge_points["状态完成但无完成时间"]["mastery_status"])
 
     def test_requirement_homework_completion_and_delayed_rules(self) -> None:
-        self.create_assignment(
+        imported_assignment = self.create_assignment(
             student=self.child_a,
             title="阅读打卡",
             due_date=date(2026, 5, 5),
             status=HomeworkAssignment.STATUS_COMPLETED,
             completed_at=self.make_local_datetime_for_date(date(2026, 5, 5)),
+        )
+        self.attach_source_import_job(
+            assignment=imported_assignment,
+            source_filename="reading-log.docx",
         )
         self.create_assignment(
             student=self.child_a,
@@ -702,10 +719,13 @@ class StudentLearningApiTests(TestCase):
             item["name"]: item
             for item in child_row["knowledge_points_by_period"]["week"]
         }
+        self.assertEqual(knowledge_points["阅读打卡"]["source"], "reading-log")
         self.assertIsNone(knowledge_points["阅读打卡"]["mastery_status"])
         self.assertIsNone(knowledge_points["阅读打卡"]["correct_rate"])
         self.assertEqual(knowledge_points["阅读打卡"]["correct_rate_text"], "暂无")
+        self.assertEqual(knowledge_points["背诵作业"]["source"], "")
         self.assertIsNone(knowledge_points["背诵作业"]["mastery_status"])
+        self.assertEqual(knowledge_points["录音作业"]["source"], "")
         self.assertIsNone(knowledge_points["录音作业"]["mastery_status"])
 
     def test_parent_week_returns_only_current_child_lesson_feedbacks(self) -> None:

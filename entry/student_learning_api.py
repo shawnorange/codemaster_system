@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from typing import Iterable
 
 from django.db.models import Count, Prefetch, Q, QuerySet
@@ -24,7 +25,6 @@ MASTERY_STATUS_MASTERED = "已掌握"
 MASTERY_STATUS_BASIC = "基本掌握"
 MASTERY_STATUS_NOT_MASTERED = "未掌握"
 MASTERY_STATUS_NOT_ANSWERED = "未作答"
-KNOWLEDGE_POINT_SOURCE_TITLE = "HomeworkAssignment.title"
 
 
 def normalize_student_learning_anchor_date(raw_anchor_date: str | None) -> date:
@@ -142,7 +142,10 @@ def build_student_learning_overview(
             assignment,
             use_assignment_status_completion=use_assignment_status_completion,
         )
-        knowledge_point_item = _build_knowledge_point_item(assignment_snapshot)
+        knowledge_point_item = _build_knowledge_point_item(
+            assignment=assignment,
+            assignment_snapshot=assignment_snapshot,
+        )
         for period_type, bounds in periods.items():
             if not (bounds["start"] <= assignment_due_date <= bounds["end"]):
                 continue
@@ -458,11 +461,23 @@ def _finalize_week_lesson_feedback_summary(period_summary: object) -> None:
         item.pop("_sort_id", None)
 
 
-def _build_knowledge_point_item(assignment_snapshot: dict[str, object]) -> dict[str, object]:
+def _build_assignment_import_source_label(assignment: HomeworkAssignment) -> str:
+    import_job = getattr(assignment, "source_import_job", None)
+    source_filename = str(getattr(import_job, "source_filename", "") or "").strip()
+    if not source_filename:
+        return ""
+    return Path(source_filename).stem or source_filename
+
+
+def _build_knowledge_point_item(
+    *,
+    assignment: HomeworkAssignment,
+    assignment_snapshot: dict[str, object],
+) -> dict[str, object]:
     correct_rate = assignment_snapshot["correct_rate"]
     return {
         "name": str(assignment_snapshot["assignment_title"]),
-        "source": KNOWLEDGE_POINT_SOURCE_TITLE,
+        "source": _build_assignment_import_source_label(assignment),
         "mastery_status": assignment_snapshot["mastery_status"],
         "correct_rate": correct_rate,
         "correct_rate_text": _format_fraction_as_percent(correct_rate) if correct_rate is not None else "暂无",

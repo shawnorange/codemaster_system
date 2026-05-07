@@ -21,7 +21,9 @@ from .account_identity import normalize_phone
 from .auth import (
     ROLE_CONFIG,
     api_role_required,
+    authenticate_portal_user,
     authenticate_credentials,
+    build_auth_token,
     build_user_payload,
     clear_auth_cookie,
     get_authenticated_user,
@@ -202,6 +204,42 @@ def login_page(request: HttpRequest) -> HttpResponse:
 def logout_view(request: HttpRequest) -> HttpResponse:
     response = redirect("login")
     clear_auth_cookie(response)
+    return response
+
+
+def api_miniapp_login(request: HttpRequest) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "仅支持 POST 请求。"}, status=405)
+
+    try:
+        payload = json.loads((request.body or b"{}").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "请求体必须为 JSON。"}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "请求体必须为 JSON 对象。"}, status=400)
+
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    if not username or not password:
+        return JsonResponse({"error": "username 和 password 不能为空。"}, status=400)
+
+    portal_user = authenticate_portal_user(username, password)
+    if portal_user is None:
+        return JsonResponse({"error": "账号或密码错误。"}, status=401)
+
+    if portal_user.role not in {PortalUser.ROLE_PARENT, PortalUser.ROLE_PRINCIPAL}:
+        return JsonResponse({"error": "仅支持家长或校长账号登录。"}, status=403)
+
+    user = build_user_payload(portal_user)
+    token = build_auth_token(user)
+    response = JsonResponse(
+        {
+            "token": token,
+            "user": user,
+        }
+    )
+    set_auth_cookie(response, user)
     return response
 
 

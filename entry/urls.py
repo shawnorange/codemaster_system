@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    api_miniapp_login,
     api_parent_get_my_child,
     api_principal_get_students_info,
     login_page,
@@ -76,6 +77,7 @@ from .views import (
 urlpatterns = [
     path("", login_page, name="login"),
     path("logout", logout_view, name="logout"),
+    path("api/miniapp/login", api_miniapp_login, name="api-miniapp-login"),
     path("api/principal/get_students_info", api_principal_get_students_info, name="api-principal-get-students-info"),
     path("api/parent/get_my_child", api_parent_get_my_child, name="api-parent-get-my-child"),
     path("student/courses", student_courses, name="student-courses"),
