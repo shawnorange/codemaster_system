@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import requests
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Max
@@ -156,6 +157,17 @@ from .topic_content.gesp4_array_2d.context import get_topic_page_context as get_
 from .topic_content.gesp4_shared.context import get_topic_page_context as get_generic_gesp4_topic_page_context
 
 logger = logging.getLogger(__name__)
+WECHAT_MINIAPP_ACCESS_TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
+WECHAT_MINIAPP_GET_PHONE_URL = "https://api.weixin.qq.com/wxa/business/getuserphonenumber"
+WECHAT_MINIAPP_REQUEST_TIMEOUT_SECONDS = 10
+
+
+class MiniappPhoneLoginError(Exception):
+    def __init__(self, *, error_code: str, message: str, status: int) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.status = status
 
 
 def build_shell_identity_context(request: HttpRequest) -> dict[str, str]:
@@ -208,6 +220,128 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     return response
 
 
+def _build_miniapp_login_success_response(portal_user: PortalUser) -> JsonResponse:
+    user = build_user_payload(portal_user)
+    token = build_auth_token(user)
+    response = JsonResponse(
+        {
+            "token": token,
+            "user": user,
+        }
+    )
+    set_auth_cookie(response, user)
+    return response
+
+
+def _fetch_wechat_miniapp_access_token() -> str:
+    appid = str(getattr(settings, "WECHAT_MINIAPP_APPID", "") or "").strip()
+    secret = str(getattr(settings, "WECHAT_MINIAPP_SECRET", "") or "").strip()
+    if not appid or not secret:
+        raise MiniappPhoneLoginError(
+            error_code="wechat_config_missing",
+            message="WECHAT_MINIAPP_APPID 或 WECHAT_MINIAPP_SECRET 未配置。",
+            status=500,
+        )
+
+    try:
+        response = requests.get(
+            WECHAT_MINIAPP_ACCESS_TOKEN_URL,
+            params={
+                "grant_type": "client_credential",
+                "appid": appid,
+                "secret": secret,
+            },
+            timeout=WECHAT_MINIAPP_REQUEST_TIMEOUT_SECONDS,
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise MiniappPhoneLoginError(
+            error_code="wechat_api_error",
+            message="微信 access_token 接口调用失败。",
+            status=502,
+        ) from exc
+
+    access_token = str(payload.get("access_token") or "").strip()
+    if access_token:
+        return access_token
+
+    raise MiniappPhoneLoginError(
+        error_code="wechat_api_error",
+        message="微信 access_token 获取失败。",
+        status=502,
+    )
+
+
+def _fetch_wechat_miniapp_phone_number(*, code: str) -> str:
+    access_token = _fetch_wechat_miniapp_access_token()
+
+    try:
+        response = requests.post(
+            WECHAT_MINIAPP_GET_PHONE_URL,
+            params={"access_token": access_token},
+            json={"code": code},
+            timeout=WECHAT_MINIAPP_REQUEST_TIMEOUT_SECONDS,
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise MiniappPhoneLoginError(
+            error_code="wechat_api_error",
+            message="微信手机号接口调用失败。",
+            status=502,
+        ) from exc
+
+    if int(payload.get("errcode") or 0) != 0:
+        raise MiniappPhoneLoginError(
+            error_code="invalid_phone_code",
+            message="微信手机号 code 无效。",
+            status=400,
+        )
+
+    phone_info = payload.get("phone_info")
+    if not isinstance(phone_info, dict):
+        raise MiniappPhoneLoginError(
+            error_code="invalid_phone_code",
+            message="微信手机号 code 无效。",
+            status=400,
+        )
+
+    normalized_phone = normalize_phone(
+        str(phone_info.get("purePhoneNumber") or phone_info.get("phoneNumber") or "")
+    )
+    if not normalized_phone:
+        raise MiniappPhoneLoginError(
+            error_code="invalid_phone_code",
+            message="微信手机号 code 无效。",
+            status=400,
+        )
+    return normalized_phone
+
+
+def _resolve_parent_portal_user_by_phone(*, phone: str) -> PortalUser:
+    normalized_phone = normalize_phone(phone)
+    matched_parents = [
+        portal_user
+        for portal_user in PortalUser.objects.filter(
+            role=PortalUser.ROLE_PARENT,
+            is_active=True,
+        ).order_by("id")
+        if normalize_phone(portal_user.phone) == normalized_phone
+    ]
+    if not matched_parents:
+        raise MiniappPhoneLoginError(
+            error_code="phone_not_bound",
+            message="手机号未绑定家长账号。",
+            status=403,
+        )
+    if len(matched_parents) > 1:
+        raise MiniappPhoneLoginError(
+            error_code="phone_conflict",
+            message="手机号绑定了多个家长账号。",
+            status=409,
+        )
+    return matched_parents[0]
+
+
 @csrf_exempt
 def api_miniapp_login(request: HttpRequest) -> JsonResponse:
     if request.method != "POST":
@@ -233,16 +367,36 @@ def api_miniapp_login(request: HttpRequest) -> JsonResponse:
     if portal_user.role not in {PortalUser.ROLE_PARENT, PortalUser.ROLE_PRINCIPAL}:
         return JsonResponse({"error": "仅支持家长或校长账号登录。"}, status=403)
 
-    user = build_user_payload(portal_user)
-    token = build_auth_token(user)
-    response = JsonResponse(
-        {
-            "token": token,
-            "user": user,
-        }
-    )
-    set_auth_cookie(response, user)
-    return response
+    return _build_miniapp_login_success_response(portal_user)
+
+
+@csrf_exempt
+def api_miniapp_login_by_phone(request: HttpRequest) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "仅支持 POST 请求。"}, status=405)
+
+    try:
+        payload = json.loads((request.body or b"{}").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"error": "请求体必须为 JSON。"}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"error": "请求体必须为 JSON 对象。"}, status=400)
+
+    code = str(payload.get("code") or "").strip()
+    if not code:
+        return JsonResponse({"error": "code 不能为空。", "error_code": "missing_code"}, status=400)
+
+    try:
+        phone = _fetch_wechat_miniapp_phone_number(code=code)
+        portal_user = _resolve_parent_portal_user_by_phone(phone=phone)
+    except MiniappPhoneLoginError as exc:
+        return JsonResponse(
+            {"error": exc.message, "error_code": exc.error_code},
+            status=exc.status,
+        )
+
+    return _build_miniapp_login_success_response(portal_user)
 
 
 def get_portal_user_from_request(request: HttpRequest) -> PortalUser:
