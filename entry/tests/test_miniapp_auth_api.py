@@ -4,7 +4,7 @@ import json
 from datetime import date
 
 from django.core import signing
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from entry.auth import AUTH_COOKIE_NAME, AUTH_COOKIE_MAX_AGE, AUTH_COOKIE_SALT
@@ -103,6 +103,18 @@ class MiniappAuthApiTests(TestCase):
             {"username": self.parent.username, "role": PortalUser.ROLE_PARENT},
         )
         self.assertIn(AUTH_COOKIE_NAME, response.cookies)
+
+    def test_miniapp_login_allows_json_post_without_csrf_cookie(self) -> None:
+        csrf_client = Client(enforce_csrf_checks=True)
+
+        response = csrf_client.post(
+            self.miniapp_login_url(),
+            data=json.dumps({"username": self.parent.username, "password": self.parent_password}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["username"], self.parent.username)
 
     def test_miniapp_login_returns_signed_token_and_user_for_principal(self) -> None:
         response = self.login(username=self.principal.username, password=self.principal_password)

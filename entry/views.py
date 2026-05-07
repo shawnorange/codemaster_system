@@ -16,6 +16,7 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
 from django.utils.text import slugify
+from django.views.decorators.csrf import csrf_exempt
 
 from .account_identity import normalize_phone
 from .auth import (
@@ -207,6 +208,7 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     return response
 
 
+@csrf_exempt
 def api_miniapp_login(request: HttpRequest) -> JsonResponse:
     if request.method != "POST":
         return JsonResponse({"error": "仅支持 POST 请求。"}, status=405)
