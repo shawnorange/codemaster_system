@@ -51,20 +51,37 @@ def get_env_float(name: str, *, default: float) -> float:
         return default
 
 
-load_env_file(BASE_DIR / ".env")
+def get_env_list(name: str, *, default: str = "") -> list[str]:
+    return [
+        item.strip()
+        for item in get_env(name, default=default).split(",")
+        if item.strip()
+    ]
 
-SECRET_KEY = get_env("DJANGO_SECRET_KEY", default="django-insecure-local-dev-only")
+
+load_env_file(BASE_DIR / ".env")
 
 DEBUG = get_env_bool("DJANGO_DEBUG", default=True)
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in get_env(
-        "DJANGO_ALLOWED_HOSTS",
-        default="127.0.0.1,localhost,testserver",
-    ).split(",")
-    if host.strip()
-]
+SECRET_KEY = get_env("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("Missing required environment variable: DJANGO_SECRET_KEY when DJANGO_DEBUG is false")
+    SECRET_KEY = "django-insecure-local-dev-only"
+
+ALLOWED_HOSTS = get_env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    default="127.0.0.1,localhost,testserver",
+)
+CSRF_TRUSTED_ORIGINS = get_env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = get_env_bool("DJANGO_SECURE_SSL_REDIRECT", default=False)
+SECURE_HSTS_SECONDS = get_env_int("DJANGO_SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = get_env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD = get_env_bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
+CSRF_COOKIE_SECURE = get_env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
+CODEMASTER_AUTH_COOKIE_SECURE = get_env_bool("CODEMASTER_AUTH_COOKIE_SECURE", default=not DEBUG)
 
 
 HOMEWORK_IMPORT_ROUTER_ENABLED = get_env_bool("HOMEWORK_IMPORT_ROUTER_ENABLED", default=False)
@@ -171,6 +188,33 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = Path(get_env("DJANGO_STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(get_env("DJANGO_MEDIA_ROOT", default=str(BASE_DIR / "media")))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "console": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "console",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": get_env("DJANGO_LOG_LEVEL", default="INFO"),
+    },
+    "loggers": {
+        "django.server": {
+            "handlers": ["console"],
+            "level": get_env("DJANGO_LOG_LEVEL", default="INFO"),
+            "propagate": False,
+        },
+    },
+}

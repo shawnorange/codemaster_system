@@ -218,6 +218,7 @@ def set_auth_cookie(response: HttpResponse, user: dict[str, str]) -> None:
         build_auth_token(user),
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
+        secure=bool(getattr(settings, "CODEMASTER_AUTH_COOKIE_SECURE", not settings.DEBUG)),
         samesite="Lax",
     )
 
