@@ -6,7 +6,7 @@ Current migration target: the Tencent Cloud source database is PostgreSQL 15.16,
 
 ## 1. Local Docker Verification
 
-The Dockerfile pins the base image to `python:3.12-slim-bookworm` instead of the rolling `python:3.12-slim` tag, reducing surprises from Debian major-version changes. It also rewrites Debian apt sources to the Alibaba Cloud Debian mirror so image builds are more stable on mainland China ECS hosts.
+The Dockerfile pins the base image to `python:3.12-slim-bookworm` instead of the rolling `python:3.12-slim` tag, reducing surprises from Debian major-version changes. It also rewrites Debian apt sources to the Alibaba Cloud Debian mirror and configures pip to use the Alibaba Cloud PyPI mirror so image builds are more stable on mainland China ECS hosts. If pip downloads still time out, retry the build first; if the mirror is unstable, temporarily switch to the Tsinghua PyPI mirror.
 
 1. Copy `.env.example` to `.env` and fill local test values. Do not use production secrets locally.
 2. Build the web image:
