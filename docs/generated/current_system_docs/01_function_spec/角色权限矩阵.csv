@@ -1,0 +1,26 @@
+﻿功能模块,功能名称,student,parent,teacher,principal,anonymous,权限说明,数据隔离说明
+登录与门户,登录与门户,是,是,是,是,是,根据代码推断：anonymous / student / parent / teacher / principal,不是 Django 原生 session/auth；需要保护 Cookie、CSRF 和角色跳转逻辑。
+学生端,学生端,是,,,,,根据代码推断：student,内容开放依赖 StudentContentAccess 和课程级别推断。
+家长端,家长端,,是,,,,根据代码推断：parent,家长只能访问 parent_user 绑定的孩子。
+教师工作台,教师工作台,,,是,,,根据代码推断：teacher,页面聚合数据较多，需关注查询和 Tabulator 数据体积。
+校长端,校长端,,,,是,,根据代码推断：principal,校长端可跨学生查看，需审计数据范围。
+学生管理,学生管理,,,是,,,根据代码推断：teacher,学生导入涉及手机号和默认账号规则，文档不披露默认密码。
+教师-学生负责关系,教师-学生负责关系,,,是,,,根据代码推断：teacher,是教师端数据隔离核心，不能绕开 teacher 过滤。
+课程结构管理,课程结构管理,,,是,,,根据代码推断：teacher,slug/code 是路由与权限推断基础。
+课程级别管理,课程级别管理,,,是,,,根据代码推断：teacher,Tabulator 本地分页数据量增长后可能需要服务端分页。
+知识点 / CourseContent 管理,知识点 / CourseContent 管理,,,是,,,根据代码推断：teacher,slug 和 route_path 唯一，改动会影响学生入口。
+学生内容开放权限,学生内容开放权限,是,,是,,,根据代码推断：teacher / student,默认可见、显式开放、显式限制的语义需保持一致。
+作业布置,作业布置,,,是,,,根据代码推断：teacher,作业布置同时影响内容权限和学生端作业可见性。
+作业批量创建,作业批量创建,,,是,,,根据代码推断：teacher,批量写入需要事务一致性，且题源权限需校验。
+作业导入,作业导入,,,是,,,根据代码推断：teacher,涉及 media 文件、DashScope、火山 Ark、Pillow、pypdf/pypdfium2。
+作业提交,作业提交,是,是,是,,,根据代码推断：student / parent / teacher,支持多次提交，统计页需要明确取最新或有效提交。
+自动判分 / 结果统计,自动判分 / 结果统计,是,是,是,,,根据代码推断：student / teacher / parent,题目变更后历史提交依赖快照字段。
+Homework Stats,Homework Stats,,,是,,,根据代码推断：teacher,页面使用 ECharts 外链和 Tabulator，本地/公网环境需验证资源加载。
+作业提交详情,作业提交详情,是,是,是,,,根据代码推断：student / parent / teacher,教师只能查看自己名下学生和自己布置的作业。
+作业逐题答案详情,作业逐题答案详情,是,是,是,,,根据代码推断：teacher / student / parent,涉及学生作答隐私和历史题目快照。
+教师评价,教师评价,,,是,,,根据代码推断：teacher,评价内容属于敏感教育记录。
+奖励记录,奖励记录,,,是,,,根据代码推断：teacher,当前为追加记录，缺少撤销/审计。
+课时流水,课时流水,,,是,,,根据代码推断：teacher,课时属于账务类流水，不宜物理删除。
+题库承接,题库承接,,,是,,,根据代码推断：teacher,Question 表与 HomeworkQuestion 并存，需明确数据来源。
+管理命令,管理命令,,,,,,根据代码推断：命令行维护,会写数据库；本次仅分析代码，未执行这些命令。
+小程序接口,小程序接口,,是,,是,是,根据代码推断：anonymous / parent / principal,login_by_phone 调用微信接口，依赖 WECHAT_MINIAPP_APPID/SECRET，CSRF exempt。

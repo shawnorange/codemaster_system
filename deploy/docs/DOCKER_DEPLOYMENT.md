@@ -75,6 +75,7 @@ Production minimum:
 - `DJANGO_STATIC_ROOT=/app/staticfiles`
 - `DJANGO_MEDIA_ROOT=/app/media`
 - `CODEMASTER_AUTH_COOKIE_SECURE=True`
+- `GUNICORN_TIMEOUT=120`
 
 External services:
 
@@ -159,7 +160,24 @@ Before switching DNS, test from Alibaba Cloud ECS:
 
 The ECharts CDN should be vendored locally before relying on mainland production traffic.
 
-## 10. Do Not Delete Volumes
+## 10. Homework Import Timeout and Recovery
+
+Homework import parsing currently runs synchronously inside the Django request. A slow Qwen/DashScope or Volcengine Ark request can therefore occupy a Gunicorn worker until the Python `requests` timeout fires. Production must keep these timeouts ordered so Django can catch the exception, write `HomeworkImportJob.parse_notes`, and fall back when configured:
+
+```text
+nginx proxy_read_timeout > gunicorn timeout > external API read/request timeout
+```
+
+Current defaults:
+
+- `GUNICORN_TIMEOUT=120`
+- Nginx `proxy_read_timeout 130s`
+- `HOMEWORK_LLM_TIMEOUT_SECONDS=40`
+- `VOLC_VISION_READ_TIMEOUT_SECONDS=60`
+
+If a worker is killed before Django can finish exception handling, an import job may remain stuck in `parsing` and block future imports for the same knowledge point. Long term, move import parsing to a background worker so slow external model calls no longer block HTTP workers.
+
+## 11. Do Not Delete Volumes
 
 Do not run:
 

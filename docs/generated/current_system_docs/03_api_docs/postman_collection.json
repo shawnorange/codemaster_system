@@ -1,0 +1,1989 @@
+{
+  "info": {
+    "name": "CodeMaster System 当前路由接口",
+    "description": "由代码只读分析生成；不包含真实 Cookie、Token、密钥、手机号或学生隐私。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://example.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "login",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            ""
+          ],
+          "query": []
+        },
+        "description": "登录与门户；View: entry.views.login_page；AuthRequired: 否；CSRF: required"
+      }
+    },
+    {
+      "name": "api-miniapp-login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/miniapp/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "miniapp",
+            "login"
+          ],
+          "query": []
+        },
+        "description": "小程序接口；View: entry.views.api_miniapp_login；AuthRequired: 否；CSRF: exempt",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"password\": \"<password>\",\n  \"username\": \"student_demo\"\n}"
+        }
+      }
+    },
+    {
+      "name": "api-miniapp-login-by-phone",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/miniapp/login_by_phone",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "miniapp",
+            "login_by_phone"
+          ],
+          "query": []
+        },
+        "description": "小程序接口；View: entry.views.api_miniapp_login_by_phone；AuthRequired: 否；CSRF: exempt",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"wx_login_code_demo\"\n}"
+        }
+      }
+    },
+    {
+      "name": "api-parent-get-my-child",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/parent/get_my_child",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "parent",
+            "get_my_child"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "家长端 JSON API；View: entry.views.api_parent_get_my_child；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "api-principal-get-students-info",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/principal/get_students_info",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "principal",
+            "get_students_info"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "校长端 JSON API；View: entry.views.api_principal_get_students_info；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "logout",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/logout",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "logout"
+          ],
+          "query": []
+        },
+        "description": "登录与门户；View: entry.views.logout_view；AuthRequired: 否；CSRF: required"
+      }
+    },
+    {
+      "name": "debug-media-serve",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/media/{path}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "media",
+            "{path}"
+          ],
+          "query": []
+        },
+        "description": "调试媒体文件路由；View: codemaster_system.urls.debug_media_serve；AuthRequired: 否；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-student-profile",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile"
+          ],
+          "query": []
+        },
+        "description": "家长端；View: entry.views.parent_student_profile；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-list",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_list；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-print-blank",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>/print/blank",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>",
+            "print",
+            "blank"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_print_blank；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-submission-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>/submissions/<int:submission_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_submission_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-print",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>/submissions/<int:submission_id>/print",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>",
+            "print"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_print；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-print-wrong",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>/submissions/<int:submission_id>/print/wrong",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>",
+            "print",
+            "wrong"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_print_wrong；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "parent-homework-summary",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/parent/student-profile/homework/<int:assignment_id>/summary",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "parent",
+            "student-profile",
+            "homework",
+            "<int:assignment_id>",
+            "summary"
+          ],
+          "query": []
+        },
+        "description": "家长端作业；View: entry.views.parent_homework_summary_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "principal-dashboard",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/principal/dashboard",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "principal",
+            "dashboard"
+          ],
+          "query": []
+        },
+        "description": "校长端；View: entry.views.principal_dashboard；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-account-settings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/account-settings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "account-settings"
+          ],
+          "query": [
+            {
+              "key": "updated",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生端课程与练习；View: entry.views.student_account_settings；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "student-courses",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/courses",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "courses"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_courses；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp2",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp/gesp2",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp",
+            "gesp2"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp2；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp2-topic",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp/gesp2/<slug:topic_slug>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp",
+            "gesp2",
+            "<slug:topic_slug>"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp2_topic；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp4",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp/gesp4",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp",
+            "gesp4"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp4；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp4-topic",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp/gesp4/<slug:topic_slug>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp",
+            "gesp4",
+            "<slug:topic_slug>"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp4_topic；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-cpp-gesp4-array-2d",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/cpp/gesp/gesp4/array-2d",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "cpp",
+            "gesp",
+            "gesp4",
+            "array-2d"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_cpp_gesp4_array_2d；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-practice",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice"
+          ],
+          "query": []
+        },
+        "description": "学生端课程与练习；View: entry.views.student_practice；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-list",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_list；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>"
+          ],
+          "query": [
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生端作业；View: entry.views.student_homework_detail；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "student-homework-practice",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/practice",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "practice"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_practice；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "student-homework-print-blank",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/print/blank",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "print",
+            "blank"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_print_blank；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-submission-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/submissions/<int:submission_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>"
+          ],
+          "query": [
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生端作业；View: entry.views.student_homework_submission_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-print",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/submissions/<int:submission_id>/print",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>",
+            "print"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_print；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-print-wrong",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/submissions/<int:submission_id>/print/wrong",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "submissions",
+            "<int:submission_id>",
+            "print",
+            "wrong"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_print_wrong；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "student-homework-summary",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/student/practice/homework/<int:assignment_id>/summary",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "student",
+            "practice",
+            "homework",
+            "<int:assignment_id>",
+            "summary"
+          ],
+          "query": []
+        },
+        "description": "学生端作业；View: entry.views.student_homework_summary_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-category-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_category_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-category-export",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/export",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "export"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_category_export；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-level-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>"
+          ],
+          "query": [
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "page",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "page_size",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "q",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_level_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-level-export",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/export",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "export"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_level_export；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-knowledge-point-delete",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/knowledge-points/<slug:content_slug>/delete",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "knowledge-points",
+            "<slug:content_slug>",
+            "delete"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_knowledge_point_delete；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-course-knowledge-point-edit",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/knowledge-points/<slug:content_slug>/edit",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "knowledge-points",
+            "<slug:content_slug>",
+            "edit"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_knowledge_point_edit；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-course-knowledge-point-permissions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/knowledge-points/<slug:content_slug>/permissions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "knowledge-points",
+            "<slug:content_slug>",
+            "permissions"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "saved",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生内容开放权限；View: entry.views.teacher_course_knowledge_point_permissions；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-course-knowledge-point-teaching-page",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/knowledge-points/<slug:content_slug>/teaching-page",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "knowledge-points",
+            "<slug:content_slug>",
+            "teaching-page"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_knowledge_point_teaching_page；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-knowledge-point-new",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/categories/<slug:category_slug>/levels/<slug:level_code>/knowledge-points/new",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "categories",
+            "<slug:category_slug>",
+            "levels",
+            "<slug:level_code>",
+            "knowledge-points",
+            "new"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_knowledge_point_new；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-course-export",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/export",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "export"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_course_export；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-course-student-pool",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/student-pool",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "student-pool"
+          ],
+          "query": [
+            {
+              "key": "created",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "level_code",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "restored",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "saved",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "single_student_saved",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "skipped",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生管理；View: entry.views.teacher_course_student_pool；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-course-students-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/<slug:course_slug>/students",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "<slug:course_slug>",
+            "students"
+          ],
+          "query": [
+            {
+              "key": "open_import",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "page",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "page_size",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "q",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生管理；View: entry.views.teacher_course_students_detail；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp2-ascii-char-encoding",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp2/ascii-char-encoding",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp2",
+            "ascii-char-encoding"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp2_ascii_char_encoding；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp2-enumeration",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp2/enumeration-method",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp2",
+            "enumeration-method"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp2_enumeration；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp4-array-2d",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp4/array-2d",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp4",
+            "array-2d"
+          ],
+          "query": [
+            {
+              "key": "lecture",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp4_array_2d；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp4-binary-search",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp4/binary-search",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp4",
+            "binary-search"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp4_binary_search；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp4-sorting",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp4/sorting",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp4",
+            "sorting"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp4_sorting；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-cpp-gesp4-strings",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/courses/cpp/gesp4/strings",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "courses",
+            "cpp",
+            "gesp4",
+            "strings"
+          ],
+          "query": []
+        },
+        "description": "课程结构与知识点管理；View: entry.views.teacher_cpp_gesp4_strings；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "Homework Stats；View: entry.views.teacher_homework_stats；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats-assignment-submissions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/assignment-submissions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "assignment-submissions"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "assignment_id",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "student_id",
+              "value": "1",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "其它；View: entry.views.teacher_homework_assignment_submission_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats-lesson-feedback",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/lesson-feedback",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "lesson-feedback"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "student_id",
+              "value": "1",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "Homework Stats；View: entry.views.teacher_homework_stats_lesson_feedback；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats-lesson-feedback-save",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/lesson-feedback/save",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "lesson-feedback",
+            "save"
+          ],
+          "query": []
+        },
+        "description": "Homework Stats；View: entry.views.teacher_homework_stats_lesson_feedback_save；AuthRequired: 是；CSRF: required",
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "type": "text"
+            },
+            {
+              "key": "areas_for_growth",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "assignment_id",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "highlights",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "student_id",
+              "value": "1",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "teacher-homework-stats-student-period-assignments",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/student-period-assignments",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "student-period-assignments"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "student_id",
+              "value": "1",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "其它；View: entry.views.teacher_homework_student_period_assignment_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats-submission-answer-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/submission-answer-detail",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "submission-answer-detail"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "period",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "submission_id",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "其它；View: entry.views.teacher_homework_submission_answer_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-stats-submissions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework-stats/submissions",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework-stats",
+            "submissions"
+          ],
+          "query": [
+            {
+              "key": "anchor_date",
+              "value": "2026-05-08",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "student_id",
+              "value": "1",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "其它；View: entry.views.teacher_homework_submission_detail；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-homework-batch-create",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework/batch-create",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework",
+            "batch-create"
+          ],
+          "query": [
+            {
+              "key": "count",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "course",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "import_job_id",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "mode",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "with_summary",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "作业批量创建；View: entry.views.teacher_homework_batch_create；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-homework-import-job-preview",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework/import-jobs/<int:import_job_id>/preview",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework",
+            "import-jobs",
+            "<int:import_job_id>",
+            "preview"
+          ],
+          "query": []
+        },
+        "description": "作业导入与在线题目；View: entry.views.teacher_homework_import_job_preview；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-question-source-create-content",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework/question-source/create-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework",
+            "question-source",
+            "create-content"
+          ],
+          "query": [
+            {
+              "key": "course",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "题库承接与作业导入；View: entry.views.teacher_question_source_create_content；AuthRequired: 是；CSRF: required",
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "course",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "level_id",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "title",
+              "value": "脱敏示例标题",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "teacher-question-source-import",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/homework/question-source/import",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "homework",
+            "question-source",
+            "import"
+          ],
+          "query": [
+            {
+              "key": "confirmed_count",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "content_id",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "course",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "题库承接与作业导入；View: entry.views.teacher_question_source_import；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-question-manual-override",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/questions/<int:question_id>/manual-override",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "questions",
+            "<int:question_id>",
+            "manual-override"
+          ],
+          "query": []
+        },
+        "description": "其它；View: entry.views.teacher_question_manual_override；AuthRequired: 是；CSRF: required",
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "is_reviewed",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "return_anchor",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "review_note",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "code_image",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "options_image",
+              "value": "demo",
+              "type": "text"
+            },
+            {
+              "key": "question_image",
+              "value": "demo",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "teacher-students",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students"
+          ],
+          "query": [
+            {
+              "key": "tab",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "教师工作台；View: entry.views.teacher_students；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-student-detail",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/<int:student_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "<int:student_id>"
+          ],
+          "query": [
+            {
+              "key": "content_restriction_saved",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "homework_op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "summary_bound",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "学生管理与教学记录；View: entry.views.teacher_student_detail；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-student-assignments",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/<int:student_id>/assignments",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "<int:student_id>",
+            "assignments"
+          ],
+          "query": [
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "教师-学生负责关系；View: entry.views.teacher_student_assignments；AuthRequired: 是；CSRF: not required for GET"
+      }
+    },
+    {
+      "name": "teacher-student-assignment-edit",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/<int:student_id>/assignments/<int:assignment_id>/edit",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "<int:student_id>",
+            "assignments",
+            "<int:assignment_id>",
+            "edit"
+          ],
+          "query": []
+        },
+        "description": "教师-学生负责关系；View: entry.views.teacher_student_assignment_edit；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-student-assignment-remove",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/<int:student_id>/assignments/<int:assignment_id>/remove",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "<int:student_id>",
+            "assignments",
+            "<int:assignment_id>",
+            "remove"
+          ],
+          "query": []
+        },
+        "description": "教师-学生负责关系；View: entry.views.teacher_student_assignment_remove；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-homework-builder",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/<int:student_id>/homework/<int:assignment_id>",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "<int:student_id>",
+            "homework",
+            "<int:assignment_id>"
+          ],
+          "query": [
+            {
+              "key": "confirmed_count",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            },
+            {
+              "key": "op",
+              "value": "demo",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "作业导入与在线题目；View: entry.views.teacher_homework_builder；AuthRequired: 是；CSRF: required"
+      }
+    },
+    {
+      "name": "teacher-assignment-new",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/teacher/students/assignments/new",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "teacher",
+            "students",
+            "assignments",
+            "new"
+          ],
+          "query": [
+            {
+              "key": "student_id",
+              "value": "1",
+              "description": "脱敏示例参数"
+            }
+          ]
+        },
+        "description": "教师-学生负责关系；View: entry.views.teacher_assignment_new；AuthRequired: 是；CSRF: required"
+      }
+    }
+  ]
+}

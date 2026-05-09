@@ -1,0 +1,3438 @@
+openapi: 3.0.3
+info:
+  title: CodeMaster System Routes
+  version: "1.0.0"
+  description: "当前系统路由文档，生成时间 2026-05-08 15:09:47 CST；不包含真实密钥、Cookie、手机号或学生隐私。"
+servers:
+  - url: https://example.com
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: codemaster_auth
+    codemasterToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "格式：Codemaster <signed-token>"
+  schemas:
+    GenericError:
+      type: object
+      properties:
+        error:
+          type: string
+        error_code:
+          type: string
+    MiniappLoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          example: parent_demo
+        password:
+          type: string
+          example: "<password>"
+      required: [username, password]
+    MiniappPhoneLoginRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          example: wx_login_code_demo
+      required: [code]
+    MiniappLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          type: object
+    GenericJson:
+      type: object
+paths:
+  /:
+    get:
+      operationId: get_login
+      summary: "login"
+      description: "登录与门户；CSRF: required；View: entry.views.login_page"
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_login
+      summary: "login"
+      description: "登录与门户；CSRF: required；View: entry.views.login_page"
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+  /api/miniapp/login:
+    post:
+      operationId: post_api_miniapp_login
+      summary: "api-miniapp-login"
+      description: "小程序接口；CSRF: exempt；View: entry.views.api_miniapp_login"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MiniappLoginRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiniappLoginResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+  /api/miniapp/login_by_phone:
+    post:
+      operationId: post_api_miniapp_login_by_phone
+      summary: "api-miniapp-login-by-phone"
+      description: "小程序接口；CSRF: exempt；View: entry.views.api_miniapp_login_by_phone"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MiniappPhoneLoginRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MiniappLoginResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+  /api/parent/get_my_child:
+    get:
+      operationId: get_api_parent_get_my_child
+      summary: "api-parent-get-my-child"
+      description: "家长端 JSON API；CSRF: not required for GET；View: entry.views.api_parent_get_my_child"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /api/principal/get_students_info:
+    get:
+      operationId: get_api_principal_get_students_info
+      summary: "api-principal-get-students-info"
+      description: "校长端 JSON API；CSRF: not required for GET；View: entry.views.api_principal_get_students_info"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /logout:
+    get:
+      operationId: get_logout
+      summary: "logout"
+      description: "登录与门户；CSRF: required；View: entry.views.logout_view"
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_logout
+      summary: "logout"
+      description: "登录与门户；CSRF: required；View: entry.views.logout_view"
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+  /media/{path}:
+    get:
+      operationId: get_debug_media_serve
+      summary: "debug-media-serve"
+      description: "调试媒体文件路由；CSRF: not required for GET；View: codemaster_system.urls.debug_media_serve"
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '404':
+          description: 未找到资源
+  /parent/student-profile:
+    get:
+      operationId: get_parent_student_profile
+      summary: "parent-student-profile"
+      description: "家长端；CSRF: not required for GET；View: entry.views.parent_student_profile"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework:
+    get:
+      operationId: get_parent_homework_list
+      summary: "parent-homework-list"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_list"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}:
+    get:
+      operationId: get_parent_homework_detail
+      summary: "parent-homework-detail"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}/print/blank:
+    get:
+      operationId: get_parent_homework_print_blank
+      summary: "parent-homework-print-blank"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_print_blank"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}/submissions/{submission_id}:
+    get:
+      operationId: get_parent_homework_submission_detail
+      summary: "parent-homework-submission-detail"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_submission_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}/submissions/{submission_id}/print:
+    get:
+      operationId: get_parent_homework_print
+      summary: "parent-homework-print"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_print"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}/submissions/{submission_id}/print/wrong:
+    get:
+      operationId: get_parent_homework_print_wrong
+      summary: "parent-homework-print-wrong"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_print_wrong"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /parent/student-profile/homework/{assignment_id}/summary:
+    get:
+      operationId: get_parent_homework_summary
+      summary: "parent-homework-summary"
+      description: "家长端作业；CSRF: not required for GET；View: entry.views.parent_homework_summary_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /principal/dashboard:
+    get:
+      operationId: get_principal_dashboard
+      summary: "principal-dashboard"
+      description: "校长端；CSRF: not required for GET；View: entry.views.principal_dashboard"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/account-settings:
+    get:
+      operationId: get_student_account_settings
+      summary: "student-account-settings"
+      description: "学生端课程与练习；CSRF: required；View: entry.views.student_account_settings"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: updated
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_student_account_settings
+      summary: "student-account-settings"
+      description: "学生端课程与练习；CSRF: required；View: entry.views.student_account_settings"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/courses:
+    get:
+      operationId: get_student_courses
+      summary: "student-courses"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_courses"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp:
+    get:
+      operationId: get_student_cpp
+      summary: "student-cpp"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp:
+    get:
+      operationId: get_student_cpp_gesp
+      summary: "student-cpp-gesp"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp/gesp2:
+    get:
+      operationId: get_student_cpp_gesp2
+      summary: "student-cpp-gesp2"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp2"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp/gesp2/{topic_slug}:
+    get:
+      operationId: get_student_cpp_gesp2_topic
+      summary: "student-cpp-gesp2-topic"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp2_topic"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: topic_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp/gesp4:
+    get:
+      operationId: get_student_cpp_gesp4
+      summary: "student-cpp-gesp4"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp4"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp/gesp4/{topic_slug}:
+    get:
+      operationId: get_student_cpp_gesp4_topic
+      summary: "student-cpp-gesp4-topic"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp4_topic"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: topic_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/cpp/gesp/gesp4/array-2d:
+    get:
+      operationId: get_student_cpp_gesp4_array_2d
+      summary: "student-cpp-gesp4-array-2d"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_cpp_gesp4_array_2d"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice:
+    get:
+      operationId: get_student_practice
+      summary: "student-practice"
+      description: "学生端课程与练习；CSRF: not required for GET；View: entry.views.student_practice"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework:
+    get:
+      operationId: get_student_homework_list
+      summary: "student-homework-list"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_list"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}:
+    get:
+      operationId: get_student_homework_detail
+      summary: "student-homework-detail"
+      description: "学生端作业；CSRF: required；View: entry.views.student_homework_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_student_homework_detail
+      summary: "student-homework-detail"
+      description: "学生端作业；CSRF: required；View: entry.views.student_homework_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/practice:
+    get:
+      operationId: get_student_homework_practice
+      summary: "student-homework-practice"
+      description: "学生端作业；CSRF: required；View: entry.views.student_homework_practice"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_student_homework_practice
+      summary: "student-homework-practice"
+      description: "学生端作业；CSRF: required；View: entry.views.student_homework_practice"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/print/blank:
+    get:
+      operationId: get_student_homework_print_blank
+      summary: "student-homework-print-blank"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_print_blank"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/submissions/{submission_id}:
+    get:
+      operationId: get_student_homework_submission_detail
+      summary: "student-homework-submission-detail"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_submission_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/submissions/{submission_id}/print:
+    get:
+      operationId: get_student_homework_print
+      summary: "student-homework-print"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_print"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/submissions/{submission_id}/print/wrong:
+    get:
+      operationId: get_student_homework_print_wrong
+      summary: "student-homework-print-wrong"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_print_wrong"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /student/practice/homework/{assignment_id}/summary:
+    get:
+      operationId: get_student_homework_summary
+      summary: "student-homework-summary"
+      description: "学生端作业；CSRF: not required for GET；View: entry.views.student_homework_summary_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}:
+    get:
+      operationId: get_teacher_course_detail
+      summary: "teacher-course-detail"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}:
+    get:
+      operationId: get_teacher_course_category_detail
+      summary: "teacher-course-category-detail"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_category_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/export:
+    get:
+      operationId: get_teacher_course_category_export
+      summary: "teacher-course-category-export"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_category_export"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}:
+    get:
+      operationId: get_teacher_course_level_detail
+      summary: "teacher-course-level-detail"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_level_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/export:
+    get:
+      operationId: get_teacher_course_level_export
+      summary: "teacher-course-level-export"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_level_export"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/knowledge-points/{content_slug}/delete:
+    get:
+      operationId: get_teacher_course_knowledge_point_delete
+      summary: "teacher-course-knowledge-point-delete"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_delete"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_knowledge_point_delete
+      summary: "teacher-course-knowledge-point-delete"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_delete"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/knowledge-points/{content_slug}/edit:
+    get:
+      operationId: get_teacher_course_knowledge_point_edit
+      summary: "teacher-course-knowledge-point-edit"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_edit"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_knowledge_point_edit
+      summary: "teacher-course-knowledge-point-edit"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_edit"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/knowledge-points/{content_slug}/permissions:
+    get:
+      operationId: get_teacher_course_knowledge_point_permissions
+      summary: "teacher-course-knowledge-point-permissions"
+      description: "学生内容开放权限；CSRF: required；View: entry.views.teacher_course_knowledge_point_permissions"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: saved
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_knowledge_point_permissions
+      summary: "teacher-course-knowledge-point-permissions"
+      description: "学生内容开放权限；CSRF: required；View: entry.views.teacher_course_knowledge_point_permissions"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/knowledge-points/{content_slug}/teaching-page:
+    get:
+      operationId: get_teacher_course_knowledge_point_teaching_page
+      summary: "teacher-course-knowledge-point-teaching-page"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_knowledge_point_teaching_page"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/categories/{category_slug}/levels/{level_code}/knowledge-points/new:
+    get:
+      operationId: get_teacher_course_knowledge_point_new
+      summary: "teacher-course-knowledge-point-new"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_new"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_knowledge_point_new
+      summary: "teacher-course-knowledge-point-new"
+      description: "课程结构与知识点管理；CSRF: required；View: entry.views.teacher_course_knowledge_point_new"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: level_code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/export:
+    get:
+      operationId: get_teacher_course_export
+      summary: "teacher-course-export"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_course_export"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/student-pool:
+    get:
+      operationId: get_teacher_course_student_pool
+      summary: "teacher-course-student-pool"
+      description: "学生管理；CSRF: required；View: entry.views.teacher_course_student_pool"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: created
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: level_code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: restored
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: saved
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: single_student_saved
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: skipped
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_student_pool
+      summary: "teacher-course-student-pool"
+      description: "学生管理；CSRF: required；View: entry.views.teacher_course_student_pool"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/{course_slug}/students:
+    get:
+      operationId: get_teacher_course_students_detail
+      summary: "teacher-course-students-detail"
+      description: "学生管理；CSRF: required；View: entry.views.teacher_course_students_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: open_import
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_course_students_detail
+      summary: "teacher-course-students-detail"
+      description: "学生管理；CSRF: required；View: entry.views.teacher_course_students_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: course_slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp2/ascii-char-encoding:
+    get:
+      operationId: get_teacher_cpp_gesp2_ascii_char_encoding
+      summary: "teacher-cpp-gesp2-ascii-char-encoding"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp2_ascii_char_encoding"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp2/enumeration-method:
+    get:
+      operationId: get_teacher_cpp_gesp2_enumeration
+      summary: "teacher-cpp-gesp2-enumeration"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp2_enumeration"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp4/array-2d:
+    get:
+      operationId: get_teacher_cpp_gesp4_array_2d
+      summary: "teacher-cpp-gesp4-array-2d"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp4_array_2d"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: lecture
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp4/binary-search:
+    get:
+      operationId: get_teacher_cpp_gesp4_binary_search
+      summary: "teacher-cpp-gesp4-binary-search"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp4_binary_search"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp4/sorting:
+    get:
+      operationId: get_teacher_cpp_gesp4_sorting
+      summary: "teacher-cpp-gesp4-sorting"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp4_sorting"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/courses/cpp/gesp4/strings:
+    get:
+      operationId: get_teacher_cpp_gesp4_strings
+      summary: "teacher-cpp-gesp4-strings"
+      description: "课程结构与知识点管理；CSRF: not required for GET；View: entry.views.teacher_cpp_gesp4_strings"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats:
+    get:
+      operationId: get_teacher_homework_stats
+      summary: "teacher-homework-stats"
+      description: "Homework Stats；CSRF: not required for GET；View: entry.views.teacher_homework_stats"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/assignment-submissions:
+    get:
+      operationId: get_teacher_homework_stats_assignment_submissions
+      summary: "teacher-homework-stats-assignment-submissions"
+      description: "其它；CSRF: not required for GET；View: entry.views.teacher_homework_assignment_submission_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: assignment_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: student_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/lesson-feedback:
+    get:
+      operationId: get_teacher_homework_stats_lesson_feedback
+      summary: "teacher-homework-stats-lesson-feedback"
+      description: "Homework Stats；CSRF: not required for GET；View: entry.views.teacher_homework_stats_lesson_feedback"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: student_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/lesson-feedback/save:
+    post:
+      operationId: post_teacher_homework_stats_lesson_feedback_save
+      summary: "teacher-homework-stats-lesson-feedback-save"
+      description: "Homework Stats；CSRF: required；View: entry.views.teacher_homework_stats_lesson_feedback_save"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/student-period-assignments:
+    get:
+      operationId: get_teacher_homework_stats_student_period_assignments
+      summary: "teacher-homework-stats-student-period-assignments"
+      description: "其它；CSRF: not required for GET；View: entry.views.teacher_homework_student_period_assignment_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: student_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/submission-answer-detail:
+    get:
+      operationId: get_teacher_homework_stats_submission_answer_detail
+      summary: "teacher-homework-stats-submission-answer-detail"
+      description: "其它；CSRF: not required for GET；View: entry.views.teacher_homework_submission_answer_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: submission_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework-stats/submissions:
+    get:
+      operationId: get_teacher_homework_stats_submissions
+      summary: "teacher-homework-stats-submissions"
+      description: "其它；CSRF: not required for GET；View: entry.views.teacher_homework_submission_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: anchor_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: student_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework/batch-create:
+    get:
+      operationId: get_teacher_homework_batch_create
+      summary: "teacher-homework-batch-create"
+      description: "作业批量创建；CSRF: required；View: entry.views.teacher_homework_batch_create"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: course
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: import_job_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: mode
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: with_summary
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_homework_batch_create
+      summary: "teacher-homework-batch-create"
+      description: "作业批量创建；CSRF: required；View: entry.views.teacher_homework_batch_create"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework/import-jobs/{import_job_id}/preview:
+    get:
+      operationId: get_teacher_homework_import_job_preview
+      summary: "teacher-homework-import-job-preview"
+      description: "作业导入与在线题目；CSRF: not required for GET；View: entry.views.teacher_homework_import_job_preview"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: import_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework/question-source/create-content:
+    post:
+      operationId: post_teacher_question_source_create_content
+      summary: "teacher-question-source-create-content"
+      description: "题库承接与作业导入；CSRF: required；View: entry.views.teacher_question_source_create_content"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/homework/question-source/import:
+    get:
+      operationId: get_teacher_question_source_import
+      summary: "teacher-question-source-import"
+      description: "题库承接与作业导入；CSRF: required；View: entry.views.teacher_question_source_import"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: confirmed_count
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: content_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: course
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_question_source_import
+      summary: "teacher-question-source-import"
+      description: "题库承接与作业导入；CSRF: required；View: entry.views.teacher_question_source_import"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/questions/{question_id}/manual-override:
+    post:
+      operationId: post_teacher_question_manual_override
+      summary: "teacher-question-manual-override"
+      description: "其它；CSRF: required；View: entry.views.teacher_question_manual_override"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: question_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students:
+    get:
+      operationId: get_teacher_students
+      summary: "teacher-students"
+      description: "教师工作台；CSRF: not required for GET；View: entry.views.teacher_students"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: tab
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/{student_id}:
+    get:
+      operationId: get_teacher_student_detail
+      summary: "teacher-student-detail"
+      description: "学生管理与教学记录；CSRF: required；View: entry.views.teacher_student_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: content_restriction_saved
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: homework_op
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: summary_bound
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_student_detail
+      summary: "teacher-student-detail"
+      description: "学生管理与教学记录；CSRF: required；View: entry.views.teacher_student_detail"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/{student_id}/assignments:
+    get:
+      operationId: get_teacher_student_assignments
+      summary: "teacher-student-assignments"
+      description: "教师-学生负责关系；CSRF: not required for GET；View: entry.views.teacher_student_assignments"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/{student_id}/assignments/{assignment_id}/edit:
+    get:
+      operationId: get_teacher_student_assignment_edit
+      summary: "teacher-student-assignment-edit"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_student_assignment_edit"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_student_assignment_edit
+      summary: "teacher-student-assignment-edit"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_student_assignment_edit"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/{student_id}/assignments/{assignment_id}/remove:
+    get:
+      operationId: get_teacher_student_assignment_remove
+      summary: "teacher-student-assignment-remove"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_student_assignment_remove"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_student_assignment_remove
+      summary: "teacher-student-assignment-remove"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_student_assignment_remove"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/{student_id}/homework/{assignment_id}:
+    get:
+      operationId: get_teacher_homework_builder
+      summary: "teacher-homework-builder"
+      description: "作业导入与在线题目；CSRF: required；View: entry.views.teacher_homework_builder"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: confirmed_count
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: op
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_homework_builder
+      summary: "teacher-homework-builder"
+      description: "作业导入与在线题目；CSRF: required；View: entry.views.teacher_homework_builder"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: assignment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+  /teacher/students/assignments/new:
+    get:
+      operationId: get_teacher_assignment_new
+      summary: "teacher-assignment-new"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_assignment_new"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      parameters:
+        - name: student_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源
+    post:
+      operationId: post_teacher_assignment_new
+      summary: "teacher-assignment-new"
+      description: "教师-学生负责关系；CSRF: required；View: entry.views.teacher_assignment_new"
+      security:
+        - cookieAuth: []
+        - codemasterToken: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            text/html:
+              schema:
+                type: string
+        '302':
+          description: Redirect
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericError'
+        '401':
+          description: 未登录
+        '403':
+          description: 无权访问
+        '404':
+          description: 未找到资源

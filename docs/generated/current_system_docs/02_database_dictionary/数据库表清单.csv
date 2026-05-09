@@ -1,0 +1,21 @@
+﻿模型名,表名,业务域,中文说明,是否核心表,主要用途,关键字段,主要外键,新功能注意事项
+PortalUser,entry_portaluser,账号与角色,系统统一账号表,是,登录、角色判断、权限入口,"username, role, phone, is_active",,不要混用 Django auth.User；文档不披露任何密码哈希。
+Student,entry_student,学生主档,学生基础档案,是,承接学生账号、家长账号、负责教师和学习阶段,"user, parent_user, teacher_user, display_name, primary_level_name",user->PortalUser；parent_user->PortalUser；teacher_user->PortalUser,涉及学生隐私，新增功能需做角色隔离。
+Course,entry_course,课程结构,课程方向,是,课程顶层分类，如 C++,"slug, title",,slug 是业务路由关键字段。
+CourseCategory,entry_coursecategory,课程结构,课程分类,是,课程下的二级分类,"course, slug, sort_order, is_active",course->Course,course+slug 唯一，变更会影响路由。
+CourseLevel,entry_courselevel,课程结构,课程级别,是,分类下的级别/阶段,"category, code, sort_order, is_active",category->CourseCategory,category+code 唯一，权限推断依赖 level code。
+CourseContent,entry_coursecontent,知识点 / CourseContent 管理,课程知识点/专题,是,学生可见内容、教师管理、作业目标,"course, level, slug, route_path, permission_code",course->Course；level->CourseLevel,slug/route_path 唯一，删除通常应软停用。
+Question,questions,通用题库,通用题库表,否,承接导入题库和专题题目,"code, content_slug, level_code, payload",,自定义表名 questions；payload 结构需兼容历史数据。
+StudentContentAccess,entry_studentcontentaccess,内容开放权限,学生内容开放记录,是,控制学生对课程内容的开放/限制,"student, content, is_open, granted_by",student->Student；content->CourseContent；granted_by->PortalUser,student+content 唯一，是内容权限主链路。
+HomeworkAssignment,entry_homeworkassignment,作业布置,作业主表,是,教师给学生布置作业并记录状态、总结、题源,"teacher, student, content, due_date, status, source_import_job",teacher->PortalUser；student->Student；content->CourseContent；summary->HomeworkSummary；source_import_job->HomeworkImportJob,核心表，新增状态需兼容统计和学生端。
+HomeworkSummary,entry_homeworksummary,作业提交,作业周总结,否,保存课后/本周总结 HTML 并关联多条作业,"title, summary_html, created_by",created_by->PortalUser,HTML 已在展示层清洗，导入时仍需安全审查。
+HomeworkImportJob,entry_homeworkimportjob,作业导入,作业导入任务,是,记录上传文件、解析候选题和确认状态,"teacher, assignment, content, source_type, parse_status, candidates_json",teacher->PortalUser；assignment->HomeworkAssignment；content->CourseContent,涉及 media 文件和外部模型，文档不包含文件内容。
+HomeworkQuestion,entry_homeworkquestion,在线题目,作业在线题目,是,由导入任务确认后形成正式选择题,"assignment, import_job, question_no, correct_answer",assignment->HomeworkAssignment；import_job->HomeworkImportJob,学生提交后不宜覆盖正式题目。
+HomeworkSubmission,entry_homeworksubmission,作业提交,作业提交记录,是,学生每次在线提交的总结果,"assignment, student, status, score, submitted_at",assignment->HomeworkAssignment；student->Student,支持多次提交，统计需选择有效提交。
+HomeworkSubmissionAnswer,entry_homeworksubmissionanswer,逐题答案,逐题作答明细,是,保存每次提交的逐题答案和快照,"submission, homework_question, selected_answer, is_correct",submission->HomeworkSubmission；homework_question->HomeworkQuestion,保留正确答案快照，便于历史回放。
+HomeworkCompletionStat,entry_homeworkcompletionstat,Homework Stats,作业完成统计,否,按周期缓存完成/未完成数量,"teacher, student, period_type, period_start, period_end",teacher->PortalUser；student->Student,统计口径变更时需同步刷新逻辑。
+HomeworkCompletionStatMissingAssignment,entry_homeworkcompletionstatmissingassignment,Homework Stats,未完成作业关联,否,记录统计周期内未完成作业及原因,"stat, assignment, reason",stat->HomeworkCompletionStat；assignment->HomeworkAssignment,需与 HomeworkCompletionStat 同步维护。
+TeacherEvaluation,entry_teacherevaluation,教师评价,教师评价,否,教师对学生的文字评价,"student, teacher, evaluation_text",student->Student；teacher->PortalUser,涉及学生评价内容，需权限隔离。
+RewardRecord,entry_rewardrecord,奖励记录,奖励记录,否,记录学生奖励说明,"student, teacher, reward_text",student->Student；teacher->PortalUser,建议后续增加审计/撤销能力。
+LessonHourLedger,entry_lessonhourledger,课时流水,课时流水,否,记录学生课时增减,"student, teacher, delta_hours",student->Student；teacher->PortalUser,涉及余额类数据，建议加审计。
+TeacherStudentAssignment,entry_teacherstudentassignment,教师-学生负责关系,教师学生负责关系,是,教师对学生在课程/级别下的负责范围,"teacher, student, course, level_code, is_active",teacher->PortalUser；student->Student；course->Course,权限隔离核心表，不应绕过。
