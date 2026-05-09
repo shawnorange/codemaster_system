@@ -5,10 +5,12 @@ Rollback planning assumes the old Tencent Cloud server remains available while A
 ## 1. Preconditions
 
 - Keep Tencent Cloud running until Alibaba Cloud has been stable for at least 7 to 14 days.
+- Treat Tencent Cloud PostgreSQL 15.16 as the migration baseline and keep Alibaba Cloud Docker on `postgres:15` during cutover.
 - Keep a recent `pg_dump -Fc --no-owner --no-acl` backup before every production deployment.
 - Keep a complete copy of `media/`.
 - Freeze writes before the final migration window.
 - Avoid any period where both Tencent Cloud and Alibaba Cloud accept writes.
+- Do not combine rollback planning with a PostgreSQL major-version upgrade; upgrade PostgreSQL only after the server migration is stable and separately backed up.
 
 ## 2. Roll Back Application Code on Alibaba Cloud
 
@@ -66,8 +68,9 @@ Before final cutover:
 3. Take a fresh database backup.
 4. Sync `media/`.
 5. Restore onto Alibaba Cloud.
-6. Run production checks.
-7. Switch DNS.
+6. Run `collectstatic` on Alibaba Cloud.
+7. Run production checks.
+8. Switch DNS.
 
 Keep Tencent Cloud unchanged after the freeze so it remains a clean rollback target.
 

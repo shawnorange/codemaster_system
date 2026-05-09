@@ -2,6 +2,8 @@
 
 This project is a Django 5.2 + PostgreSQL monolith. It serves Django templates, local static assets, and user-uploaded media. Production deployment should keep the image immutable and store PostgreSQL data, `staticfiles`, and `media` outside the container.
 
+Current migration target: the Tencent Cloud source database is PostgreSQL 15.16, so the Docker database image is pinned to `postgres:15` during the server migration. Do not combine server migration, Dockerization, and a PostgreSQL major-version upgrade in the same cutover window.
+
 ## 1. Local Docker Verification
 
 1. Copy `.env.example` to `.env` and fill local test values. Do not use production secrets locally.
@@ -58,6 +60,8 @@ Recommended single-host layout:
 ```
 
 Place the Git checkout in `/opt/codemaster_system`. Keep `.env` in that directory, outside Git. Store user uploads in `/opt/codemaster/media`; do not bake them into the image.
+
+PostgreSQL 15 data is mounted at `/var/lib/postgresql/data` inside the container. Do not switch this mount to a different PostgreSQL major-version layout during the migration.
 
 ## 4. .env Configuration
 
@@ -132,6 +136,8 @@ rsync -a --info=progress2 old-server:/path/to/codemaster_system/media/ /opt/code
 After restore, verify that `entry_homeworkimportjob.source_file` paths exist under `/opt/codemaster/media`.
 
 ## 8. PostgreSQL Backup and Restore
+
+The migration baseline is Tencent Cloud PostgreSQL 15.16 restored into Docker `postgres:15`. Upgrade to a newer PostgreSQL major version only after the Docker migration is stable and separately backed up.
 
 Backup:
 
