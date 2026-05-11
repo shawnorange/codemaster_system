@@ -201,7 +201,7 @@ def clone_confirmed_import_job_to_assignment(
             import_job=cloned_import_job,
             question_no=index,
             question_type=payload["question_type"] or HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
-            stem=str(payload["stem"] or "").strip(),
+            stem=str(payload["stem"] or ""),
             options_json=encode_sql_ascii_json_text(
                 deepcopy(payload["options_json"]) if isinstance(payload["options_json"], dict) else {}
             ),

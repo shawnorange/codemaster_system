@@ -39,11 +39,18 @@ VOID_HTML_TAGS = {"br", "hr"}
 BLOCKED_HTML_TAGS = {"script", "style"}
 ALLOWED_HTML_ATTRS = {
     "a": {"href", "title", "target"},
+    "div": {"class"},
     "th": {"colspan", "rowspan", "scope"},
     "td": {"colspan", "rowspan"},
 }
 ALLOWED_URL_SCHEMES = {"", "http", "https", "mailto"}
 ALLOWED_SCOPE_VALUES = {"row", "col", "rowgroup", "colgroup"}
+ALLOWED_CLASS_VALUES = {
+    "diagram",
+    "important",
+    "page",
+    "tip",
+}
 
 
 def sanitize_rich_html(raw_html: object) -> str:
@@ -137,6 +144,8 @@ class _RichHTMLSanitizer(HTMLParser):
             return value if value.isdigit() and int(value) > 0 else ""
         if attr_name == "scope":
             return value if value in ALLOWED_SCOPE_VALUES else ""
+        if attr_name == "class":
+            return _sanitize_class_names(value)
         return value
 
 
@@ -147,3 +156,12 @@ def _sanitize_url(value: str) -> str:
     if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
         return ""
     return value
+
+
+def _sanitize_class_names(value: str) -> str:
+    class_names = []
+    for raw_name in value.split():
+        class_name = raw_name.strip()
+        if class_name in ALLOWED_CLASS_VALUES:
+            class_names.append(class_name)
+    return " ".join(class_names)

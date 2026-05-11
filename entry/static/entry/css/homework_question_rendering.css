@@ -208,6 +208,24 @@
     max-width: 100%;
 }
 
+.student-homework-detail .homework-diagram-block,
+.homework-print .homework-diagram-block {
+    display: inline-block;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0;
+    padding: 12px 14px;
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    background: #f6f8fa;
+    color: #172033;
+    white-space: pre;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+    font-size: 0.94rem;
+    line-height: 1.35;
+}
+
 .student-homework-detail .homework-code-inline,
 .homework-print .homework-code-inline {
     display: inline-block;

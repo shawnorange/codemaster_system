@@ -236,6 +236,19 @@ def normalize_homework_text(value: str) -> str:
     return normalized.strip()
 
 
+def normalize_preserved_text(value: object) -> str:
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def trim_outer_blank_lines(value: str) -> str:
+    lines = normalize_preserved_text(value).split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
 def normalize_candidate_text(value: object) -> str:
     return WHITESPACE_RE.sub(" ", str(value or "")).strip()
 
@@ -300,16 +313,17 @@ def normalize_choice_options(raw_options: object) -> dict[str, str]:
 
 
 def normalize_candidate_stem(value: object) -> str:
-    normalized = normalize_homework_text(value)
-    kept_lines = []
+    normalized = normalize_preserved_text(value)
+    kept_lines: list[str] = []
     for raw_line in normalized.splitlines():
         cleaned = normalize_candidate_text(raw_line)
-        if not cleaned:
+        if not cleaned and kept_lines:
+            kept_lines.append("")
             continue
         if ANSWER_RE.match(cleaned) or ANALYSIS_RE.match(cleaned):
             continue
-        kept_lines.append(cleaned)
-    return normalize_candidate_text(" ".join(kept_lines))
+        kept_lines.append(raw_line)
+    return trim_outer_blank_lines("\n".join(kept_lines))
 
 
 def split_answer_and_analysis_fragment(value: object) -> tuple[str, str]:
@@ -352,6 +366,9 @@ def resolve_candidate_correct_answer(raw_answer: object, options: dict[str, str]
 
 
 def sanitize_candidate(candidate: dict, *, index: int) -> dict:
+    decoded_candidate = decode_sql_ascii_json_text(candidate)
+    if isinstance(decoded_candidate, dict):
+        candidate = decoded_candidate
     options = normalize_choice_options(candidate.get("options"))
     correct_answer = resolve_candidate_correct_answer(candidate.get("correct_answer"), options)
     _, inline_analysis = split_answer_and_analysis_fragment(candidate.get("correct_answer"))
@@ -378,10 +395,10 @@ def _extract_text_from_html(raw_bytes: bytes) -> str:
 def _extract_text_from_txt(raw_bytes: bytes) -> str:
     for encoding in ("utf-8", "utf-8-sig", "gb18030"):
         try:
-            return normalize_homework_text(raw_bytes.decode(encoding))
+            return normalize_preserved_text(raw_bytes.decode(encoding))
         except UnicodeDecodeError:
             continue
-    return normalize_homework_text(raw_bytes.decode("utf-8", errors="ignore"))
+    return normalize_preserved_text(raw_bytes.decode("utf-8", errors="ignore"))
 
 
 def _extract_text_from_docx(raw_bytes: bytes) -> str:
@@ -416,7 +433,7 @@ def _load_xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
 def _extract_xlsx_cell_text(cell: ElementTree.Element, shared_strings: list[str]) -> str:
     cell_type = cell.attrib.get("t", "")
     if cell_type == "inlineStr":
-        return normalize_candidate_text("".join(node.text or "" for node in cell.iter() if node.tag.endswith("}t")))
+        return trim_outer_blank_lines("".join(node.text or "" for node in cell.iter() if node.tag.endswith("}t")))
 
     value = ""
     for node in cell.iter():
@@ -427,10 +444,10 @@ def _extract_xlsx_cell_text(cell: ElementTree.Element, shared_strings: list[str]
         return ""
     if cell_type == "s":
         try:
-            return normalize_candidate_text(shared_strings[int(value)])
+            return trim_outer_blank_lines(shared_strings[int(value)])
         except (ValueError, IndexError):
             return ""
-    return normalize_candidate_text(value)
+    return trim_outer_blank_lines(value)
 
 
 def _extract_text_from_xlsx(raw_bytes: bytes) -> str:
@@ -1442,6 +1459,15 @@ def parse_visual_blocks_with_qwen(
     return merged_candidates
 
 
+def _strip_question_start_label_preserving_text(line: str) -> str:
+    match = re.match(
+        r"^\s*(?:第\s*\d+\s*题|\d+\s*[\.\)、]|Q\s*\d+\s*[:\.\)])\s*(.*)$",
+        line,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else line
+
+
 def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dict | None:
     if not block_lines:
         return None
@@ -1454,6 +1480,8 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
     for line in block_lines:
         cleaned = normalize_candidate_text(line)
         if not cleaned:
+            if stem_lines and not collecting_analysis:
+                stem_lines.append("")
             continue
         option_match = OPTION_RE.match(cleaned)
         if option_match:
@@ -1478,10 +1506,9 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
         if collecting_analysis:
             analysis_lines.append(cleaned)
         else:
-            start_match = QUESTION_START_RE.match(cleaned)
-            stem_lines.append(start_match.group(1).strip() if start_match else cleaned)
+            stem_lines.append(_strip_question_start_label_preserving_text(line))
 
-    stem = normalize_candidate_text(" ".join(item for item in stem_lines if item))
+    stem = normalize_candidate_stem("\n".join(stem_lines))
     if not stem or len([value for value in option_lines.values() if value]) < 2:
         return None
     options = {key: option_lines.get(key, "") for key in ["A", "B", "C", "D"]}
@@ -1503,11 +1530,11 @@ def _finalize_candidate_from_block(block_lines: list[str], *, index: int) -> dic
 
 
 def parse_candidates_with_heuristic(source_text: str) -> tuple[list[dict], str]:
-    lines = [line.strip() for line in normalize_homework_text(source_text).splitlines()]
+    lines = normalize_preserved_text(source_text).split("\n")
     blocks: list[list[str]] = []
     current_block: list[str] = []
     for line in lines:
-        if QUESTION_START_RE.match(line) and current_block:
+        if QUESTION_START_RE.match(line.strip()) and current_block:
             blocks.append(current_block)
             current_block = [line]
             continue
@@ -1544,6 +1571,16 @@ def determine_import_route(
                 use_qwen=True,
                 reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false，但图片仍需进入火山视觉。",
             )
+        if source_type == HomeworkImportJob.SOURCE_TYPE_TEXT:
+            return HomeworkImportRoute(
+                name="router_disabled_text_local_heuristic",
+                source_type=source_type,
+                selected_text_source="local_text",
+                use_local_text=True,
+                use_vision=False,
+                use_qwen=False,
+                reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false；TXT 为保留原始换行和缩进，使用本地规则解析。",
+            )
         return HomeworkImportRoute(
             name="router_disabled_local_text",
             source_type=source_type,
@@ -1554,9 +1591,19 @@ def determine_import_route(
             reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false，使用本地抽文本后直接进入 qwen/heuristic。",
         )
 
+    if source_type == HomeworkImportJob.SOURCE_TYPE_TEXT:
+        return HomeworkImportRoute(
+            name="text_local_text_to_heuristic",
+            source_type=source_type,
+            selected_text_source="local_text",
+            use_local_text=True,
+            use_vision=False,
+            use_qwen=False,
+            reason="TXT 为保留原始换行和缩进，使用本地规则解析。",
+        )
+
     if source_type in {
         HomeworkImportJob.SOURCE_TYPE_HTML,
-        HomeworkImportJob.SOURCE_TYPE_TEXT,
         HomeworkImportJob.SOURCE_TYPE_DOCX,
         HomeworkImportJob.SOURCE_TYPE_XLSX,
     }:
@@ -1831,28 +1878,32 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             else:
                 raise HomeworkImportParseError("文件内容为空，无法识别单选题。")
         else:
-            try:
-                trace.qwen_attempted = bool(route.use_qwen)
-                candidates, qwen_notes = parse_candidates_with_qwen(
-                    source_text,
-                    source_type=import_job.source_type,
-                    source_origin=trace.selected_text_source or route.selected_text_source,
-                )
-                trace.qwen_success = True
-                trace.model_notes.append(qwen_notes)
-            except HomeworkImportParseError as exc:
-                trace.qwen_error = str(exc)
-                if bool(getattr(settings, "HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC", True)):
-                    trace.fallback_attempted = True
-                    trace.fallback_used = True
-                    trace.fallback_reason = f"qwen-plus 不可用或调用失败，退回本地 heuristic：{exc}"
-                    fallback_text = source_text or trace.local_text
-                    candidates, heuristic_notes = parse_candidates_with_heuristic(fallback_text)
-                    trace.model_notes.append(heuristic_notes)
-                else:
-                    trace.failure_step = "qwen-plus"
-                    trace.failure_reason = str(exc)
-                    raise
+            if not route.use_qwen:
+                candidates, heuristic_notes = parse_candidates_with_heuristic(source_text)
+                trace.model_notes.append(heuristic_notes)
+            else:
+                try:
+                    trace.qwen_attempted = True
+                    candidates, qwen_notes = parse_candidates_with_qwen(
+                        source_text,
+                        source_type=import_job.source_type,
+                        source_origin=trace.selected_text_source or route.selected_text_source,
+                    )
+                    trace.qwen_success = True
+                    trace.model_notes.append(qwen_notes)
+                except HomeworkImportParseError as exc:
+                    trace.qwen_error = str(exc)
+                    if bool(getattr(settings, "HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC", True)):
+                        trace.fallback_attempted = True
+                        trace.fallback_used = True
+                        trace.fallback_reason = f"qwen-plus 不可用或调用失败，退回本地 heuristic：{exc}"
+                        fallback_text = source_text or trace.local_text
+                        candidates, heuristic_notes = parse_candidates_with_heuristic(fallback_text)
+                        trace.model_notes.append(heuristic_notes)
+                    else:
+                        trace.failure_step = "qwen-plus"
+                        trace.failure_reason = str(exc)
+                        raise
 
         candidates = [sanitize_candidate(item, index=index) for index, item in enumerate(candidates, start=1)]
         trace.candidate_count = len(candidates)

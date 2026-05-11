@@ -22,6 +22,7 @@ from entry.gesp4_catalog import ARRAY_2D_CONTENT_SLUG, GESP4_TOPIC_DEFINITIONS
 from entry.homework_online import (
     HomeworkImportParseError,
     call_external_json_api,
+    decode_sql_ascii_json_text,
     detect_homework_source_type,
     parse_candidates_with_heuristic,
     parse_candidates_with_qwen,
@@ -327,6 +328,30 @@ class HomeworkOnlineChoiceTests(TestCase):
             is_active=True,
         )
 
+    def import_txt_and_confirm_first_question(self, *, filename: str, content: str) -> HomeworkQuestion:
+        assignment = self.create_assignment(title=f"TXT 保真导入 {filename}")
+        import_job = self.create_import_job(
+            assignment,
+            filename=filename,
+            content=content.encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        parse_homework_import_job(import_job)
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_PARSED)
+        self.assertGreaterEqual(len(import_job.candidates_json), 1)
+
+        self.sign_in(self.teacher)
+        response = self.client.post(
+            reverse("teacher-homework-builder", args=[self.student.id, assignment.id]),
+            self.build_confirm_payload(import_job, stem_suffix=""),
+        )
+        self.assertEqual(response.status_code, 302)
+        question = assignment.questions.filter(is_active=True).order_by("question_no").first()
+        self.assertIsNotNone(question)
+        return question
+
     def upload_html_import(self, assignment: HomeworkAssignment) -> HomeworkImportJob:
         self.sign_in(self.teacher)
         html_content = """
@@ -363,7 +388,7 @@ class HomeworkOnlineChoiceTests(TestCase):
         included_indexes: set[int] | None = None,
         stem_suffix: str = "（确认版）",
     ) -> dict[str, str]:
-        candidates = import_job.candidates_json
+        candidates = decode_sql_ascii_json_text(import_job.candidates_json)
         included_indexes = included_indexes if included_indexes is not None else set(range(len(candidates)))
         payload = {
             "form_action": "confirm_import_job",
@@ -1027,6 +1052,86 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertEqual(import_job.parse_status, HomeworkImportJob.STATUS_CONFIRMED)
         self.assertIsNotNone(import_job.confirmed_at)
 
+    def test_txt_import_preserves_shape_matrix_line_breaks_in_database_stem(self) -> None:
+        question = self.import_txt_and_confirm_first_question(
+            filename="txt-shape-lines.txt",
+            content=(
+                "1. 当 n = 5 时输出：\n"
+                "#####\n"
+                "####\n"
+                "###\n"
+                "##\n"
+                "#\n"
+                "横线处应填入（ ）。\n"
+                "A. j <= n - i + 1\n"
+                "B. j <= i\n"
+                "C. j >= i\n"
+                "D. j == i\n"
+                "答案：A\n"
+            ),
+        )
+
+        self.assertEqual(
+            question.stem,
+            "当 n = 5 时输出：\n#####\n####\n###\n##\n#\n横线处应填入（ ）。",
+        )
+
+    def test_txt_import_preserves_shape_matrix_leading_spaces_in_database_stem(self) -> None:
+        question = self.import_txt_and_confirm_first_question(
+            filename="txt-leading-spaces.txt",
+            content=(
+                "1. 图形如下：\n"
+                "    *\n"
+                "   ***\n"
+                "  *****\n"
+                "横线处应填入（ ）。\n"
+                "A. 一层\n"
+                "B. 两层\n"
+                "C. 三层\n"
+                "D. 四层\n"
+                "答案：C\n"
+            ),
+        )
+
+        self.assertIn("    *\n   ***\n  *****", question.stem)
+
+    def test_txt_import_preserves_cpp_code_indentation_in_database_stem(self) -> None:
+        question = self.import_txt_and_confirm_first_question(
+            filename="txt-code-indentation.txt",
+            content=(
+                "1. 阅读下面代码：\n"
+                "for (int i = 1; i <= n; i++) {\n"
+                "    cout << i << endl;\n"
+                "}\n"
+                "横线处应填入（ ）。\n"
+                "A. i++\n"
+                "B. j++\n"
+                "C. n--\n"
+                "D. break\n"
+                "答案：A\n"
+            ),
+        )
+
+        self.assertIn(
+            "for (int i = 1; i <= n; i++) {\n    cout << i << endl;\n}",
+            question.stem,
+        )
+
+    def test_txt_import_keeps_single_line_hash_string_in_database_stem(self) -> None:
+        question = self.import_txt_and_confirm_first_question(
+            filename="txt-single-line-string.txt",
+            content=(
+                "1. 请输出字符串 ##### #### ### ## #\n"
+                "A. 直接输出\n"
+                "B. 拆成多行\n"
+                "C. 倒序输出\n"
+                "D. 不输出\n"
+                "答案：A\n"
+            ),
+        )
+
+        self.assertEqual(question.stem, "请输出字符串 ##### #### ### ## #")
+
     def test_confirm_import_job_success_feedback_is_visible(self) -> None:
         assignment = self.create_assignment()
         import_job = self.upload_html_import(assignment)
@@ -1553,6 +1658,45 @@ class HomeworkOnlineChoiceTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "下面哪个说法是正确的？")
         self.assertNotContains(response, "homework-code-block")
+
+    def test_student_practice_page_renders_shape_matrix_as_diagram_block(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem="观察下面图形：\n  *\n ***\n*****\n下面哪项描述正确？",
+            correct_answer="A",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-diagram-block")
+        self.assertContains(response, "  *\n ***\n*****", html=False)
+        self.assertNotContains(response, "homework-code-block")
+
+    def test_student_practice_page_restores_flattened_shape_matrix(self) -> None:
+        assignment = self.create_assignment()
+        self.create_question(
+            assignment,
+            question_no=1,
+            stem=(
+                "下面代码要输出左上三角形，共 n 行 n 列，图形中 # 的位置满足“行号越往下，# 越少”： "
+                "当 n = 5 时输出： ##### #### ### ## # 横线处应填入（ ）。 "
+                'int n; cin >> n; for (int i = 1; i <= n; i++) { if (__________) cout << "#"; }'
+            ),
+            correct_answer="A",
+        )
+        self.sign_in(self.student_user)
+
+        response = self.client.get(reverse("student-homework-practice", args=[assignment.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "homework-diagram-block")
+        self.assertContains(response, "#####\n####\n###\n##\n#", html=False)
+        self.assertContains(response, "homework-code-block")
+        self.assertContains(response, "int n;", html=False)
 
     def test_student_result_page_marks_wrong_selected_answer_in_red_state(self) -> None:
         assignment = self.create_assignment()
@@ -2193,12 +2337,13 @@ class HomeworkBatchCreateTests(TestCase):
         import_job: HomeworkImportJob,
         follow: bool = False,
     ):
+        candidates = decode_sql_ascii_json_text(import_job.candidates_json)
         payload = {
             "form_action": "confirm_import_job",
             "import_job_id": str(import_job.id),
-            "candidate_count": str(len(import_job.candidates_json)),
+            "candidate_count": str(len(candidates)),
         }
-        for index, candidate in enumerate(import_job.candidates_json):
+        for index, candidate in enumerate(candidates):
             payload[f"candidate_{index}_included"] = "1"
             payload[f"candidate_{index}_stem"] = candidate["stem"]
             payload[f"candidate_{index}_option_A"] = candidate["options"]["A"]

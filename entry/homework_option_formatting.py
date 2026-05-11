@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from typing import Any
 
 
@@ -14,10 +15,23 @@ CODE_TOKEN_RE = re.compile(
 IDENTIFIER_OPERATOR_RE = re.compile(r"\b[A-Za-z_]\w*\b.*(?:==|!=|<=|>=|<<|>>|[=+\-*/%<>]).*\b[A-Za-z_0-9]\w*\b")
 FENCED_CODE_BLOCK_RE = re.compile(r"```(?:\s*(?:cpp|c\+\+))?\s*\n?(.*?)```", re.IGNORECASE | re.DOTALL)
 CPP_CODE_START_RE = re.compile(
-    r"#include|using\s+namespace\s+std|std::|int\s+main\s*\(|cout\b|cin\b|for\s*\(|while\s*\(|if\s*\(|return\b",
+    r"#include|using\s+namespace\s+std|std::|int\s+main\s*\(|"
+    r"(?:int|long|double|float|bool|char|string|auto)\s+[A-Za-z_]\w*\s*(?:[=;,\[])|"
+    r"cout\b|cin\b|for\s*\(|while\s*\(|if\s*\(|return\b",
     re.IGNORECASE,
 )
 STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
+DIAGRAM_SYMBOL_LINE_RE = re.compile(r"^[\s*#@oOxX□■○●△▲◇◆.+\-_/\\|]+$")
+DIAGRAM_SYMBOL_RE = re.compile(r"[*#@oOxX□■○●△▲◇◆]")
+MATRIX_TOKEN_RE = re.compile(r"^(?:[A-Za-z]|\d{1,3}|[*#@oOxX□■○●△▲◇◆.+\-_/\\|]{1,4})$")
+INLINE_DIAGRAM_TOKEN_RE = re.compile(r"^([#*.])\1*$")
+INLINE_DIAGRAM_CONTEXT_RE = re.compile(
+    r"(?:(?:"
+    r"当\s*[A-Za-z_]\w*\s*=\s*\d+\s*时\s*输出|"
+    r"样例输出|示例输出|输出结果|运行结果|图形如下|图形为|如下图"
+    r")\s*[：:]?|输出\s*[：:])\s*$",
+    re.IGNORECASE,
+)
 
 
 def normalize_option_text(value: Any) -> str:
@@ -71,7 +85,8 @@ def is_probably_code_option(value: Any) -> bool:
 
 
 def build_homework_content_display(value: Any) -> dict[str, Any]:
-    source = normalize_homework_source_text(value)
+    raw_source = _normalize_source_text_for_diagrams(value)
+    source = normalize_homework_source_text(raw_source)
     if not source:
         return {
             "text": "",
@@ -85,6 +100,22 @@ def build_homework_content_display(value: Any) -> dict[str, Any]:
             "text": source,
             "blocks": fenced_blocks,
             "is_code_content": any(block["kind"] == "code" for block in fenced_blocks),
+        }
+
+    diagram_blocks = _split_visual_diagram_content(raw_source)
+    if diagram_blocks:
+        return {
+            "text": source,
+            "blocks": diagram_blocks,
+            "is_code_content": any(block["kind"] == "code" for block in diagram_blocks),
+        }
+
+    inline_diagram_blocks = _split_inline_visual_diagram_content(source)
+    if inline_diagram_blocks:
+        return {
+            "text": source,
+            "blocks": inline_diagram_blocks,
+            "is_code_content": any(block["kind"] == "code" for block in inline_diagram_blocks),
         }
 
     mixed_blocks = _split_mixed_cpp_content(source)
@@ -298,3 +329,196 @@ def _split_mixed_cpp_content(source: str) -> list[dict[str, str]]:
         {"kind": "text", "text": prefix},
         {"kind": "code", "text": format_code_option(code)},
     ]
+
+
+def _split_visual_diagram_content(source: str) -> list[dict[str, str]]:
+    lines = _normalize_source_text_for_diagrams(source).splitlines()
+    if not lines:
+        return []
+
+    blocks: list[dict[str, str]] = []
+    text_lines: list[str] = []
+    has_diagram = False
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        if not _is_visual_diagram_line(line):
+            text_lines.append(line)
+            index += 1
+            continue
+
+        diagram_lines = []
+        while index < len(lines) and _is_visual_diagram_line(lines[index]):
+            diagram_lines.append(lines[index])
+            index += 1
+
+        if len(diagram_lines) < 2:
+            text_lines.extend(diagram_lines)
+            continue
+
+        _append_non_diagram_segment_blocks(blocks, "\n".join(text_lines))
+        text_lines = []
+
+        diagram_text = _normalize_diagram_text(diagram_lines)
+        if diagram_text:
+            blocks.append({"kind": "diagram", "text": diagram_text})
+            has_diagram = True
+
+    _append_non_diagram_segment_blocks(blocks, "\n".join(text_lines))
+
+    return blocks if has_diagram else []
+
+
+def _split_inline_visual_diagram_content(source: str) -> list[dict[str, str]]:
+    normalized = re.sub(r"\s+", " ", normalize_homework_source_text(source)).strip()
+    if not normalized:
+        return []
+
+    tokens = list(re.finditer(r"\S+", normalized))
+    if not tokens:
+        return []
+
+    runs: list[tuple[int, int, list[str]]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index].group(0)
+        if not _is_inline_diagram_token(token):
+            index += 1
+            continue
+
+        run_tokens = []
+        run_start = tokens[index].start()
+        while index < len(tokens) and _is_inline_diagram_token(tokens[index].group(0)):
+            run_tokens.append(tokens[index].group(0))
+            index += 1
+        run_end = tokens[index - 1].end()
+
+        if _can_restore_inline_diagram_run(normalized, run_start, run_end, run_tokens):
+            runs.append((run_start, run_end, run_tokens))
+
+    if not runs:
+        return []
+
+    blocks: list[dict[str, str]] = []
+    cursor = 0
+    for start, end, run_tokens in runs:
+        _append_non_diagram_segment_blocks(blocks, normalized[cursor:start])
+        blocks.append({"kind": "diagram", "text": "\n".join(run_tokens)})
+        cursor = end
+    _append_non_diagram_segment_blocks(blocks, normalized[cursor:])
+    return blocks
+
+
+def _append_non_diagram_segment_blocks(blocks: list[dict[str, str]], segment: str) -> None:
+    normalized = normalize_homework_plain_text(segment)
+    if not normalized:
+        return
+
+    mixed_blocks = _split_mixed_cpp_content(normalized)
+    if mixed_blocks:
+        blocks.extend(mixed_blocks)
+        return
+
+    is_code_content = is_probably_code_option(normalized)
+    blocks.append(
+        {
+            "kind": "code" if is_code_content else "text",
+            "text": format_code_option(normalized) if is_code_content else normalized,
+        }
+    )
+
+
+def _is_visual_diagram_line(raw_line: str) -> bool:
+    line = raw_line.replace("\u3000", " ").replace("\xa0", " ").rstrip()
+    stripped = line.strip()
+    if not stripped:
+        return False
+
+    if DIAGRAM_SYMBOL_RE.search(stripped) and DIAGRAM_SYMBOL_LINE_RE.fullmatch(line):
+        return True
+
+    tokens = stripped.split()
+    return len(tokens) >= 2 and all(MATRIX_TOKEN_RE.fullmatch(token) for token in tokens)
+
+
+def _is_inline_diagram_token(token: str) -> bool:
+    return bool(INLINE_DIAGRAM_TOKEN_RE.fullmatch(token))
+
+
+def _can_restore_inline_diagram_run(source: str, start: int, end: int, tokens: list[str]) -> bool:
+    if not _looks_like_inline_diagram_run(tokens):
+        return False
+    if _is_inside_string_literal(source, start, end):
+        return False
+    if _is_inline_diagram_code_context(source, start):
+        return False
+    return _has_inline_diagram_output_context(source, start)
+
+
+def _looks_like_inline_diagram_run(tokens: list[str]) -> bool:
+    if len(tokens) < 3:
+        return False
+    symbols = {token[0] for token in tokens if token}
+    if len(symbols) != 1:
+        return False
+    lengths = [len(token) for token in tokens]
+    if max(lengths) < 2 or len(set(lengths)) < 2:
+        return False
+    return _is_shape_length_sequence(lengths)
+
+
+def _is_shape_length_sequence(lengths: list[int]) -> bool:
+    diffs = [right - left for left, right in zip(lengths, lengths[1:]) if right != left]
+    if not diffs:
+        return False
+    step_sizes = {abs(diff) for diff in diffs}
+    if len(step_sizes) != 1 or step_sizes.pop() not in {1, 2}:
+        return False
+    signs = [1 if diff > 0 else -1 for diff in diffs]
+    sign_changes = sum(1 for left, right in zip(signs, signs[1:]) if left != right)
+    return sign_changes <= 1
+
+
+def _is_inside_string_literal(source: str, start: int, end: int) -> bool:
+    return any(match.start() <= start and end <= match.end() for match in STRING_LITERAL_RE.finditer(source))
+
+
+def _is_inline_diagram_code_context(source: str, start: int) -> bool:
+    prefix = source[max(0, start - 120):start]
+    statement_start = max(prefix.rfind(";"), prefix.rfind("\n"))
+    statement_prefix = prefix[statement_start + 1:].strip()
+    if not statement_prefix:
+        return False
+    return bool(
+        re.search(r"(?:=|<<)\s*$", statement_prefix)
+        or re.search(r"\b(?:string|char|auto|const|int|long|double|float|bool)\b[^;]*$", statement_prefix)
+        or re.search(r"\b(?:cout|printf|puts)\b[^;]*$", statement_prefix)
+    )
+
+
+def _has_inline_diagram_output_context(source: str, start: int) -> bool:
+    context = source[max(0, start - 80):start].strip()
+    if not context:
+        return False
+    return bool(INLINE_DIAGRAM_CONTEXT_RE.search(context))
+
+
+def _normalize_diagram_text(lines: list[str]) -> str:
+    normalized = "\n".join(
+        line.replace("\u3000", " ").replace("\xa0", " ").rstrip()
+        for line in lines
+    ).strip("\n")
+    return textwrap.dedent(normalized).rstrip()
+
+
+def is_visual_diagram_line(raw_line: str) -> bool:
+    return _is_visual_diagram_line(raw_line)
+
+
+def normalize_visual_diagram_text(lines: list[str]) -> str:
+    return _normalize_diagram_text(lines)
+
+
+def _normalize_source_text_for_diagrams(value: Any) -> str:
+    return str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")

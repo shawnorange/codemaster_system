@@ -1326,6 +1326,7 @@ class HomeworkMVPTests(TestCase):
             summary_html=(
                 "<h2>本周课堂聚焦</h2>"
                 "<p><strong>数组下标</strong> 和循环配合已经完成。</p>"
+                '<div class="diagram">  *\n **\n***</div>'
                 "<script>alert('x')</script>"
             ),
         )
@@ -1337,6 +1338,7 @@ class HomeworkMVPTests(TestCase):
         self.assertContains(response, "二维数组阶段总结")
         self.assertContains(response, "<h2>本周课堂聚焦</h2>", html=False)
         self.assertContains(response, "<strong>数组下标</strong>", html=False)
+        self.assertContains(response, '<div class="diagram">  *\n **\n***</div>', html=False)
         self.assertContains(response, "window.print()", html=False)
         self.assertNotContains(response, "<script", html=False)
 
