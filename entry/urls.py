@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .hermes_api import api_hermes_oj_weekly_stats, api_hermes_oj_weekly_stats_import
 from .views import (
     api_miniapp_login,
     api_miniapp_login_by_phone,
@@ -78,6 +79,12 @@ from .views import (
 urlpatterns = [
     path("", login_page, name="login"),
     path("logout", logout_view, name="logout"),
+    path("api/hermes/oj/weekly-stats", api_hermes_oj_weekly_stats, name="api-hermes-oj-weekly-stats"),
+    path(
+        "api/hermes/oj/weekly-stats/import",
+        api_hermes_oj_weekly_stats_import,
+        name="api-hermes-oj-weekly-stats-import",
+    ),
     path("api/miniapp/login", api_miniapp_login, name="api-miniapp-login"),
     path("api/miniapp/login_by_phone", api_miniapp_login_by_phone, name="api-miniapp-login-by-phone"),
     path("api/principal/get_students_info", api_principal_get_students_info, name="api-principal-get-students-info"),

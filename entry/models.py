@@ -78,6 +78,36 @@ class Student(models.Model):
         return self.display_name
 
 
+class StudentOjWeeklyStat(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="oj_weekly_stats")
+    source = models.CharField(max_length=64, default="dashima-oj")
+    oj_username = models.CharField(max_length=128, blank=True)
+    week_start = models.DateField()
+    week_end = models.DateField()
+    submission_count = models.PositiveIntegerField(default=0, verbose_name="本周 OJ 提交数量")
+    accepted_count = models.PositiveIntegerField(default=0, verbose_name="本周 OJ 通过数量")
+    raw_record_count = models.PositiveIntegerField(default=0, verbose_name="本次拉取原始记录数")
+    synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-week_start", "student_id", "source"]
+        verbose_name = "学生 OJ 周统计"
+        verbose_name_plural = "学生 OJ 周统计"
+        constraints = [
+            models.UniqueConstraint(fields=["student", "source", "week_start"], name="uniq_student_oj_weekly_stat"),
+        ]
+        indexes = [
+            models.Index(fields=["source", "week_start"], name="oj_stat_source_week_idx"),
+            models.Index(fields=["student", "week_start"], name="oj_stat_student_week_idx"),
+            models.Index(fields=["oj_username"], name="oj_stat_username_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.source} - {self.week_start}"
+
+
 class Course(models.Model):
     slug = models.SlugField("课程标识", unique=True)
     title = models.CharField("课程名称", max_length=64)
