@@ -43,3 +43,5 @@ logs/
 .coverage.*
 htmlcov/
 .gstack/
+.tmp_sqlite_media/
+.tmp_sqlite_staticfiles/
