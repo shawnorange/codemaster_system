@@ -20,6 +20,7 @@ from entry.models import (
     HomeworkSummary,
     PortalUser,
     Student,
+    StudentOjWeeklyStat,
 )
 
 
@@ -272,6 +273,106 @@ class StudentLearningApiTests(TestCase):
         empty_response = self.client.get(self.parent_url(), {"anchor_date": self.anchor_date.isoformat()})
         self.assertEqual(empty_response.status_code, 200)
         self.assertEqual(empty_response.json(), {"anchor_date": "2026-05-04", "children": []})
+
+    def test_parent_api_includes_current_week_oj_stats_for_each_child(self) -> None:
+        StudentOjWeeklyStat.objects.create(
+            student=self.child_a,
+            source="dashima-oj",
+            oj_username="zhangsan",
+            week_start=date(2026, 5, 4),
+            week_end=date(2026, 5, 10),
+            submission_count=12,
+            accepted_count=8,
+        )
+        StudentOjWeeklyStat.objects.create(
+            student=self.child_a,
+            source="extra-oj",
+            oj_username="zhangsan-extra",
+            week_start=date(2026, 5, 4),
+            week_end=date(2026, 5, 10),
+            submission_count=3,
+            accepted_count=2,
+        )
+        StudentOjWeeklyStat.objects.create(
+            student=self.child_a,
+            source="old-oj",
+            oj_username="zhangsan-old",
+            week_start=date(2026, 4, 27),
+            week_end=date(2026, 5, 3),
+            submission_count=99,
+            accepted_count=88,
+        )
+        StudentOjWeeklyStat.objects.create(
+            student=self.child_a,
+            source="next-week-oj",
+            oj_username="zhangsan-next",
+            week_start=date(2026, 5, 11),
+            week_end=date(2026, 5, 17),
+            submission_count=7,
+            accepted_count=4,
+        )
+        StudentOjWeeklyStat.objects.create(
+            student=self.child_a,
+            source="next-month-oj",
+            oj_username="zhangsan-next-month",
+            week_start=date(2026, 6, 1),
+            week_end=date(2026, 6, 7),
+            submission_count=40,
+            accepted_count=30,
+        )
+        StudentOjWeeklyStat.objects.create(
+            student=self.other_child,
+            source="dashima-oj",
+            oj_username="wangwu",
+            week_start=date(2026, 5, 4),
+            week_end=date(2026, 5, 10),
+            submission_count=50,
+            accepted_count=40,
+        )
+
+        self.sign_in(self.parent)
+        response = self.client.get(self.parent_url(), {"anchor_date": self.anchor_date.isoformat()})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        child_a_row = self.get_child_row(payload, self.child_a)
+        self.assertEqual(
+            child_a_row["oj_week"],
+            {
+                "week_start": "2026-05-04",
+                "week_end": "2026-05-10",
+                "submission_count": 15,
+                "accepted_count": 10,
+            },
+        )
+        self.assertEqual(
+            child_a_row["oj_month"],
+            {
+                "month_start": "2026-05-01",
+                "month_end": "2026-05-31",
+                "submission_count": 22,
+                "accepted_count": 14,
+            },
+        )
+        child_b_row = self.get_child_row(payload, self.child_b)
+        self.assertEqual(
+            child_b_row["oj_week"],
+            {
+                "week_start": "2026-05-04",
+                "week_end": "2026-05-10",
+                "submission_count": 0,
+                "accepted_count": 0,
+            },
+        )
+        self.assertEqual(
+            child_b_row["oj_month"],
+            {
+                "month_start": "2026-05-01",
+                "month_end": "2026-05-31",
+                "submission_count": 0,
+                "accepted_count": 0,
+            },
+        )
 
     def test_due_date_controls_period_membership_instead_of_created_at(self) -> None:
         self.create_assignment(

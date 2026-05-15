@@ -3617,6 +3617,7 @@ def api_parent_get_my_child(request: HttpRequest) -> JsonResponse:
         students=children,
         anchor_date=anchor_date,
         include_teacher_fields=False,
+        include_oj_weekly_stats=True,
     )
     return JsonResponse(
         {

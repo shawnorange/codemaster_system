@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-from django.db.models import Count, Prefetch, Q, QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet, Sum
 from django.utils import timezone
 
 from .homework_completion_stats import (
@@ -14,7 +14,7 @@ from .homework_completion_stats import (
     resolve_homework_completion_period_dates,
     resolve_homework_due_datetime_range,
 )
-from .models import HomeworkAssignment, HomeworkSubmission, PortalUser, Student
+from .models import HomeworkAssignment, HomeworkSubmission, PortalUser, Student, StudentOjWeeklyStat
 
 
 PERIOD_TYPES = ("week", "month", "quarter")
@@ -54,6 +54,7 @@ def build_student_learning_overview(
     include_teacher_fields: bool = True,
     teacher: PortalUser | None = None,
     use_assignment_status_completion: bool = True,
+    include_oj_weekly_stats: bool = False,
 ) -> dict[str, object]:
     student_list = list(
         students.select_related("teacher_user").order_by("id")
@@ -66,6 +67,14 @@ def build_student_learning_overview(
         for student in student_list
     }
     student_ids = list(student_rows_by_id.keys())
+    if include_oj_weekly_stats:
+        _apply_oj_weekly_stats_to_rows(
+            student_rows_by_id=student_rows_by_id,
+            student_ids=student_ids,
+            anchor_date=anchor_date,
+            week_bounds=periods["week"],
+            month_bounds=periods["month"],
+        )
     if not student_ids:
         return {
             "anchor_date": anchor_date.isoformat(),
@@ -168,6 +177,77 @@ def build_student_learning_overview(
         "periods": _serialize_periods(periods),
         "students": [student_rows_by_id[student.id] for student in student_list],
     }
+
+
+def _apply_oj_weekly_stats_to_rows(
+    *,
+    student_rows_by_id: dict[int, dict[str, object]],
+    student_ids: list[int],
+    anchor_date: date,
+    week_bounds: dict[str, date],
+    month_bounds: dict[str, date],
+) -> None:
+    default_oj_week = {
+        "week_start": week_bounds["start"].isoformat(),
+        "week_end": week_bounds["end"].isoformat(),
+        "submission_count": 0,
+        "accepted_count": 0,
+    }
+    default_oj_month = {
+        "month_start": month_bounds["start"].isoformat(),
+        "month_end": month_bounds["end"].isoformat(),
+        "submission_count": 0,
+        "accepted_count": 0,
+    }
+    for student_row in student_rows_by_id.values():
+        student_row["oj_week"] = dict(default_oj_week)
+        student_row["oj_month"] = dict(default_oj_month)
+    if not student_ids:
+        return
+
+    weekly_stats = (
+        StudentOjWeeklyStat.objects.filter(
+            student_id__in=student_ids,
+            week_start__lte=anchor_date,
+            week_end__gte=anchor_date,
+        )
+        .values("student_id")
+        .annotate(
+            submission_count=Sum("submission_count"),
+            accepted_count=Sum("accepted_count"),
+        )
+    )
+    for stat in weekly_stats:
+        student_row = student_rows_by_id.get(int(stat["student_id"]))
+        if student_row is None:
+            continue
+        student_row["oj_week"] = {
+            **default_oj_week,
+            "submission_count": int(stat.get("submission_count") or 0),
+            "accepted_count": int(stat.get("accepted_count") or 0),
+        }
+
+    monthly_stats = (
+        StudentOjWeeklyStat.objects.filter(
+            student_id__in=student_ids,
+            week_start__gte=month_bounds["start"],
+            week_start__lte=month_bounds["end"],
+        )
+        .values("student_id")
+        .annotate(
+            submission_count=Sum("submission_count"),
+            accepted_count=Sum("accepted_count"),
+        )
+    )
+    for stat in monthly_stats:
+        student_row = student_rows_by_id.get(int(stat["student_id"]))
+        if student_row is None:
+            continue
+        student_row["oj_month"] = {
+            **default_oj_month,
+            "submission_count": int(stat.get("submission_count") or 0),
+            "accepted_count": int(stat.get("accepted_count") or 0),
+        }
 
 
 def build_single_student_learning_row(

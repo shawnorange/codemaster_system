@@ -95,6 +95,18 @@ Query：
       "student_id": 1,
       "display_name": "学生A",
       "primary_level_name": "GESP4",
+      "oj_week": {
+        "week_start": "2026-05-04",
+        "week_end": "2026-05-10",
+        "submission_count": 12,
+        "accepted_count": 8
+      },
+      "oj_month": {
+        "month_start": "2026-05-01",
+        "month_end": "2026-05-31",
+        "submission_count": 48,
+        "accepted_count": 32
+      },
       "week": {
         "assignment_count": 1,
         "completed_count": 1,
@@ -119,6 +131,7 @@ Query：
 ```
 
 家长响应不包含 `teacher_id` / `teacher_name`。
+`oj_month` 基于 `StudentOjWeeklyStat` 聚合，统计 `week_start` 落在 `anchor_date` 所在自然月内的周统计。
 
 ### `/api/principal/get_students_info`
 
