@@ -42,3 +42,4 @@ logs/
 .coverage
 .coverage.*
 htmlcov/
+.gstack/
