@@ -14,25 +14,117 @@ services:
       retries: 5
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   web:
     build:
       context: .
     env_file:
       - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7880}
+      LIVEKIT_SERVER_URL: ${LIVEKIT_SERVER_URL:-http://livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}
+      LIVEKIT_RECORDING_ENABLED: ${LIVEKIT_RECORDING_ENABLED:-True}
+      LIVEKIT_RECORDING_FILE_PREFIX: ${LIVEKIT_RECORDING_FILE_PREFIX:-/recordings/live-classroom}
+      LIVEKIT_RECORDING_PUBLIC_URL_PREFIX: ${LIVEKIT_RECORDING_PUBLIC_URL_PREFIX:-/media/live-classroom}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     expose:
       - "8000"
     volumes:
       - staticfiles:/app/staticfiles
       - media:/app/media
-    command: gunicorn codemaster_system.wsgi:application --bind 0.0.0.0:8000 --workers 2 --threads 2 --timeout ${GUNICORN_TIMEOUT:-120}
+    command: sh -c "python manage.py collectstatic --noinput && gunicorn codemaster_system.wsgi:application --bind 0.0.0.0:8000 --workers 2 --threads 2 --timeout $${GUNICORN_TIMEOUT:-120}"
+
+  realtime:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7880}
+      LIVEKIT_SERVER_URL: ${LIVEKIT_SERVER_URL:-http://livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}
+      LIVEKIT_RECORDING_ENABLED: ${LIVEKIT_RECORDING_ENABLED:-True}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8001"
+    command: daphne -b 0.0.0.0 -p 8001 codemaster_system.asgi:application
+
+  livekit:
+    image: livekit/livekit-server:latest
+    profiles:
+      - livekit
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: --bind 0.0.0.0 --node-ip ${LIVEKIT_NODE_IP:-127.0.0.1}
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: 7881
+          port_range_start: 50000
+          port_range_end: 50100
+          use_external_ip: false
+        redis:
+          address: redis:6379
+        keys:
+          "${LIVEKIT_API_KEY:-devkey}": "${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}"
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+
+  livekit-egress:
+    image: livekit/egress:latest
+    profiles:
+      - livekit
+    cap_add:
+      - SYS_ADMIN
+    depends_on:
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    environment:
+      EGRESS_CONFIG_BODY: |
+        log_level: info
+        api_key: ${LIVEKIT_API_KEY:-devkey}
+        api_secret: ${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}
+        ws_url: ws://livekit:7880
+        insecure: true
+        redis:
+          address: redis:6379
+    volumes:
+      - media:/recordings
 
   nginx:
     image: nginx:1.27-alpine
     depends_on:
       - web
+      - realtime
     ports:
       - "80:80"
     volumes:

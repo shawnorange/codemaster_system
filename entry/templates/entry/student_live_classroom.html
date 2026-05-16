@@ -1,0 +1,94 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    {% if error_message %}
+        <div class="entry-hint-bar live-classroom-error">{{ error_message }}</div>
+    {% endif %}
+
+    {% if active_session %}
+        <section
+            class="live-classroom live-classroom--student"
+            data-live-classroom-root
+            data-role="student"
+            data-session-id="{{ active_session.id }}"
+            data-token-url="{% url 'api-live-classroom-token' active_session.id %}"
+        >
+            {{ snapshot|json_script:"live-classroom-snapshot" }}
+            <div class="live-classroom__main">
+                <div class="live-classroom-stage" data-main-stage>
+                    <div class="live-classroom-stage__empty" data-main-empty>
+                        <span data-main-empty-label>已加入 {{ active_session.teacher.full_name }} 的课堂</span>
+                        <strong data-main-empty-text>老师共享屏幕后会显示在这里。</strong>
+                    </div>
+                    <video class="live-classroom-stage__video" data-main-video autoplay playsinline muted></video>
+                </div>
+            </div>
+            <aside class="live-classroom-rail">
+                <div class="live-classroom-rail__header">
+                    <span>课堂状态</span>
+                </div>
+                <div class="live-classroom-student-actions">
+                    <button class="login-button live-classroom-primary-button" type="button" data-share-screen>共享学生屏幕</button>
+                    <button class="system-header__link live-classroom-link-button" type="button" data-stop-share>停止共享</button>
+                </div>
+                <div class="live-classroom-status" data-live-status>正在连接课堂...</div>
+                <div class="entry-hint-bar">
+                    浏览器选择器弹出后，必须选择整个显示器。系统会在选择后检查共享类型。
+                </div>
+            </aside>
+        </section>
+    {% elif active_sessions %}
+        <section
+            class="surface-panel live-classroom-empty-panel"
+            data-live-classroom-root
+            data-role="student-lobby"
+        >
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Join</p>
+                <h3>老师已开课</h3>
+                <p>选择要加入的实时课堂。加入后会要求共享整个电脑屏幕。</p>
+            </div>
+            <div class="live-classroom-status" data-live-status>正在监听课堂状态...</div>
+            <div class="record-list">
+                {% for session in active_sessions %}
+                    <article class="record-list-item live-classroom-session-row">
+                        <strong>{{ session.teacher.full_name }} · 实时课堂</strong>
+                        <span>开始时间：{{ session.started_at|date:"Y-m-d H:i" }}</span>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="session_id" value="{{ session.id }}">
+                            <button class="login-button live-classroom-primary-button" type="submit">加入课堂</button>
+                        </form>
+                    </article>
+                {% endfor %}
+            </div>
+        </section>
+    {% else %}
+        <section class="surface-panel live-classroom-empty-panel">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Waiting</p>
+                <h3>老师还没有开始实时课堂</h3>
+                <p>保持本页打开，老师开课后这里会出现加入入口。</p>
+            </div>
+            <div
+                class="live-classroom-lobby"
+                data-live-classroom-root
+                data-role="student-lobby"
+            >
+                <div class="live-classroom-status" data-live-status>正在等待老师开课...</div>
+            </div>
+        </section>
+    {% endif %}
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{{ livekit_client_js_url }}"></script>
+    <script src="{% static 'entry/js/live_classroom.js' %}"></script>
+{% endblock %}

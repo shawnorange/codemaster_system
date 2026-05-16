@@ -1,0 +1,92 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}">
+{% endblock %}
+
+{% block system_content %}
+    {% if active_session %}
+        <section
+            class="live-classroom live-classroom--teacher"
+            data-live-classroom-root
+            data-role="teacher"
+            data-session-id="{{ active_session.id }}"
+            data-token-url="{% url 'api-live-classroom-token' active_session.id %}"
+            data-recording-url="{% url 'api-live-classroom-recording' active_session.id %}"
+        >
+            {{ snapshot|json_script:"live-classroom-snapshot" }}
+            <div class="live-classroom-toolbar">
+                <button class="login-button live-classroom-primary-button" type="button" data-share-screen>共享老师屏幕</button>
+                <button class="system-header__link live-classroom-link-button" type="button" data-stop-share>停止共享</button>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="end">
+                    <input type="hidden" name="session_id" value="{{ active_session.id }}">
+                    <button class="logout-button" type="submit">结束课堂</button>
+                </form>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="start_recording">
+                    <input type="hidden" name="session_id" value="{{ active_session.id }}">
+                    <button class="system-header__link live-classroom-link-button" type="submit" data-recording-action="start">开始录音</button>
+                </form>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="stop_recording">
+                    <input type="hidden" name="session_id" value="{{ active_session.id }}">
+                    <button class="system-header__link live-classroom-link-button" type="submit" data-recording-action="stop">停止录音</button>
+                </form>
+            </div>
+            <div class="live-classroom__main">
+                <div class="live-classroom-stage" data-main-stage>
+                    <div class="live-classroom-stage__empty" data-main-empty>
+                        <span data-main-empty-label>主屏幕</span>
+                        <strong data-main-empty-text>点击上方“共享老师屏幕”，或从右侧选择学生投屏。</strong>
+                    </div>
+                    <video class="live-classroom-stage__video" data-main-video autoplay playsinline muted></video>
+                </div>
+            </div>
+            <aside class="live-classroom-rail">
+                <div class="live-classroom-rail__header">
+                    <span>学生屏幕</span>
+                    <button type="button" data-view-normal>常规</button>
+                </div>
+                <div class="live-classroom-status" data-live-status>正在连接课堂状态...</div>
+                <div class="live-classroom-recording" data-recording-status>
+                    {% if snapshot.recording %}
+                        录音状态：{{ snapshot.recording.status }}
+                        {% if snapshot.recording.error_message %}
+                            <br>{{ snapshot.recording.error_message }}
+                        {% endif %}
+                    {% else %}
+                        录音状态：未开始
+                    {% endif %}
+                </div>
+                <div class="live-classroom-participants" data-participant-list></div>
+            </aside>
+        </section>
+    {% else %}
+        <section class="surface-panel live-classroom-empty-panel">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Ready</p>
+                <h3>当前没有进行中的实时课堂</h3>
+                <p>点击“开始上课”后，学生端会在实时课堂入口看到加入提示。</p>
+            </div>
+            <form method="post" class="live-classroom-start-form">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="start">
+                <button class="login-button live-classroom-primary-button" type="submit">开始上课</button>
+            </form>
+        </section>
+    {% endif %}
+{% endblock %}
+
+{% block extra_body_end %}
+    {% if active_session %}
+        <script src="{{ livekit_client_js_url }}"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}"></script>
+    {% endif %}
+{% endblock %}

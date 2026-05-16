@@ -3793,10 +3793,26 @@ def build_student_portal_page(
     student = get_student_by_user(portal_user)
 
     if page_key == "courses":
+        live_classroom_card = {
+            "slug": "live-classroom",
+            "title": "实时课堂",
+            "meta": "Live",
+            "subtitle": "加入老师正在进行的课堂",
+            "note": "需要共享整个电脑屏幕，窗口和浏览器标签页会被拒绝。",
+            "state": "open",
+            "status_text": "可用",
+            "action_href": reverse("student-live-classroom"),
+            "action_label": "进入课堂",
+        }
+        if not any(card.get("slug") == live_classroom_card["slug"] for card in page_shell["portal_cards"]):
+            page_shell["portal_cards"].insert(0, live_classroom_card)
         if not is_student_portal_exception(student):
             preferred_course_slug = resolve_course_slug(student.primary_course_name, student.primary_level_name)
             filtered_cards = []
             for card in page_shell["portal_cards"]:
+                if card["slug"] == "live-classroom":
+                    filtered_cards.append(card)
+                    continue
                 if card["slug"] == "practice":
                     filtered_cards.append(card)
                     continue
@@ -4315,6 +4331,17 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         }
         for course in course_rows
     ]
+    page_shell["student_pool_links"].insert(
+        0,
+        {
+            "label": "进入实时课堂",
+            "href": reverse("teacher-live-classroom"),
+            "import_label": "",
+            "import_href": "",
+            "homework_batch_label": "",
+            "homework_batch_href": "",
+        },
+    )
     if teacher_can_import_students(portal_user) and not any(item["href"].endswith("/cpp/student-pool") for item in page_shell["student_pool_links"]):
         cpp_course = Course.objects.filter(slug="cpp").order_by("id").first()
         if cpp_course is not None:

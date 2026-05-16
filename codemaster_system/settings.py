@@ -135,8 +135,27 @@ WECHAT_MINIAPP_APPID = get_env("WECHAT_MINIAPP_APPID")
 WECHAT_MINIAPP_SECRET = get_env("WECHAT_MINIAPP_SECRET")
 HERMES_INGEST_TOKEN = get_env("HERMES_INGEST_TOKEN")
 
+REDIS_URL = get_env("REDIS_URL")
+LIVEKIT_URL = get_env("LIVEKIT_URL", default="ws://localhost:7880")
+LIVEKIT_PUBLIC_URL = get_env("LIVEKIT_PUBLIC_URL", default=LIVEKIT_URL)
+LIVEKIT_SERVER_URL = get_env(
+    "LIVEKIT_SERVER_URL",
+    default=LIVEKIT_URL.replace("wss://", "https://", 1).replace("ws://", "http://", 1),
+)
+LIVEKIT_API_KEY = get_env("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = get_env("LIVEKIT_API_SECRET")
+LIVEKIT_CLIENT_JS_URL = get_env(
+    "LIVEKIT_CLIENT_JS_URL",
+    default="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js",
+)
+LIVEKIT_RECORDING_ENABLED = get_env_bool("LIVEKIT_RECORDING_ENABLED", default=False)
+LIVEKIT_RECORDING_FILE_PREFIX = get_env("LIVEKIT_RECORDING_FILE_PREFIX", default="/recordings/live-classroom")
+LIVEKIT_RECORDING_PUBLIC_URL_PREFIX = get_env("LIVEKIT_RECORDING_PUBLIC_URL_PREFIX", default="/media/live-classroom")
+
 
 INSTALLED_APPS = [
+    "daphne",
+    "channels",
     "django.contrib.staticfiles",
     "entry.apps.EntryConfig",
 ]
@@ -165,6 +184,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "codemaster_system.wsgi.application"
+ASGI_APPLICATION = "codemaster_system.asgi.application"
 
 DATABASES = {
     "default": {
@@ -177,6 +197,22 @@ DATABASES = {
         "CONN_MAX_AGE": int(get_env("POSTGRES_CONN_MAX_AGE", default="60")),
     }
 }
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
 
 LANGUAGE_CODE = "zh-hans"
 

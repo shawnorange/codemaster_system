@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+import uuid
 
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
@@ -887,3 +888,282 @@ class TeacherStudentAssignment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.teacher.full_name} -> {self.student.display_name} ({self.course.title} {self.level_code})"
+
+
+class ClassroomLiveSession(models.Model):
+    STATUS_ACTIVE = "active"
+    STATUS_ENDED = "ended"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "上课中"),
+        (STATUS_ENDED, "已下课"),
+        (STATUS_FAILED, "异常结束"),
+    ]
+
+    VIEW_MODE_NORMAL = "normal"
+    VIEW_MODE_SPOTLIGHT_STUDENT = "spotlight_student"
+    VIEW_MODE_SPLIT_COMPARE = "split_compare"
+    VIEW_MODE_CHOICES = [
+        (VIEW_MODE_NORMAL, "常规视图"),
+        (VIEW_MODE_SPOTLIGHT_STUDENT, "学生主屏"),
+        (VIEW_MODE_SPLIT_COMPARE, "并列对比"),
+    ]
+
+    WORKSPACE_SCREEN_SHARE = "screen_share"
+    WORKSPACE_CHOICES = [
+        (WORKSPACE_SCREEN_SHARE, "屏幕共享"),
+    ]
+
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.CASCADE,
+        related_name="classroom_live_sessions",
+    )
+    title = models.CharField("课堂标题", max_length=128, blank=True)
+    status = models.CharField("课堂状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    workspace_type = models.CharField("工作区类型", max_length=32, choices=WORKSPACE_CHOICES, default=WORKSPACE_SCREEN_SHARE)
+    livekit_room_name = models.CharField("LiveKit 房间名", max_length=128, unique=True)
+    view_mode = models.CharField("老师视图模式", max_length=32, choices=VIEW_MODE_CHOICES, default=VIEW_MODE_NORMAL)
+    spotlight_participant = models.ForeignKey(
+        "ClassroomLiveParticipant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="spotlight_sessions",
+    )
+    pinned_participant = models.ForeignKey(
+        "ClassroomLiveParticipant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pinned_sessions",
+    )
+    started_at = models.DateTimeField("开始时间", default=timezone.now)
+    ended_at = models.DateTimeField("结束时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        verbose_name = "实时课堂"
+        verbose_name_plural = "实时课堂"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["teacher"],
+                condition=models.Q(status="active"),
+                name="uniq_active_classroom_session_per_teacher",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["teacher", "status", "-started_at"], name="cls_teacher_status_started_idx"),
+            models.Index(fields=["status", "-started_at"], name="cls_status_started_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title or f"{self.teacher.full_name} 实时课堂"
+
+    @classmethod
+    def build_room_name(cls, teacher: PortalUser) -> str:
+        return f"codemaster-live-{teacher.id}-{uuid.uuid4().hex[:12]}"
+
+    def end(self, *, failed: bool = False) -> bool:
+        if self.status != self.STATUS_ACTIVE:
+            return False
+        self.status = self.STATUS_FAILED if failed else self.STATUS_ENDED
+        self.ended_at = timezone.now()
+        return True
+
+    def set_teacher_view(
+        self,
+        *,
+        view_mode: str,
+        spotlight_participant: "ClassroomLiveParticipant | None" = None,
+        pinned_participant: "ClassroomLiveParticipant | None" = None,
+    ) -> None:
+        if view_mode not in {choice[0] for choice in self.VIEW_MODE_CHOICES}:
+            raise ValueError("invalid_view_mode")
+        if spotlight_participant and spotlight_participant.session_id != self.id:
+            raise ValueError("spotlight_participant_not_in_session")
+        if pinned_participant and pinned_participant.session_id != self.id:
+            raise ValueError("pinned_participant_not_in_session")
+        if view_mode == self.VIEW_MODE_NORMAL:
+            spotlight_participant = None
+        self.view_mode = view_mode
+        self.spotlight_participant = spotlight_participant
+        self.pinned_participant = pinned_participant
+
+
+class ClassroomLiveParticipant(models.Model):
+    ROLE_TEACHER = "teacher"
+    ROLE_STUDENT = "student"
+    ROLE_CHOICES = [
+        (ROLE_TEACHER, "老师"),
+        (ROLE_STUDENT, "学生"),
+    ]
+
+    CONNECTION_INVITED = "invited"
+    CONNECTION_JOINED = "joined"
+    CONNECTION_LEFT = "left"
+    CONNECTION_CHOICES = [
+        (CONNECTION_INVITED, "待加入"),
+        (CONNECTION_JOINED, "已加入"),
+        (CONNECTION_LEFT, "已离开"),
+    ]
+
+    SCREEN_NONE = "none"
+    SCREEN_PENDING = "pending"
+    SCREEN_SHARING = "sharing"
+    SCREEN_STOPPED = "stopped"
+    SCREEN_REJECTED = "rejected"
+    SCREEN_CHOICES = [
+        (SCREEN_NONE, "未投屏"),
+        (SCREEN_PENDING, "等待投屏"),
+        (SCREEN_SHARING, "投屏中"),
+        (SCREEN_STOPPED, "已停止"),
+        (SCREEN_REJECTED, "已拒绝"),
+    ]
+
+    DISPLAY_MONITOR = "monitor"
+
+    session = models.ForeignKey(ClassroomLiveSession, on_delete=models.CASCADE, related_name="participants")
+    portal_user = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="classroom_live_participants")
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="classroom_live_participants",
+    )
+    role = models.CharField("课堂角色", max_length=16, choices=ROLE_CHOICES)
+    livekit_identity = models.CharField("LiveKit 身份", max_length=128)
+    connection_state = models.CharField("连接状态", max_length=16, choices=CONNECTION_CHOICES, default=CONNECTION_INVITED)
+    screen_state = models.CharField("投屏状态", max_length=16, choices=SCREEN_CHOICES, default=SCREEN_NONE)
+    display_surface = models.CharField("共享屏幕类型", max_length=32, blank=True)
+    joined_at = models.DateTimeField("加入时间", null=True, blank=True)
+    left_at = models.DateTimeField("离开时间", null=True, blank=True)
+    screen_started_at = models.DateTimeField("投屏开始时间", null=True, blank=True)
+    screen_stopped_at = models.DateTimeField("投屏停止时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["role", "joined_at", "id"]
+        verbose_name = "实时课堂成员"
+        verbose_name_plural = "实时课堂成员"
+        constraints = [
+            models.UniqueConstraint(fields=["session", "portal_user"], name="uniq_classroom_participant_user"),
+            models.UniqueConstraint(fields=["session", "livekit_identity"], name="uniq_classroom_participant_identity"),
+        ]
+        indexes = [
+            models.Index(fields=["session", "role"], name="clp_session_role_idx"),
+            models.Index(fields=["student", "connection_state"], name="clp_student_connection_idx"),
+            models.Index(fields=["portal_user", "connection_state"], name="clp_user_connection_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} / {self.portal_user.full_name} / {self.role}"
+
+    @classmethod
+    def build_identity(cls, portal_user: PortalUser, session: ClassroomLiveSession) -> str:
+        return f"{portal_user.role}-{portal_user.id}-session-{session.id}"
+
+    def mark_joined(self) -> bool:
+        if self.connection_state == self.CONNECTION_JOINED:
+            return False
+        self.connection_state = self.CONNECTION_JOINED
+        self.joined_at = timezone.now()
+        self.left_at = None
+        return True
+
+    def mark_left(self) -> bool:
+        if self.connection_state == self.CONNECTION_LEFT:
+            return False
+        self.connection_state = self.CONNECTION_LEFT
+        self.left_at = timezone.now()
+        if self.screen_state == self.SCREEN_SHARING:
+            self.screen_state = self.SCREEN_STOPPED
+            self.screen_stopped_at = self.left_at
+        return True
+
+    def set_screen_state(self, *, screen_state: str, display_surface: str = "") -> None:
+        if screen_state not in {choice[0] for choice in self.SCREEN_CHOICES}:
+            raise ValueError("invalid_screen_state")
+        normalized_surface = str(display_surface or "").strip()
+        if screen_state == self.SCREEN_SHARING and normalized_surface != self.DISPLAY_MONITOR:
+            raise ValueError("screen_share_requires_monitor")
+        self.screen_state = screen_state
+        self.display_surface = normalized_surface
+        now = timezone.now()
+        if screen_state == self.SCREEN_SHARING:
+            self.screen_started_at = now
+            self.screen_stopped_at = None
+        elif screen_state in {self.SCREEN_STOPPED, self.SCREEN_REJECTED}:
+            self.screen_stopped_at = now
+
+
+class ClassroomLiveRecording(models.Model):
+    PROVIDER_LIVEKIT_EGRESS = "livekit_egress"
+    PROVIDER_BROWSER_AUDIO = "browser_audio"
+    PROVIDER_CHOICES = [
+        (PROVIDER_LIVEKIT_EGRESS, "LiveKit Egress"),
+        (PROVIDER_BROWSER_AUDIO, "浏览器录音"),
+    ]
+
+    STATUS_STARTING = "starting"
+    STATUS_ACTIVE = "active"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_STARTING, "启动中"),
+        (STATUS_ACTIVE, "录制中"),
+        (STATUS_COMPLETED, "已完成"),
+        (STATUS_FAILED, "失败"),
+    ]
+
+    session = models.ForeignKey(ClassroomLiveSession, on_delete=models.CASCADE, related_name="recordings")
+    provider = models.CharField("录制服务", max_length=32, choices=PROVIDER_CHOICES, default=PROVIDER_LIVEKIT_EGRESS)
+    status = models.CharField("录制状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_STARTING)
+    egress_id = models.CharField("LiveKit Egress ID", max_length=128, blank=True)
+    file_url = models.URLField("录制文件 URL", max_length=500, blank=True)
+    file_path = models.CharField("录制文件路径", max_length=500, blank=True)
+    error_message = models.TextField("错误信息", blank=True)
+    started_at = models.DateTimeField("开始时间", default=timezone.now)
+    ended_at = models.DateTimeField("结束时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        verbose_name = "实时课堂录制"
+        verbose_name_plural = "实时课堂录制"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session"],
+                condition=models.Q(status__in=["starting", "active"]),
+                name="uniq_active_classroom_recording_per_session",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["session", "status"], name="clr_session_status_idx"),
+            models.Index(fields=["egress_id"], name="clr_egress_id_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} / {self.provider} / {self.status}"
+
+    def mark_active(self, *, egress_id: str = "") -> None:
+        self.status = self.STATUS_ACTIVE
+        if egress_id:
+            self.egress_id = egress_id
+        self.error_message = ""
+
+    def mark_completed(self, *, file_url: str = "", file_path: str = "") -> None:
+        self.status = self.STATUS_COMPLETED
+        self.file_url = file_url or self.file_url
+        self.file_path = file_path or self.file_path
+        self.ended_at = timezone.now()
+
+    def mark_failed(self, message: str) -> None:
+        self.status = self.STATUS_FAILED
+        self.error_message = str(message or "录制服务异常").strip()
+        self.ended_at = timezone.now()

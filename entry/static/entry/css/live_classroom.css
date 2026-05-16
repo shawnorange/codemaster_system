@@ -1,0 +1,320 @@
+.live-classroom-primary-button,
+.live-classroom-link-button {
+    min-height: 34px;
+    white-space: nowrap;
+}
+
+.live-classroom-link-button {
+    background: #fff;
+    cursor: pointer;
+}
+
+body:has(.live-classroom) .page-shell {
+    padding: 10px clamp(12px, 2vw, 24px) 8px;
+}
+
+body:has(.live-classroom) .system-header {
+    border-radius: 12px;
+    margin-bottom: 10px;
+    padding: 10px 14px;
+}
+
+body:has(.live-classroom) .brand-mark__icon {
+    height: 42px;
+    width: 42px;
+}
+
+body:has(.live-classroom) .brand-mark__label,
+body:has(.live-classroom) .identity-chip__label,
+body:has(.live-classroom) .system-header__tag,
+body:has(.live-classroom) .site-footer {
+    display: none;
+}
+
+body:has(.live-classroom) .identity-chip {
+    border-radius: 10px;
+    min-width: auto;
+    padding: 6px 10px;
+}
+
+body:has(.live-classroom) .system-main {
+    gap: 10px;
+}
+
+.live-classroom {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 270px);
+    grid-template-rows: minmax(0, 1fr);
+    height: calc(100vh - 92px);
+    min-height: 680px;
+}
+
+.live-classroom--teacher {
+    grid-template-rows: auto minmax(0, 1fr);
+}
+
+.live-classroom--student {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 270px);
+}
+
+.live-classroom__main,
+.live-classroom-rail,
+.live-classroom-empty-panel {
+    min-width: 0;
+}
+
+.live-classroom__main {
+    display: flex;
+    min-height: 0;
+}
+
+.live-classroom-toolbar {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-height: 36px;
+}
+
+.live-classroom--teacher .live-classroom__main,
+.live-classroom--teacher .live-classroom-rail {
+    grid-row: 2;
+}
+
+.live-classroom-toolbar form,
+.live-classroom-start-form {
+    margin: 0;
+}
+
+.live-classroom-start-form {
+    margin-top: 14px;
+}
+
+.live-classroom-stage {
+    background: #0f172a;
+    border: 1px solid rgba(15, 23, 42, 0.18);
+    border-radius: 8px;
+    color: #fff;
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.live-classroom-stage__empty {
+    align-content: center;
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    padding: 24px;
+    text-align: center;
+}
+
+.live-classroom-stage__empty span {
+    color: #cbd5e1;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+.live-classroom-stage__empty strong {
+    color: #fff;
+    font-size: 18px;
+    font-weight: 650;
+    max-width: 560px;
+}
+
+.live-classroom-stage__video {
+    background: #020617;
+    display: none;
+    height: 100%;
+    inset: 0;
+    object-fit: contain;
+    position: absolute;
+    width: 100%;
+}
+
+.live-classroom-stage.is-playing .live-classroom-stage__empty {
+    display: none;
+}
+
+.live-classroom-stage.is-playing .live-classroom-stage__video {
+    display: block;
+}
+
+.live-classroom-rail {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+    padding: 12px;
+}
+
+.live-classroom--student .live-classroom-rail {
+    align-content: start;
+    grid-template-rows: auto auto auto auto;
+}
+
+.live-classroom-rail__header {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.live-classroom-rail__header span {
+    color: #111827;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.live-classroom-rail__header button,
+.live-classroom-participant__actions button {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #0f172a;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+.live-classroom-status {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 10px;
+}
+
+.live-classroom-rail .entry-hint-bar {
+    font-size: 12px;
+    line-height: 1.45;
+    padding: 8px;
+}
+
+.live-classroom-student-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.live-classroom-recording {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 6px;
+    color: #9a3412;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 10px;
+}
+
+.live-classroom-participants {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.live-classroom-participant {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    display: grid;
+    gap: 6px;
+    overflow: hidden;
+    padding: 6px;
+}
+
+.live-classroom-participant.is-spotlight {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+}
+
+.live-classroom-participant__video {
+    aspect-ratio: 16 / 9;
+    background: #0f172a;
+    border-radius: 6px;
+    max-height: 118px;
+    overflow: hidden;
+    position: relative;
+}
+
+.live-classroom-participant__placeholder {
+    align-items: center;
+    color: #cbd5e1;
+    display: flex;
+    font-size: 12px;
+    height: 100%;
+    justify-content: center;
+    padding: 8px;
+    text-align: center;
+}
+
+.live-classroom-participant__video video {
+    height: 100%;
+    object-fit: contain;
+    width: 100%;
+}
+
+.live-classroom-participant__info {
+    align-items: center;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.live-classroom-participant__name {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.live-classroom-participant__meta {
+    color: #64748b;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.live-classroom-participant__actions {
+    display: flex;
+    gap: 6px;
+}
+
+.live-classroom-error {
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.live-classroom-session-row {
+    gap: 8px;
+}
+
+@media (max-width: 920px) {
+    .live-classroom,
+    .live-classroom--student {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 0;
+    }
+
+    .live-classroom-stage {
+        min-height: 68vh;
+    }
+
+    .live-classroom-participants {
+        max-height: 420px;
+    }
+}

@@ -1,6 +1,12 @@
 from django.urls import path
 
 from .hermes_api import api_hermes_oj_weekly_stats, api_hermes_oj_weekly_stats_import
+from .live_views import (
+    api_live_classroom_recording,
+    api_live_classroom_token,
+    student_live_classroom,
+    teacher_live_classroom,
+)
 from .views import (
     api_miniapp_login,
     api_miniapp_login_by_phone,
@@ -87,6 +93,12 @@ urlpatterns = [
     ),
     path("api/miniapp/login", api_miniapp_login, name="api-miniapp-login"),
     path("api/miniapp/login_by_phone", api_miniapp_login_by_phone, name="api-miniapp-login-by-phone"),
+    path("api/live-classroom/sessions/<int:session_id>/token", api_live_classroom_token, name="api-live-classroom-token"),
+    path(
+        "api/live-classroom/sessions/<int:session_id>/recording",
+        api_live_classroom_recording,
+        name="api-live-classroom-recording",
+    ),
     path("api/principal/get_students_info", api_principal_get_students_info, name="api-principal-get-students-info"),
     path("api/parent/get_my_child", api_parent_get_my_child, name="api-parent-get-my-child"),
     path("student/courses", student_courses, name="student-courses"),
@@ -120,6 +132,7 @@ urlpatterns = [
         name="student-homework-print-blank",
     ),
     path("student/account-settings", student_account_settings, name="student-account-settings"),
+    path("student/live-classroom", student_live_classroom, name="student-live-classroom"),
     path("student/cpp", student_cpp, name="student-cpp"),
     path("student/cpp/gesp", student_cpp_gesp, name="student-cpp-gesp"),
     path("student/cpp/gesp/gesp2", student_cpp_gesp2, name="student-cpp-gesp2"),
@@ -156,6 +169,7 @@ urlpatterns = [
         name="parent-homework-print-blank",
     ),
     path("teacher/students", teacher_students, name="teacher-students"),
+    path("teacher/live-classroom", teacher_live_classroom, name="teacher-live-classroom"),
     path("teacher/homework-stats", teacher_homework_stats, name="teacher-homework-stats"),
     path(
         "teacher/homework-stats/lesson-feedback",
