@@ -2,6 +2,7 @@ from django.urls import path
 
 from .hermes_api import api_hermes_oj_weekly_stats, api_hermes_oj_weekly_stats_import
 from .live_views import (
+    api_live_classroom_recording_download,
     api_live_classroom_recording,
     api_live_classroom_token,
     student_live_classroom,
@@ -98,6 +99,11 @@ urlpatterns = [
         "api/live-classroom/sessions/<int:session_id>/recording",
         api_live_classroom_recording,
         name="api-live-classroom-recording",
+    ),
+    path(
+        "api/live-classroom/recordings/<int:recording_id>/download",
+        api_live_classroom_recording_download,
+        name="api-live-classroom-recording-download",
     ),
     path("api/principal/get_students_info", api_principal_get_students_info, name="api-principal-get-students-info"),
     path("api/parent/get_my_child", api_parent_get_my_child, name="api-parent-get-my-child"),

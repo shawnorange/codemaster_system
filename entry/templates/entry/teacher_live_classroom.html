@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260517-browser-recording-v5">
 {% endblock %}
 
 {% block system_content %}
@@ -27,18 +27,8 @@
                     <input type="hidden" name="session_id" value="{{ active_session.id }}">
                     <button class="logout-button" type="submit">结束课堂</button>
                 </form>
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="form_action" value="start_recording">
-                    <input type="hidden" name="session_id" value="{{ active_session.id }}">
-                    <button class="system-header__link live-classroom-link-button" type="submit" data-recording-action="start">开始录音</button>
-                </form>
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="form_action" value="stop_recording">
-                    <input type="hidden" name="session_id" value="{{ active_session.id }}">
-                    <button class="system-header__link live-classroom-link-button" type="submit" data-recording-action="stop">停止录音</button>
-                </form>
+                <button class="system-header__link live-classroom-link-button" type="button" data-recording-action="start_screen">开始录屏</button>
+                <button class="system-header__link live-classroom-link-button" type="button" data-recording-action="stop_screen">停止录屏</button>
             </div>
             <div class="live-classroom__main">
                 <div class="live-classroom-stage" data-main-stage>
@@ -55,16 +45,7 @@
                     <button type="button" data-view-normal>常规</button>
                 </div>
                 <div class="live-classroom-status" data-live-status>正在连接课堂状态...</div>
-                <div class="live-classroom-recording" data-recording-status>
-                    {% if snapshot.recording %}
-                        录音状态：{{ snapshot.recording.status }}
-                        {% if snapshot.recording.error_message %}
-                            <br>{{ snapshot.recording.error_message }}
-                        {% endif %}
-                    {% else %}
-                        录音状态：未开始
-                    {% endif %}
-                </div>
+                <div class="live-classroom-recording" data-recording-status>录制状态：未开始</div>
                 <div class="live-classroom-participants" data-participant-list></div>
             </aside>
         </section>
@@ -87,6 +68,6 @@
 {% block extra_body_end %}
     {% if active_session %}
         <script src="{{ livekit_client_js_url }}"></script>
-        <script src="{% static 'entry/js/live_classroom.js' %}"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260517-browser-recording-v5"></script>
     {% endif %}
 {% endblock %}

@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
@@ -303,11 +304,16 @@ def update_teacher_view_state(
 
 def get_or_create_recording(session: ClassroomLiveSession) -> ClassroomLiveRecording:
     try:
-        return ClassroomLiveRecording.objects.create(session=session)
+        return ClassroomLiveRecording.objects.create(
+            session=session,
+            recording_type=ClassroomLiveRecording.TYPE_SCREEN,
+            provider=ClassroomLiveRecording.PROVIDER_LIVEKIT_EGRESS,
+        )
     except IntegrityError:
         existing = (
             ClassroomLiveRecording.objects.filter(
                 session=session,
+                recording_type=ClassroomLiveRecording.TYPE_SCREEN,
                 status__in=[ClassroomLiveRecording.STATUS_STARTING, ClassroomLiveRecording.STATUS_ACTIVE],
             )
             .order_by("-started_at", "-id")
@@ -356,17 +362,27 @@ def serialize_participant(participant: ClassroomLiveParticipant) -> dict[str, An
 def serialize_recording(recording: ClassroomLiveRecording | None) -> dict[str, Any] | None:
     if recording is None:
         return None
+    download_url = ""
+    if recording.is_download_available():
+        download_url = reverse("api-live-classroom-recording-download", args=[recording.id])
     return {
         "id": recording.id,
         "session_id": recording.session_id,
+        "recording_type": recording.recording_type,
         "provider": recording.provider,
         "status": recording.status,
         "egress_id": recording.egress_id,
-        "file_url": recording.file_url,
-        "file_path": recording.file_path,
+        "file_url": download_url,
+        "file_path": "",
+        "file_size": recording.file_size,
+        "content_type": recording.content_type,
+        "download_url": download_url,
+        "is_download_available": bool(download_url),
         "error_message": recording.error_message,
         "started_at": recording.started_at.isoformat() if recording.started_at else "",
         "ended_at": recording.ended_at.isoformat() if recording.ended_at else "",
+        "expires_at": recording.expires_at.isoformat() if recording.expires_at else "",
+        "deleted_at": recording.deleted_at.isoformat() if recording.deleted_at else "",
     }
 
 
@@ -381,14 +397,15 @@ def build_session_snapshot(session: ClassroomLiveSession) -> dict[str, Any]:
         .filter(session=refreshed_session)
         .order_by("role", "student__display_name", "id")
     )
-    recording = (
+    recordings = list(
         ClassroomLiveRecording.objects.filter(session=refreshed_session)
         .order_by("-started_at", "-id")
-        .first()
     )
+    recording = recordings[0] if recordings else None
     return {
         "session": serialize_session(refreshed_session),
         "participants": [serialize_participant(participant) for participant in participants],
+        "recordings": [serialize_recording(item) for item in recordings],
         "recording": serialize_recording(recording),
     }
 

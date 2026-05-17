@@ -217,6 +217,20 @@ body:has(.live-classroom) .system-main {
     padding: 10px;
 }
 
+.live-classroom-recording__row + .live-classroom-recording__row {
+    margin-top: 6px;
+}
+
+.live-classroom-recording__row a {
+    color: #1d4ed8;
+    font-weight: 650;
+}
+
+.live-classroom-recording__error {
+    color: #991b1b;
+    margin-top: 3px;
+}
+
 .live-classroom-participants {
     display: grid;
     align-content: start;
@@ -231,6 +245,8 @@ body:has(.live-classroom) .system-main {
     border-radius: 6px;
     display: grid;
     gap: 6px;
+    grid-template-rows: auto auto;
+    min-height: 0;
     overflow: hidden;
     padding: 6px;
 }
@@ -245,6 +261,7 @@ body:has(.live-classroom) .system-main {
     background: #0f172a;
     border-radius: 6px;
     max-height: 118px;
+    min-height: 0;
     overflow: hidden;
     position: relative;
 }
@@ -261,16 +278,22 @@ body:has(.live-classroom) .system-main {
 }
 
 .live-classroom-participant__video video {
+    display: block;
     height: 100%;
+    max-height: 118px;
     object-fit: contain;
     width: 100%;
 }
 
 .live-classroom-participant__info {
     align-items: center;
+    background: #fff;
     display: grid;
     gap: 6px;
     grid-template-columns: minmax(0, 1fr) auto auto;
+    min-height: 28px;
+    position: relative;
+    z-index: 1;
 }
 
 .live-classroom-participant__name {

@@ -18,6 +18,8 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}
       LIVEKIT_RECORDING_ENABLED: ${LIVEKIT_RECORDING_ENABLED:-True}
+      LIVEKIT_RECORDING_FILE_PREFIX: ${LIVEKIT_RECORDING_FILE_PREFIX:-/recordings/live-classroom}
+      LIVEKIT_RECORDING_PUBLIC_URL_PREFIX: ${LIVEKIT_RECORDING_PUBLIC_URL_PREFIX:-/media/live-classroom}
 
   realtime:
     build:
@@ -30,6 +32,7 @@ services:
       LIVEKIT_SERVER_URL: ${LIVEKIT_SERVER_URL:-http://livekit:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-dev-secret-change-me-32-bytes-minimum}
+      LIVEKIT_RECORDING_ENABLED: ${LIVEKIT_RECORDING_ENABLED:-True}
     restart: unless-stopped
     depends_on:
       db:

@@ -30,6 +30,10 @@
     var audioRecordingStream = null;
     var audioRecordingChunks = [];
     var activeAudioRecordingId = null;
+    var screenRecorder = null;
+    var screenRecordingStream = null;
+    var screenRecordingChunks = [];
+    var activeScreenRecordingId = null;
     var participantStreams = new Map();
     var participantByIdentity = new Map();
     var spotlightParticipantId = null;
@@ -75,29 +79,121 @@
         var labels = {
             starting: "正在启动",
             stopping: "正在停止",
-            active: "正在录音",
+            active: "进行中",
             completed: "已完成",
             failed: "失败"
         };
         return labels[status] || "未开始";
     }
 
-    function setRecordingStatus(recording) {
+    function recordingTypeLabel(recordingType) {
+        return recordingType === "screen" ? "录屏" : "录音";
+    }
+
+    function recordingListFromSnapshot() {
+        var recordings = Array.isArray(snapshot.recordings) ? snapshot.recordings.slice() : [];
+        if (snapshot.recording && !recordings.some(function (recording) {
+            return String(recording.id) === String(snapshot.recording.id);
+        })) {
+            recordings.unshift(snapshot.recording);
+        }
+        return recordings.filter(Boolean);
+    }
+
+    function latestRecordingByType(recordingType) {
+        var recordings = recordingListFromSnapshot();
+        for (var i = 0; i < recordings.length; i += 1) {
+            if ((recordings[i].recording_type || "") === recordingType) {
+                return recordings[i];
+            }
+        }
+        return null;
+    }
+
+    function upsertRecording(recording) {
+        if (!recording || !recording.id) {
+            return;
+        }
+        var recordings = recordingListFromSnapshot();
+        var updated = false;
+        recordings = recordings.map(function (item) {
+            if (String(item.id) === String(recording.id)) {
+                updated = true;
+                return Object.assign({}, item, recording);
+            }
+            return item;
+        });
+        if (!updated) {
+            recordings.unshift(recording);
+        }
+        snapshot.recordings = recordings;
+        snapshot.recording = recordings[0] || recording;
+    }
+
+    function formatDateTime(value) {
+        if (!value) {
+            return "";
+        }
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return "";
+        }
+        return date.toLocaleString("zh-CN", { hour12: false });
+    }
+
+    function appendRecordingRow(recordingType, transientRecording) {
+        var recording = transientRecording && transientRecording.recording_type === recordingType
+            ? transientRecording
+            : latestRecordingByType(recordingType);
+        var row = document.createElement("div");
+        row.className = "live-classroom-recording__row";
+
+        var label = document.createElement("strong");
+        label.textContent = recordingTypeLabel(recordingType);
+        row.appendChild(label);
+
+        row.appendChild(document.createTextNode("：" + recordingStatusLabel(recording && recording.status)));
+
+        if (recording && recording.download_url) {
+            row.appendChild(document.createTextNode(" · "));
+            var link = document.createElement("a");
+            link.href = recording.download_url;
+            link.textContent = "下载文件";
+            row.appendChild(link);
+        }
+        if (recording && recording.expires_at && recording.is_download_available) {
+            var expires = formatDateTime(recording.expires_at);
+            if (expires) {
+                row.appendChild(document.createTextNode(" · " + expires + " 失效"));
+            }
+        }
+        if (recording && recording.error_message) {
+            var error = document.createElement("div");
+            error.className = "live-classroom-recording__error";
+            error.textContent = recording.error_message;
+            row.appendChild(error);
+        }
+        recordingStatusEl.appendChild(row);
+    }
+
+    function setRecordingStatus(recording, recordingType) {
         if (!recordingStatusEl) {
             return;
         }
-        if (!recording) {
-            recordingStatusEl.textContent = "录音状态：未开始";
-            return;
+        var transientRecording = null;
+        if (recording && recording.id) {
+            upsertRecording(recording);
+        } else if (recording && recordingType) {
+            transientRecording = Object.assign({ recording_type: recordingType }, recording);
         }
-        var message = "录音状态：" + recordingStatusLabel(recording.status);
-        if (recording.file_url) {
-            message += "\n文件：" + recording.file_url;
+        recordingStatusEl.innerHTML = "";
+        appendRecordingRow("screen", transientRecording);
+        if (
+            latestRecordingByType("audio")
+            || (transientRecording && transientRecording.recording_type === "audio")
+        ) {
+            appendRecordingRow("audio", transientRecording);
         }
-        if (recording.error_message) {
-            message += "\n" + recording.error_message;
-        }
-        recordingStatusEl.textContent = message;
     }
 
     function getCookie(name) {
@@ -116,6 +212,30 @@
         return protocol + "//" + window.location.host + path;
     }
 
+    function screenCaptureVideoConstraints() {
+        return {
+            displaySurface: "monitor",
+            width: { ideal: 1280, max: 1600 },
+            height: { ideal: 720, max: 900 },
+            frameRate: { ideal: 5, max: 8 }
+        };
+    }
+
+    function screenSharePublishOptions(LiveKit, source) {
+        return {
+            source: source,
+            simulcast: false,
+            videoEncoding: {
+                maxBitrate: 650000,
+                maxFramerate: 8
+            },
+            screenShareEncoding: {
+                maxBitrate: 650000,
+                maxFramerate: 8
+            }
+        };
+    }
+
     function sendWs(event, payload) {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
             setStatus("课堂状态连接尚未就绪。");
@@ -130,6 +250,18 @@
         options.headers = headers;
         options.credentials = "same-origin";
         return fetch(url, options);
+    }
+
+    async function readJsonResponse(response, fallbackMessage) {
+        var text = await response.text();
+        if (!text) {
+            return {};
+        }
+        try {
+            return JSON.parse(text);
+        } catch (error) {
+            throw new Error(fallbackMessage || "服务器返回了非 JSON 响应，请查看后端日志。");
+        }
     }
 
     function updateParticipantMaps(participants) {
@@ -300,6 +432,29 @@
         showStreamOnMain(null);
     }
 
+    function hasScreenContentToRecord() {
+        if (isLocalScreenSharing()) {
+            return true;
+        }
+        var participants = snapshot.participants || [];
+        return participants.some(function (participant) {
+            return participant.screen_state === "sharing" || participantStreams.has(participant.livekit_identity);
+        });
+    }
+
+    function currentScreenRecordingStream() {
+        var sourceStream = null;
+        if (localScreenStream) {
+            sourceStream = localScreenStream;
+        } else if (mainVideo && mainVideo.srcObject instanceof MediaStream) {
+            sourceStream = mainVideo.srcObject;
+        }
+        if (!sourceStream || !sourceStream.getVideoTracks().length) {
+            return null;
+        }
+        return new MediaStream(sourceStream.getVideoTracks());
+    }
+
     function upsertParticipant(participant) {
         if (!participant || !participant.id) {
             return;
@@ -343,7 +498,7 @@
 
     async function getToken() {
         var response = await csrfFetch(tokenUrl, { method: "POST", headers: {} });
-        var payload = await response.json();
+        var payload = await readJsonResponse(response, "LiveKit token 接口返回异常。");
         if (!response.ok) {
             throw new Error(payload.error || "LiveKit token 获取失败。");
         }
@@ -359,9 +514,35 @@
             throw new Error("LiveKit 前端 SDK 未加载。");
         }
         var tokenPayload = await getToken();
-        room = new LiveKit.Room();
+        room = new LiveKit.Room({
+            adaptiveStream: true,
+            dynacast: true
+        });
+        function shouldSubscribeToRemote(identity) {
+            if (role === "teacher") {
+                return true;
+            }
+            var knownParticipant = participantByIdentity.get(identity);
+            return Boolean(knownParticipant && knownParticipant.role === "teacher");
+        }
+        function unsubscribePublication(publication) {
+            if (publication && typeof publication.setSubscribed === "function") {
+                publication.setSubscribed(false);
+            }
+        }
+        if (LiveKit.RoomEvent.TrackPublished) {
+            room.on(LiveKit.RoomEvent.TrackPublished, function (publication, participant) {
+                if (!shouldSubscribeToRemote(participant.identity)) {
+                    unsubscribePublication(publication);
+                }
+            });
+        }
         room.on(LiveKit.RoomEvent.TrackSubscribed, function (track, publication, participant) {
             if (!track || track.kind !== "video") {
+                return;
+            }
+            if (!shouldSubscribeToRemote(participant.identity)) {
+                unsubscribePublication(publication);
                 return;
             }
             var stream = mediaStreamFromTrack(track);
@@ -405,7 +586,7 @@
         var stream = null;
         try {
             stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { displaySurface: "monitor" },
+                video: screenCaptureVideoConstraints(),
                 audio: false
             });
             var videoTrack = stream.getVideoTracks()[0];
@@ -424,9 +605,10 @@
             localScreenStream = stream;
             localScreenTracks = stream.getTracks();
             var screenShareSource = LiveKit.Track && LiveKit.Track.Source ? LiveKit.Track.Source.ScreenShare : "screen_share";
-            await currentRoom.localParticipant.publishTrack(videoTrack, {
-                source: screenShareSource
-            });
+            await currentRoom.localParticipant.publishTrack(
+                videoTrack,
+                screenSharePublishOptions(LiveKit, screenShareSource)
+            );
             videoTrack.addEventListener("ended", function () {
                 localScreenTracks = [];
                 localScreenStream = null;
@@ -478,6 +660,30 @@
         return "webm";
     }
 
+    function chooseVideoMimeType() {
+        var types = [
+            "video/webm;codecs=vp9,opus",
+            "video/webm;codecs=vp8,opus",
+            "video/webm;codecs=vp9",
+            "video/webm;codecs=vp8",
+            "video/webm",
+            "video/mp4"
+        ];
+        for (var i = 0; i < types.length; i += 1) {
+            if (window.MediaRecorder && MediaRecorder.isTypeSupported(types[i])) {
+                return types[i];
+            }
+        }
+        return "";
+    }
+
+    function videoExtension(mimeType) {
+        if ((mimeType || "").indexOf("mp4") !== -1) {
+            return "mp4";
+        }
+        return "webm";
+    }
+
     async function startBrowserAudioRecording() {
         if (!recordingUrl) {
             setStatus("录音接口未配置。");
@@ -506,7 +712,7 @@
             audioRecorder.addEventListener("stop", function () {
                 uploadBrowserAudioRecording(audioRecorder.mimeType || mimeType).catch(function (error) {
                     setStatus(error && error.message ? error.message : "录音文件上传失败。");
-                    setRecordingStatus(snapshot.recording || null);
+                    setRecordingStatus();
                 });
             });
             var response = await csrfFetch(recordingUrl, {
@@ -514,13 +720,13 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "start_audio" })
             });
-            var payload = await response.json();
+            var payload = await readJsonResponse(response, "录音启动接口返回异常。");
             if (!response.ok) {
                 throw new Error(payload.error || "录音启动失败。");
             }
-            snapshot.recording = payload.recording || null;
-            activeAudioRecordingId = snapshot.recording ? snapshot.recording.id : null;
-            setRecordingStatus(snapshot.recording);
+            upsertRecording(payload.recording || null);
+            activeAudioRecordingId = payload.recording ? payload.recording.id : null;
+            setRecordingStatus(payload.recording || null);
             audioRecorder.start();
             setStatus("正在录音。浏览器正在采集老师麦克风。");
         } catch (error) {
@@ -533,7 +739,7 @@
             audioRecorder = null;
             activeAudioRecordingId = null;
             setStatus(error && error.message ? error.message : "录音启动失败。");
-            setRecordingStatus(snapshot.recording || null);
+            setRecordingStatus();
         }
     }
 
@@ -550,7 +756,7 @@
         }
         audioRecordingStream = null;
         audioRecorder = null;
-        setRecordingStatus({ status: "stopping" });
+        setRecordingStatus({ status: "stopping" }, "audio");
         if (!chunks.length) {
             throw new Error("没有录到音频数据。");
         }
@@ -564,24 +770,185 @@
             headers: {},
             body: formData
         });
-        var payload = await response.json();
+        var payload = await readJsonResponse(response, "录音上传接口返回异常。");
         if (!response.ok) {
             throw new Error(payload.error || "录音文件上传失败。");
         }
         activeAudioRecordingId = null;
-        snapshot.recording = payload.recording || null;
-        setRecordingStatus(snapshot.recording);
+        upsertRecording(payload.recording || null);
+        setRecordingStatus(payload.recording || null);
         setStatus("录音已停止，文件已生成。");
     }
 
     function stopBrowserAudioRecording() {
         if (!audioRecorder || audioRecorder.state !== "recording") {
             setStatus("当前没有正在进行的浏览器录音。");
+            setRecordingStatus({
+                status: "failed",
+                error_message: "当前页面没有正在进行的录音；如果刷新过页面，浏览器里的临时录音数据已经丢失。请重新开始录音。",
+            }, "audio");
             return;
         }
-        setRecordingStatus({ status: "stopping" });
+        setRecordingStatus({ status: "stopping" }, "audio");
         setStatus("正在停止录音并生成文件...");
         audioRecorder.stop();
+    }
+
+    async function requestRecordingAction(action) {
+        var response = await csrfFetch(recordingUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: action })
+        });
+        var payload = await readJsonResponse(response, "录制接口返回异常。");
+        if (!response.ok) {
+            throw new Error(payload.error || "录制操作失败。");
+        }
+        upsertRecording(payload.recording || null);
+        setRecordingStatus(payload.recording || null);
+        return payload.recording || null;
+    }
+
+    async function startScreenRecording() {
+        if (!recordingUrl) {
+            setStatus("录屏接口未配置。");
+            return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || !window.MediaRecorder) {
+            setStatus("当前浏览器不支持课堂录屏。");
+            return;
+        }
+        if (screenRecorder && screenRecorder.state === "recording") {
+            setStatus("录屏已经在进行中。");
+            return;
+        }
+        var displayStream = null;
+        var microphoneStream = null;
+        var recordingStream = null;
+        try {
+            setRecordingStatus({ status: "starting" }, "screen");
+            setStatus("请选择要录制的整个屏幕，并允许麦克风权限。");
+            displayStream = await navigator.mediaDevices.getDisplayMedia({
+                video: screenCaptureVideoConstraints(),
+                audio: false
+            });
+            var videoTrack = displayStream.getVideoTracks()[0];
+            var displaySurface = videoTrack && videoTrack.getSettings ? videoTrack.getSettings().displaySurface : "";
+            if (!videoTrack) {
+                throw new Error("没有选择可录制的屏幕。");
+            }
+            if (displaySurface && displaySurface !== "monitor") {
+                throw new Error("录屏请选择整个屏幕，窗口或浏览器标签页会产生递归画面，不能用于课堂录制。");
+            }
+            microphoneStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false
+            });
+            var microphoneTrack = microphoneStream.getAudioTracks()[0];
+            if (!microphoneTrack) {
+                throw new Error("没有获取到麦克风音频。");
+            }
+            recordingStream = new MediaStream([videoTrack, microphoneTrack]);
+            var mimeType = chooseVideoMimeType();
+            screenRecordingChunks = [];
+            var recorder = mimeType ? new MediaRecorder(recordingStream, { mimeType: mimeType }) : new MediaRecorder(recordingStream);
+            recorder.addEventListener("dataavailable", function (event) {
+                if (event.data && event.data.size > 0) {
+                    screenRecordingChunks.push(event.data);
+                }
+            });
+            recorder.addEventListener("stop", function () {
+                uploadBrowserScreenRecording(recorder.mimeType || mimeType).catch(function (error) {
+                    setStatus(error && error.message ? error.message : "录屏文件上传失败。");
+                    setRecordingStatus();
+                });
+            });
+            videoTrack.addEventListener("ended", function () {
+                if (screenRecorder === recorder && recorder.state === "recording") {
+                    setRecordingStatus({ status: "stopping" }, "screen");
+                    setStatus("屏幕录制已从浏览器停止，正在生成文件...");
+                    recorder.stop();
+                }
+            });
+            var recording = await requestRecordingAction("start_screen");
+            activeScreenRecordingId = recording ? recording.id : null;
+            screenRecordingStream = recordingStream;
+            screenRecorder = recorder;
+            recorder.start(1000);
+            setStatus("正在录屏。录制的是刚刚选择的整个屏幕和老师麦克风。");
+        } catch (error) {
+            [displayStream, microphoneStream, recordingStream].forEach(function (stream) {
+                if (!stream) {
+                    return;
+                }
+                stream.getTracks().forEach(function (track) {
+                    track.stop();
+                });
+            });
+            screenRecorder = null;
+            screenRecordingStream = null;
+            activeScreenRecordingId = null;
+            setRecordingStatus({
+                status: "failed",
+                error_message: error && error.message ? error.message : "录屏启动失败。",
+            }, "screen");
+            setStatus(error && error.message ? error.message : "录屏启动失败。");
+        }
+    }
+
+    async function uploadBrowserScreenRecording(mimeType) {
+        if (!recordingUrl || !activeScreenRecordingId) {
+            return;
+        }
+        var chunks = screenRecordingChunks.slice();
+        screenRecordingChunks = [];
+        if (screenRecordingStream) {
+            screenRecordingStream.getTracks().forEach(function (track) {
+                track.stop();
+            });
+        }
+        screenRecordingStream = null;
+        screenRecorder = null;
+        setRecordingStatus({ status: "stopping" }, "screen");
+        if (!chunks.length) {
+            throw new Error("没有录到屏幕数据。");
+        }
+        var blob = new Blob(chunks, { type: mimeType || "video/webm" });
+        var formData = new FormData();
+        formData.append("action", "upload_screen");
+        formData.append("recording_id", String(activeScreenRecordingId));
+        formData.append("screen", blob, "classroom-screen." + videoExtension(blob.type || mimeType || ""));
+        var response = await csrfFetch(recordingUrl, {
+            method: "POST",
+            headers: {},
+            body: formData
+        });
+        var payload = await readJsonResponse(response, "录屏上传接口返回异常。");
+        if (!response.ok) {
+            throw new Error(payload.error || "录屏文件上传失败。");
+        }
+        activeScreenRecordingId = null;
+        upsertRecording(payload.recording || null);
+        setRecordingStatus(payload.recording || null);
+        setStatus("录屏已停止，文件已生成。");
+    }
+
+    async function stopScreenRecording() {
+        if (!recordingUrl) {
+            setStatus("录屏接口未配置。");
+            return;
+        }
+        if (!screenRecorder || screenRecorder.state !== "recording") {
+            setStatus("当前没有正在进行的浏览器录屏。");
+            setRecordingStatus({
+                status: "failed",
+                error_message: "当前页面没有正在进行的录屏；如果刷新过页面，浏览器里的临时录屏数据已经丢失。请重新开始录屏。",
+            }, "screen");
+            return;
+        }
+        setRecordingStatus({ status: "stopping" }, "screen");
+        setStatus("正在停止录屏并生成文件...");
+        screenRecorder.stop();
     }
 
     function stopShare() {
@@ -626,9 +993,9 @@
                 window.location.replace(role === "teacher" ? "/teacher/live-classroom" : "/student/live-classroom");
             } else if (message.event === "recording_changed") {
                 var recording = message.payload && message.payload.recording;
-                snapshot.recording = recording;
+                upsertRecording(recording || null);
                 setRecordingStatus(recording);
-                setStatus(recording ? "录音状态：" + recordingStatusLabel(recording.status) : "录音状态已更新。");
+                setStatus(recording ? recordingTypeLabel(recording.recording_type) + "状态：" + recordingStatusLabel(recording.status) : "录制状态已更新。");
             } else if (message.event === "error") {
                 setStatus(message.payload && message.payload.error ? message.payload.error : "课堂状态同步失败。");
             }
@@ -678,10 +1045,15 @@
     document.querySelectorAll("[data-recording-action]").forEach(function (button) {
         button.addEventListener("click", function (event) {
             event.preventDefault();
-            if ((button.dataset.recordingAction || "") === "start") {
+            var action = button.dataset.recordingAction || "";
+            if (action === "start_audio" || action === "start") {
                 startBrowserAudioRecording();
-            } else {
+            } else if (action === "stop_audio") {
                 stopBrowserAudioRecording();
+            } else if (action === "start_screen") {
+                startScreenRecording();
+            } else if (action === "stop_screen" || action === "stop") {
+                stopScreenRecording();
             }
         });
     });

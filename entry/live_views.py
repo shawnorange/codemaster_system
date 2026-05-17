@@ -4,7 +4,7 @@ import json
 
 from django.core.exceptions import PermissionDenied
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
@@ -23,11 +23,16 @@ from .live_classroom import (
 )
 from .live_recording import (
     complete_browser_audio_recording,
+    complete_browser_screen_recording,
+    fail_active_browser_audio_recording,
+    fail_active_browser_screen_recording,
+    resolve_recording_file_path,
     start_browser_audio_recording,
+    start_browser_screen_recording,
     start_live_recording,
     stop_live_recording,
 )
-from .models import ClassroomLiveSession, PortalUser
+from .models import ClassroomLiveRecording, ClassroomLiveSession, PortalUser
 from .portal_context import get_student_by_user
 
 
@@ -57,6 +62,9 @@ def _json_error(message: str, *, status: int, code: str = "error") -> JsonRespon
 
 
 def _load_json_body(request: HttpRequest) -> dict:
+    content_type = str(request.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        return {}
     if not request.body:
         return {}
     try:
@@ -92,13 +100,15 @@ def teacher_live_classroom(request: HttpRequest) -> HttpResponse:
         session_id = _parse_int(request.POST.get("session_id"))
         session = get_accessible_session_for_user(teacher, session_id) if session_id else get_teacher_active_session(teacher)
         if session and action == "end":
+            fail_active_browser_screen_recording(session, "课堂已结束，浏览器录屏未停止上传，未生成录屏文件。")
             stop_live_recording(session)
+            fail_active_browser_audio_recording(session, "课堂已结束，浏览器录音未停止上传，未生成录音文件。")
             end_live_session(teacher, session)
             return redirect("teacher-live-classroom")
-        if session and action == "start_recording":
+        if session and action in {"start_recording", "start_screen_recording"}:
             start_live_recording(session)
             return _redirect_with_session(session, "teacher-live-classroom")
-        if session and action == "stop_recording":
+        if session and action in {"stop_recording", "stop_screen_recording"}:
             stop_live_recording(session)
             return _redirect_with_session(session, "teacher-live-classroom")
 
@@ -217,6 +227,8 @@ def api_live_classroom_recording(request: HttpRequest, session_id: int) -> JsonR
     action = str(payload.get("action") or request.POST.get("action") or "").strip()
     if action in {"start", "start_audio"}:
         recording = start_browser_audio_recording(session)
+    elif action == "start_screen":
+        recording = start_browser_screen_recording(session)
     elif action == "start_livekit":
         recording = start_live_recording(session)
     elif action == "upload_audio":
@@ -229,7 +241,17 @@ def api_live_classroom_recording(request: HttpRequest, session_id: int) -> JsonR
             )
         except LiveClassroomError as exc:
             return _json_error(exc.message, status=404, code=exc.code)
-    elif action == "stop":
+    elif action == "upload_screen":
+        recording_id = _parse_int(request.POST.get("recording_id"))
+        try:
+            recording = complete_browser_screen_recording(
+                session,
+                recording_id=recording_id,
+                uploaded_file=request.FILES.get("screen"),
+            )
+        except LiveClassroomError as exc:
+            return _json_error(exc.message, status=404, code=exc.code)
+    elif action in {"stop", "stop_screen"}:
         recording = stop_live_recording(session)
     else:
         return _json_error("未知录制操作。", status=400, code="invalid_action")
@@ -239,4 +261,37 @@ def api_live_classroom_recording(request: HttpRequest, session_id: int) -> JsonR
         {
             "recording": serialize_recording(recording),
         }
+    )
+
+
+def api_live_classroom_recording_download(request: HttpRequest, recording_id: int) -> HttpResponse:
+    portal_user_or_response = _require_api_user(request)
+    if isinstance(portal_user_or_response, JsonResponse):
+        return portal_user_or_response
+    teacher = portal_user_or_response
+    if teacher.role != PortalUser.ROLE_TEACHER:
+        return _json_error("只有老师可以下载课堂录制。", status=403, code="permission_denied")
+    if request.method != "GET":
+        return _json_error("只支持 GET。", status=405, code="method_not_allowed")
+
+    recording = (
+        ClassroomLiveRecording.objects.select_related("session", "session__teacher")
+        .filter(id=recording_id)
+        .first()
+    )
+    if recording is None or recording.session.teacher_id != teacher.id:
+        return _json_error("录制文件不存在或已失效。", status=404, code="recording_not_found")
+    if not recording.is_download_available():
+        return _json_error("录制文件不存在或已失效。", status=404, code="recording_not_available")
+
+    file_path = resolve_recording_file_path(recording)
+    if file_path is None or not file_path.exists() or not file_path.is_file():
+        return _json_error("录制文件不存在或已失效。", status=404, code="recording_file_missing")
+
+    filename = file_path.name
+    return FileResponse(
+        file_path.open("rb"),
+        as_attachment=True,
+        filename=filename,
+        content_type=recording.content_type or "application/octet-stream",
     )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 import uuid
 
 from django.contrib.auth.hashers import check_password, make_password
@@ -1102,11 +1102,20 @@ class ClassroomLiveParticipant(models.Model):
 
 
 class ClassroomLiveRecording(models.Model):
+    TYPE_AUDIO = "audio"
+    TYPE_SCREEN = "screen"
+    TYPE_CHOICES = [
+        (TYPE_AUDIO, "音频"),
+        (TYPE_SCREEN, "录屏"),
+    ]
+
     PROVIDER_LIVEKIT_EGRESS = "livekit_egress"
     PROVIDER_BROWSER_AUDIO = "browser_audio"
+    PROVIDER_BROWSER_SCREEN = "browser_screen"
     PROVIDER_CHOICES = [
         (PROVIDER_LIVEKIT_EGRESS, "LiveKit Egress"),
         (PROVIDER_BROWSER_AUDIO, "浏览器录音"),
+        (PROVIDER_BROWSER_SCREEN, "浏览器录屏"),
     ]
 
     STATUS_STARTING = "starting"
@@ -1121,14 +1130,19 @@ class ClassroomLiveRecording(models.Model):
     ]
 
     session = models.ForeignKey(ClassroomLiveSession, on_delete=models.CASCADE, related_name="recordings")
+    recording_type = models.CharField("录制类型", max_length=16, choices=TYPE_CHOICES, default=TYPE_SCREEN)
     provider = models.CharField("录制服务", max_length=32, choices=PROVIDER_CHOICES, default=PROVIDER_LIVEKIT_EGRESS)
     status = models.CharField("录制状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_STARTING)
     egress_id = models.CharField("LiveKit Egress ID", max_length=128, blank=True)
     file_url = models.URLField("录制文件 URL", max_length=500, blank=True)
     file_path = models.CharField("录制文件路径", max_length=500, blank=True)
+    file_size = models.PositiveBigIntegerField("文件大小", default=0)
+    content_type = models.CharField("文件类型", max_length=120, blank=True)
     error_message = models.TextField("错误信息", blank=True)
     started_at = models.DateTimeField("开始时间", default=timezone.now)
     ended_at = models.DateTimeField("结束时间", null=True, blank=True)
+    expires_at = models.DateTimeField("下载失效时间", null=True, blank=True)
+    deleted_at = models.DateTimeField("文件删除时间", null=True, blank=True)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     updated_at = models.DateTimeField("更新时间", auto_now=True)
 
@@ -1138,18 +1152,20 @@ class ClassroomLiveRecording(models.Model):
         verbose_name_plural = "实时课堂录制"
         constraints = [
             models.UniqueConstraint(
-                fields=["session"],
+                fields=["session", "recording_type"],
                 condition=models.Q(status__in=["starting", "active"]),
-                name="uniq_active_classroom_recording_per_session",
+                name="uniq_active_classroom_recording_type",
             ),
         ]
         indexes = [
             models.Index(fields=["session", "status"], name="clr_session_status_idx"),
+            models.Index(fields=["session", "recording_type", "status"], name="clr_session_type_status_idx"),
+            models.Index(fields=["expires_at", "deleted_at"], name="clr_expires_deleted_idx"),
             models.Index(fields=["egress_id"], name="clr_egress_id_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.session_id} / {self.provider} / {self.status}"
+        return f"{self.session_id} / {self.recording_type} / {self.provider} / {self.status}"
 
     def mark_active(self, *, egress_id: str = "") -> None:
         self.status = self.STATUS_ACTIVE
@@ -1157,13 +1173,37 @@ class ClassroomLiveRecording(models.Model):
             self.egress_id = egress_id
         self.error_message = ""
 
-    def mark_completed(self, *, file_url: str = "", file_path: str = "") -> None:
+    def mark_completed(
+        self,
+        *,
+        file_url: str = "",
+        file_path: str = "",
+        file_size: int | None = None,
+        content_type: str = "",
+    ) -> None:
         self.status = self.STATUS_COMPLETED
         self.file_url = file_url or self.file_url
         self.file_path = file_path or self.file_path
+        if file_size is not None:
+            self.file_size = max(int(file_size or 0), 0)
+        if content_type:
+            self.content_type = str(content_type or "").strip()[:120]
         self.ended_at = timezone.now()
+        self.expires_at = self.expires_at or self.ended_at + timedelta(days=15)
 
     def mark_failed(self, message: str) -> None:
         self.status = self.STATUS_FAILED
         self.error_message = str(message or "录制服务异常").strip()
         self.ended_at = timezone.now()
+
+    def is_download_available(self) -> bool:
+        if self.status != self.STATUS_COMPLETED or not self.file_path:
+            return False
+        if self.deleted_at:
+            return False
+        expires_at = self.expires_at
+        if not expires_at and self.ended_at:
+            expires_at = self.ended_at + timedelta(days=15)
+        if expires_at and expires_at <= timezone.now():
+            return False
+        return True
