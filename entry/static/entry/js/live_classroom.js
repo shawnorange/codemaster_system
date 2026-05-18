@@ -12,6 +12,7 @@
     var recordingUrl = root.dataset.recordingUrl || "";
     var statusEl = root.querySelector("[data-live-status]");
     var recordingStatusEl = root.querySelector("[data-recording-status]");
+    var recordingHistoryList = root.querySelector("[data-recording-history-list]");
     var participantList = root.querySelector("[data-participant-list]");
     var mainStage = root.querySelector("[data-main-stage]");
     var mainVideo = root.querySelector("[data-main-video]");
@@ -20,6 +21,7 @@
     var shareButton = root.querySelector("[data-share-screen]");
     var stopShareButton = root.querySelector("[data-stop-share]");
     var viewNormalButton = root.querySelector("[data-view-normal]");
+    var fullscreenButton = root.querySelector("[data-stage-fullscreen]");
     var snapshotScript = document.getElementById("live-classroom-snapshot");
     var snapshot = {};
     var ws = null;
@@ -34,10 +36,15 @@
     var screenRecordingStream = null;
     var screenRecordingChunks = [];
     var activeScreenRecordingId = null;
+    var screenRecordingSegmentTimer = null;
+    var screenRecordingStopMode = "";
+    var screenRecordingFinalStopRequested = false;
+    var screenRecordingSegmentIndex = 0;
     var participantStreams = new Map();
     var participantByIdentity = new Map();
     var spotlightParticipantId = null;
     var teacherIdentity = null;
+    var SCREEN_RECORDING_SEGMENT_MS = 10 * 60 * 1000;
 
     try {
         snapshot = snapshotScript ? JSON.parse(snapshotScript.textContent || "{}") : {};
@@ -128,6 +135,49 @@
         }
         snapshot.recordings = recordings;
         snapshot.recording = recordings[0] || recording;
+        prependRecordingHistory(recording);
+    }
+
+    function recordingFileSizeLabel(fileSize) {
+        var size = Number(fileSize || 0);
+        if (!size || Number.isNaN(size)) {
+            return "";
+        }
+        if (size >= 1024 * 1024) {
+            return Math.round(size / 1024 / 1024) + " MB";
+        }
+        if (size >= 1024) {
+            return Math.round(size / 1024) + " KB";
+        }
+        return size + " B";
+    }
+
+    function prependRecordingHistory(recording) {
+        if (
+            !recordingHistoryList
+            || !recording
+            || recording.status !== "completed"
+            || !recording.download_url
+        ) {
+            return;
+        }
+        if (recordingHistoryList.querySelector('[data-recording-history-id="' + String(recording.id) + '"]')) {
+            return;
+        }
+        var empty = recordingHistoryList.querySelector("span");
+        if (empty) {
+            empty.remove();
+        }
+        var link = document.createElement("a");
+        link.href = recording.download_url;
+        link.dataset.recordingHistoryId = String(recording.id);
+        var label = (formatDateTime(recording.ended_at) || "刚刚") + " · " + recordingTypeLabel(recording.recording_type);
+        var sizeLabel = recordingFileSizeLabel(recording.file_size);
+        if (sizeLabel) {
+            label += " · " + sizeLabel;
+        }
+        link.textContent = label;
+        recordingHistoryList.prepend(link);
     }
 
     function formatDateTime(value) {
@@ -215,9 +265,9 @@
     function screenCaptureVideoConstraints() {
         return {
             displaySurface: "monitor",
-            width: { ideal: 1280, max: 1600 },
-            height: { ideal: 720, max: 900 },
-            frameRate: { ideal: 5, max: 8 }
+            width: { ideal: 1280, max: 1280 },
+            height: { ideal: 720, max: 720 },
+            frameRate: { ideal: 4, max: 5 }
         };
     }
 
@@ -226,12 +276,12 @@
             source: source,
             simulcast: false,
             videoEncoding: {
-                maxBitrate: 650000,
-                maxFramerate: 8
+                maxBitrate: 450000,
+                maxFramerate: 5
             },
             screenShareEncoding: {
-                maxBitrate: 650000,
-                maxFramerate: 8
+                maxBitrate: 450000,
+                maxFramerate: 5
             }
         };
     }
@@ -432,27 +482,23 @@
         showStreamOnMain(null);
     }
 
-    function hasScreenContentToRecord() {
-        if (isLocalScreenSharing()) {
-            return true;
+    function openStageFullscreen() {
+        if (!mainStage) {
+            return;
         }
-        var participants = snapshot.participants || [];
-        return participants.some(function (participant) {
-            return participant.screen_state === "sharing" || participantStreams.has(participant.livekit_identity);
-        });
-    }
-
-    function currentScreenRecordingStream() {
-        var sourceStream = null;
-        if (localScreenStream) {
-            sourceStream = localScreenStream;
-        } else if (mainVideo && mainVideo.srcObject instanceof MediaStream) {
-            sourceStream = mainVideo.srcObject;
+        var requestFullscreen = mainStage.requestFullscreen
+            || mainStage.webkitRequestFullscreen
+            || mainStage.msRequestFullscreen;
+        if (!requestFullscreen) {
+            setStatus("当前浏览器不支持全屏展示。");
+            return;
         }
-        if (!sourceStream || !sourceStream.getVideoTracks().length) {
-            return null;
+        var result = requestFullscreen.call(mainStage);
+        if (result && typeof result.catch === "function") {
+            result.catch(function () {
+                setStatus("浏览器未允许全屏展示。");
+            });
         }
-        return new MediaStream(sourceStream.getVideoTracks());
     }
 
     function upsertParticipant(participant) {
@@ -809,6 +855,152 @@
         return payload.recording || null;
     }
 
+    function clearScreenRecordingSegmentTimer() {
+        if (screenRecordingSegmentTimer) {
+            window.clearTimeout(screenRecordingSegmentTimer);
+            screenRecordingSegmentTimer = null;
+        }
+    }
+
+    function cleanupScreenRecordingStream() {
+        clearScreenRecordingSegmentTimer();
+        if (screenRecordingStream) {
+            screenRecordingStream.getTracks().forEach(function (track) {
+                track.stop();
+            });
+        }
+        screenRecordingStream = null;
+        screenRecorder = null;
+        screenRecordingChunks = [];
+        activeScreenRecordingId = null;
+        screenRecordingStopMode = "";
+        screenRecordingFinalStopRequested = false;
+        screenRecordingSegmentIndex = 0;
+    }
+
+    function isScreenRecordingStreamActive() {
+        return Boolean(
+            screenRecordingStream
+            && screenRecordingStream.getVideoTracks().some(function (track) {
+                return track.readyState === "live";
+            })
+        );
+    }
+
+    async function uploadBrowserScreenRecordingSegment(recordingId, chunks, mimeType, stopMode) {
+        if (!recordingUrl || !recordingId) {
+            return null;
+        }
+        setRecordingStatus({ status: "stopping" }, "screen");
+        if (!chunks.length) {
+            throw new Error("没有录到屏幕数据。");
+        }
+        var blob = new Blob(chunks, { type: mimeType || "video/webm" });
+        var formData = new FormData();
+        formData.append("action", "upload_screen");
+        formData.append("recording_id", String(recordingId));
+        formData.append("screen", blob, "classroom-screen." + videoExtension(blob.type || mimeType || ""));
+        var response = await csrfFetch(recordingUrl, {
+            method: "POST",
+            headers: {},
+            body: formData
+        });
+        var payload = await readJsonResponse(response, "录屏上传接口返回异常。");
+        if (!response.ok) {
+            throw new Error(payload.error || "录屏文件上传失败。");
+        }
+        upsertRecording(payload.recording || null);
+        setRecordingStatus(payload.recording || null);
+        if (stopMode === "rotate") {
+            setStatus("录屏片段已保存，正在继续录屏。");
+        } else {
+            setStatus("录屏已停止，文件已生成。");
+        }
+        return payload.recording || null;
+    }
+
+    function stopCurrentScreenRecordingSegment(stopMode) {
+        if (!screenRecorder || screenRecorder.state !== "recording") {
+            return false;
+        }
+        clearScreenRecordingSegmentTimer();
+        screenRecordingStopMode = stopMode;
+        screenRecorder.stop();
+        return true;
+    }
+
+    function scheduleScreenRecordingSegmentRotation() {
+        clearScreenRecordingSegmentTimer();
+        screenRecordingSegmentTimer = window.setTimeout(function () {
+            if (!screenRecorder || screenRecorder.state !== "recording") {
+                return;
+            }
+            setRecordingStatus({ status: "stopping" }, "screen");
+            setStatus("正在保存本段录屏，录屏会自动继续。");
+            stopCurrentScreenRecordingSegment("rotate");
+        }, SCREEN_RECORDING_SEGMENT_MS);
+    }
+
+    async function startScreenRecordingSegment() {
+        if (!screenRecordingStream || !isScreenRecordingStreamActive()) {
+            throw new Error("录屏画面已停止，无法继续录制。");
+        }
+        var recording = await requestRecordingAction("start_screen");
+        var recordingId = recording ? recording.id : null;
+        if (!recordingId) {
+            throw new Error("录屏记录创建失败。");
+        }
+        activeScreenRecordingId = recordingId;
+        screenRecordingSegmentIndex += 1;
+        screenRecordingChunks = [];
+        var mimeType = chooseVideoMimeType();
+        var recorder = mimeType ? new MediaRecorder(screenRecordingStream, { mimeType: mimeType }) : new MediaRecorder(screenRecordingStream);
+        recorder.addEventListener("dataavailable", function (event) {
+            if (event.data && event.data.size > 0) {
+                screenRecordingChunks.push(event.data);
+            }
+        });
+        recorder.addEventListener("stop", function () {
+            var chunks = screenRecordingChunks.slice();
+            var segmentRecordingId = recordingId;
+            var segmentMimeType = recorder.mimeType || mimeType;
+            var stopMode = screenRecordingFinalStopRequested ? "final" : (screenRecordingStopMode || "final");
+            screenRecordingChunks = [];
+            screenRecorder = null;
+            activeScreenRecordingId = null;
+            screenRecordingStopMode = "";
+            uploadBrowserScreenRecordingSegment(segmentRecordingId, chunks, segmentMimeType, stopMode).then(function () {
+                if (stopMode === "rotate" && !screenRecordingFinalStopRequested && isScreenRecordingStreamActive()) {
+                    startScreenRecordingSegment().catch(function (error) {
+                        cleanupScreenRecordingStream();
+                        setRecordingStatus({
+                            status: "failed",
+                            error_message: error && error.message ? error.message : "录屏续录失败。",
+                        }, "screen");
+                        setStatus(error && error.message ? error.message : "录屏续录失败。");
+                    });
+                    return;
+                }
+                cleanupScreenRecordingStream();
+            }).catch(function (error) {
+                cleanupScreenRecordingStream();
+                setStatus(error && error.message ? error.message : "录屏文件上传失败。");
+                setRecordingStatus({
+                    status: "failed",
+                    error_message: error && error.message ? error.message : "录屏文件上传失败。",
+                }, "screen");
+            });
+        });
+        screenRecorder = recorder;
+        recorder.start(1000);
+        scheduleScreenRecordingSegmentRotation();
+        setStatus(
+            screenRecordingSegmentIndex === 1
+                ? "正在录屏。系统每 10 分钟自动保存一个文件，录制整个屏幕和老师麦克风。"
+                : "正在继续录屏，第 " + screenRecordingSegmentIndex + " 段已开始。"
+        );
+    }
+
     async function startScreenRecording() {
         if (!recordingUrl) {
             setStatus("录屏接口未配置。");
@@ -849,33 +1041,18 @@
                 throw new Error("没有获取到麦克风音频。");
             }
             recordingStream = new MediaStream([videoTrack, microphoneTrack]);
-            var mimeType = chooseVideoMimeType();
-            screenRecordingChunks = [];
-            var recorder = mimeType ? new MediaRecorder(recordingStream, { mimeType: mimeType }) : new MediaRecorder(recordingStream);
-            recorder.addEventListener("dataavailable", function (event) {
-                if (event.data && event.data.size > 0) {
-                    screenRecordingChunks.push(event.data);
-                }
-            });
-            recorder.addEventListener("stop", function () {
-                uploadBrowserScreenRecording(recorder.mimeType || mimeType).catch(function (error) {
-                    setStatus(error && error.message ? error.message : "录屏文件上传失败。");
-                    setRecordingStatus();
-                });
-            });
             videoTrack.addEventListener("ended", function () {
-                if (screenRecorder === recorder && recorder.state === "recording") {
+                if (screenRecorder && screenRecorder.state === "recording") {
+                    screenRecordingFinalStopRequested = true;
                     setRecordingStatus({ status: "stopping" }, "screen");
-                    setStatus("屏幕录制已从浏览器停止，正在生成文件...");
-                    recorder.stop();
+                    setStatus("屏幕录制已从浏览器停止，正在生成最后一个文件...");
+                    stopCurrentScreenRecordingSegment("final");
                 }
             });
-            var recording = await requestRecordingAction("start_screen");
-            activeScreenRecordingId = recording ? recording.id : null;
             screenRecordingStream = recordingStream;
-            screenRecorder = recorder;
-            recorder.start(1000);
-            setStatus("正在录屏。录制的是刚刚选择的整个屏幕和老师麦克风。");
+            screenRecordingFinalStopRequested = false;
+            screenRecordingSegmentIndex = 0;
+            await startScreenRecordingSegment();
         } catch (error) {
             [displayStream, microphoneStream, recordingStream].forEach(function (stream) {
                 if (!stream) {
@@ -885,9 +1062,7 @@
                     track.stop();
                 });
             });
-            screenRecorder = null;
-            screenRecordingStream = null;
-            activeScreenRecordingId = null;
+            cleanupScreenRecordingStream();
             setRecordingStatus({
                 status: "failed",
                 error_message: error && error.message ? error.message : "录屏启动失败。",
@@ -896,49 +1071,18 @@
         }
     }
 
-    async function uploadBrowserScreenRecording(mimeType) {
-        if (!recordingUrl || !activeScreenRecordingId) {
-            return;
-        }
-        var chunks = screenRecordingChunks.slice();
-        screenRecordingChunks = [];
-        if (screenRecordingStream) {
-            screenRecordingStream.getTracks().forEach(function (track) {
-                track.stop();
-            });
-        }
-        screenRecordingStream = null;
-        screenRecorder = null;
-        setRecordingStatus({ status: "stopping" }, "screen");
-        if (!chunks.length) {
-            throw new Error("没有录到屏幕数据。");
-        }
-        var blob = new Blob(chunks, { type: mimeType || "video/webm" });
-        var formData = new FormData();
-        formData.append("action", "upload_screen");
-        formData.append("recording_id", String(activeScreenRecordingId));
-        formData.append("screen", blob, "classroom-screen." + videoExtension(blob.type || mimeType || ""));
-        var response = await csrfFetch(recordingUrl, {
-            method: "POST",
-            headers: {},
-            body: formData
-        });
-        var payload = await readJsonResponse(response, "录屏上传接口返回异常。");
-        if (!response.ok) {
-            throw new Error(payload.error || "录屏文件上传失败。");
-        }
-        activeScreenRecordingId = null;
-        upsertRecording(payload.recording || null);
-        setRecordingStatus(payload.recording || null);
-        setStatus("录屏已停止，文件已生成。");
-    }
-
     async function stopScreenRecording() {
         if (!recordingUrl) {
             setStatus("录屏接口未配置。");
             return;
         }
         if (!screenRecorder || screenRecorder.state !== "recording") {
+            if (screenRecordingStream) {
+                screenRecordingFinalStopRequested = true;
+                setRecordingStatus({ status: "stopping" }, "screen");
+                setStatus("正在保存当前录屏片段，保存完成后会停止录屏。");
+                return;
+            }
             setStatus("当前没有正在进行的浏览器录屏。");
             setRecordingStatus({
                 status: "failed",
@@ -946,9 +1090,10 @@
             }, "screen");
             return;
         }
+        screenRecordingFinalStopRequested = true;
         setRecordingStatus({ status: "stopping" }, "screen");
-        setStatus("正在停止录屏并生成文件...");
-        screenRecorder.stop();
+        setStatus("正在停止录屏并生成当前片段文件...");
+        stopCurrentScreenRecordingSegment("final");
     }
 
     function stopShare() {
@@ -1041,6 +1186,9 @@
     }
     if (stopShareButton) {
         stopShareButton.addEventListener("click", stopShare);
+    }
+    if (fullscreenButton) {
+        fullscreenButton.addEventListener("click", openStageFullscreen);
     }
     document.querySelectorAll("[data-recording-action]").forEach(function (button) {
         button.addEventListener("click", function (event) {

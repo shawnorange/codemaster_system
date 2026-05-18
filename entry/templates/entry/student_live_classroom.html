@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260517-browser-recording-v5">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260518-segmented-recording-v6">
 {% endblock %}
 
 {% block system_content %}
@@ -28,6 +28,7 @@
                         <strong data-main-empty-text>老师共享屏幕后会显示在这里。</strong>
                     </div>
                     <video class="live-classroom-stage__video" data-main-video autoplay playsinline muted></video>
+                    <button class="live-classroom-stage__fullscreen" type="button" data-stage-fullscreen>全屏</button>
                 </div>
             </div>
             <aside class="live-classroom-rail">
@@ -90,5 +91,5 @@
 
 {% block extra_body_end %}
     <script src="{{ livekit_client_js_url }}"></script>
-    <script src="{% static 'entry/js/live_classroom.js' %}?v=20260517-browser-recording-v5"></script>
+    <script src="{% static 'entry/js/live_classroom.js' %}?v=20260518-segmented-recording-v6"></script>
 {% endblock %}

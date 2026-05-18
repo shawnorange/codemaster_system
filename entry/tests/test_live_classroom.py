@@ -169,7 +169,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260517-browser-recording-v5")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
 
     def test_student_join_prompt_page_keeps_lobby_websocket_root(self) -> None:
         create_live_session(self.teacher)
@@ -179,7 +179,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260517-browser-recording-v5")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
 
     def test_student_active_page_keeps_share_button_above_status(self) -> None:
         session = create_live_session(self.teacher)
@@ -191,6 +191,7 @@ class LiveClassroomTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "共享学生屏幕")
         self.assertContains(response, "老师共享屏幕后会显示在这里")
+        self.assertContains(response, "data-stage-fullscreen")
         self.assertNotContains(response, "compact-portal-header")
         body = response.content.decode("utf-8")
         self.assertLess(body.index("live-classroom-student-actions"), body.index("data-live-status"))
@@ -209,9 +210,37 @@ class LiveClassroomTests(TestCase):
         self.assertNotContains(response, "开始录音")
         self.assertNotContains(response, "停止录音")
         self.assertContains(response, "停止共享")
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260517-browser-recording-v5")
-        self.assertContains(response, "entry/css/live_classroom.css?v=20260517-browser-recording-v5")
+        self.assertContains(response, "data-stage-fullscreen")
+        self.assertContains(response, "历史文件")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
+        self.assertContains(response, "entry/css/live_classroom.css?v=20260518-segmented-recording-v6")
         self.assertNotContains(response, "compact-portal-header")
+
+    def test_teacher_page_lists_downloadable_recording_history(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            output_path = Path(media_root) / "live-classroom" / "screen" / "lesson.webm"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"screen")
+            recording = ClassroomLiveRecording.objects.create(
+                session=session,
+                recording_type=ClassroomLiveRecording.TYPE_SCREEN,
+                provider=ClassroomLiveRecording.PROVIDER_BROWSER_SCREEN,
+                status=ClassroomLiveRecording.STATUS_COMPLETED,
+                file_path=str(output_path),
+                file_size=6,
+                content_type="video/webm",
+                ended_at=timezone.now(),
+                expires_at=timezone.now() + timedelta(days=15),
+            )
+
+            response = client.get(f"{reverse('teacher-live-classroom')}?session_id={session.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "历史文件")
+        self.assertContains(response, reverse("api-live-classroom-recording-download", args=[recording.id]))
 
     def test_teacher_recording_api_accepts_browser_audio_upload(self) -> None:
         session = create_live_session(self.teacher)
@@ -323,6 +352,55 @@ class LiveClassroomTests(TestCase):
         self.assertEqual(screen_recording.file_size, len(b"screen-video"))
         self.assertEqual(screen_recording.content_type, "video/webm")
         self.assertIsNotNone(screen_recording.expires_at)
+
+    def test_teacher_can_start_next_screen_segment_after_upload(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+        url = reverse("api-live-classroom-recording", args=[session.id])
+
+        with tempfile.TemporaryDirectory() as media_root, self.settings(MEDIA_ROOT=media_root):
+            first_start = client.post(
+                url,
+                data='{"action": "start_screen"}',
+                content_type="application/json",
+            )
+            self.assertEqual(first_start.status_code, 200)
+            first_recording_id = first_start.json()["recording"]["id"]
+
+            upload_response = client.post(
+                url,
+                {
+                    "action": "upload_screen",
+                    "recording_id": str(first_recording_id),
+                    "screen": SimpleUploadedFile("segment-1.webm", b"segment-one", content_type="video/webm"),
+                },
+            )
+            self.assertEqual(upload_response.status_code, 200)
+
+            second_start = client.post(
+                url,
+                data='{"action": "start_screen"}',
+                content_type="application/json",
+            )
+
+        self.assertEqual(second_start.status_code, 200)
+        self.assertNotEqual(second_start.json()["recording"]["id"], first_recording_id)
+        self.assertEqual(
+            ClassroomLiveRecording.objects.filter(
+                session=session,
+                recording_type=ClassroomLiveRecording.TYPE_SCREEN,
+                status=ClassroomLiveRecording.STATUS_COMPLETED,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            ClassroomLiveRecording.objects.filter(
+                session=session,
+                recording_type=ClassroomLiveRecording.TYPE_SCREEN,
+                status=ClassroomLiveRecording.STATUS_ACTIVE,
+            ).count(),
+            1,
+        )
 
     def test_stop_screen_does_not_treat_browser_recording_as_livekit_file(self) -> None:
         session = create_live_session(self.teacher)

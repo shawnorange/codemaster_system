@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260517-browser-recording-v5">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260518-segmented-recording-v6">
 {% endblock %}
 
 {% block system_content %}
@@ -37,6 +37,7 @@
                         <strong data-main-empty-text>点击上方“共享老师屏幕”，或从右侧选择学生投屏。</strong>
                     </div>
                     <video class="live-classroom-stage__video" data-main-video autoplay playsinline muted></video>
+                    <button class="live-classroom-stage__fullscreen" type="button" data-stage-fullscreen>全屏</button>
                 </div>
             </div>
             <aside class="live-classroom-rail">
@@ -46,6 +47,18 @@
                 </div>
                 <div class="live-classroom-status" data-live-status>正在连接课堂状态...</div>
                 <div class="live-classroom-recording" data-recording-status>录制状态：未开始</div>
+                <div class="live-classroom-recording-history">
+                    <div class="live-classroom-recording-history__title">历史文件</div>
+                    <div class="live-classroom-recording-history__list" data-recording-history-list>
+                        {% for recording in recording_history %}
+                            <a href="{% url 'api-live-classroom-recording-download' recording.id %}">
+                                {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %}{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
+                            </a>
+                        {% empty %}
+                            <span>暂无可下载文件</span>
+                        {% endfor %}
+                    </div>
+                </div>
                 <div class="live-classroom-participants" data-participant-list></div>
             </aside>
         </section>
@@ -61,6 +74,18 @@
                 <input type="hidden" name="form_action" value="start">
                 <button class="login-button live-classroom-primary-button" type="submit">开始上课</button>
             </form>
+            <div class="live-classroom-recording-history live-classroom-recording-history--empty-page">
+                <div class="live-classroom-recording-history__title">历史文件</div>
+                <div class="live-classroom-recording-history__list">
+                    {% for recording in recording_history %}
+                        <a href="{% url 'api-live-classroom-recording-download' recording.id %}">
+                            {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %}{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
+                        </a>
+                    {% empty %}
+                        <span>暂无可下载文件</span>
+                    {% endfor %}
+                </div>
+            </div>
         </section>
     {% endif %}
 {% endblock %}
@@ -68,6 +93,6 @@
 {% block extra_body_end %}
     {% if active_session %}
         <script src="{{ livekit_client_js_url }}"></script>
-        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260517-browser-recording-v5"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260518-segmented-recording-v6"></script>
     {% endif %}
 {% endblock %}

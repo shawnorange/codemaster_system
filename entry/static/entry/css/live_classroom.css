@@ -46,8 +46,8 @@ body:has(.live-classroom) .system-main {
     gap: 10px;
     grid-template-columns: minmax(0, 1fr) minmax(250px, 270px);
     grid-template-rows: minmax(0, 1fr);
-    height: calc(100vh - 92px);
-    min-height: 680px;
+    height: calc(100vh - 74px);
+    min-height: 780px;
 }
 
 .live-classroom--teacher {
@@ -137,6 +137,21 @@ body:has(.live-classroom) .system-main {
     width: 100%;
 }
 
+.live-classroom-stage__fullscreen {
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(226, 232, 240, 0.42);
+    border-radius: 6px;
+    bottom: 12px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    left: 12px;
+    padding: 7px 10px;
+    position: absolute;
+    z-index: 2;
+}
+
 .live-classroom-stage.is-playing .live-classroom-stage__empty {
     display: none;
 }
@@ -151,7 +166,8 @@ body:has(.live-classroom) .system-main {
     border-radius: 8px;
     display: grid;
     gap: 12px;
-    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    height: 100%;
     min-height: 0;
     overflow: hidden;
     padding: 12px;
@@ -229,6 +245,48 @@ body:has(.live-classroom) .system-main {
 .live-classroom-recording__error {
     color: #991b1b;
     margin-top: 3px;
+}
+
+.live-classroom-recording-history {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #334155;
+    display: grid;
+    gap: 6px;
+    min-height: 0;
+    padding: 10px;
+}
+
+.live-classroom-recording-history--empty-page {
+    margin-top: 16px;
+    max-width: 520px;
+}
+
+.live-classroom-recording-history__title {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.live-classroom-recording-history__list {
+    display: grid;
+    gap: 5px;
+    max-height: 118px;
+    overflow-y: auto;
+}
+
+.live-classroom-recording-history__list a,
+.live-classroom-recording-history__list span {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.live-classroom-recording-history__list a {
+    color: #1d4ed8;
+    font-weight: 650;
+    text-decoration: none;
 }
 
 .live-classroom-participants {

@@ -5,8 +5,10 @@ import json
 from django.core.exceptions import PermissionDenied
 from django.conf import settings
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
 from .auth import ROLE_CONFIG, get_authenticated_user, role_required
 from .live_classroom import (
@@ -122,16 +124,23 @@ def teacher_live_classroom(request: HttpRequest) -> HttpResponse:
             selected_session = active_session
 
     snapshot = build_session_snapshot(selected_session) if selected_session else None
+    recording_history = (
+        ClassroomLiveRecording.objects.select_related("session")
+        .filter(session__teacher=teacher, status=ClassroomLiveRecording.STATUS_COMPLETED, deleted_at__isnull=True)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .order_by("-ended_at", "-id")[:30]
+    )
     return render(
         request,
         "entry/teacher_live_classroom.html",
         {
             "role_label": ROLE_CONFIG["teacher"]["label"],
             "page_title": "实时课堂",
-            "page_description": "第一版只承接开课、学生整屏投屏、老师主屏切换和 LiveKit 录制。",
+            "page_description": "第一版只承接开课、学生整屏投屏、老师主屏切换和浏览器分段录屏。",
             "active_session": selected_session,
             "snapshot": snapshot,
             "snapshot_json": json.dumps(snapshot or {}, ensure_ascii=False),
+            "recording_history": recording_history,
             "livekit_client_js_url": settings.LIVEKIT_CLIENT_JS_URL,
             **_build_shell_identity_context(request),
         },
