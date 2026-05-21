@@ -169,7 +169,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
 
     def test_student_join_prompt_page_keeps_lobby_websocket_root(self) -> None:
         create_live_session(self.teacher)
@@ -179,7 +179,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
 
     def test_student_active_page_keeps_share_button_above_status(self) -> None:
         session = create_live_session(self.teacher)
@@ -210,10 +210,11 @@ class LiveClassroomTests(TestCase):
         self.assertNotContains(response, "开始录音")
         self.assertNotContains(response, "停止录音")
         self.assertContains(response, "停止共享")
+        self.assertContains(response, "取消投屏")
         self.assertContains(response, "data-stage-fullscreen")
         self.assertContains(response, "历史文件")
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260518-segmented-recording-v6")
-        self.assertContains(response, "entry/css/live_classroom.css?v=20260518-segmented-recording-v6")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
+        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-spotlight-subscription-v7")
         self.assertNotContains(response, "compact-portal-header")
 
     def test_teacher_page_lists_downloadable_recording_history(self) -> None:
@@ -241,6 +242,15 @@ class LiveClassroomTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "历史文件")
         self.assertContains(response, reverse("api-live-classroom-recording-download", args=[recording.id]))
+
+    def test_live_classroom_js_only_subscribes_student_video_for_spotlight(self) -> None:
+        js_path = Path(__file__).resolve().parents[1] / "static" / "entry" / "js" / "live_classroom.js"
+        source = js_path.read_text()
+
+        self.assertIn("simulcast: true", source)
+        self.assertIn('role === "teacher"', source)
+        self.assertIn("isSpotlightIdentity(identity)", source)
+        self.assertIn('participant.screen_state === "sharing"', source)
 
     def test_teacher_recording_api_accepts_browser_audio_upload(self) -> None:
         session = create_live_session(self.teacher)

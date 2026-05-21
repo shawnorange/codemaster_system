@@ -41,6 +41,7 @@
     var screenRecordingFinalStopRequested = false;
     var screenRecordingSegmentIndex = 0;
     var participantStreams = new Map();
+    var remoteVideoPublications = new Map();
     var participantByIdentity = new Map();
     var spotlightParticipantId = null;
     var teacherIdentity = null;
@@ -271,17 +272,26 @@
         };
     }
 
+    function screenShareVideoConstraints() {
+        return {
+            displaySurface: "monitor",
+            width: { ideal: 1600, max: 1920 },
+            height: { ideal: 900, max: 1080 },
+            frameRate: { ideal: 6, max: 8 }
+        };
+    }
+
     function screenSharePublishOptions(LiveKit, source) {
         return {
             source: source,
-            simulcast: false,
+            simulcast: true,
             videoEncoding: {
-                maxBitrate: 450000,
-                maxFramerate: 5
+                maxBitrate: 1200000,
+                maxFramerate: 8
             },
             screenShareEncoding: {
-                maxBitrate: 450000,
-                maxFramerate: 5
+                maxBitrate: 1200000,
+                maxFramerate: 8
             }
         };
     }
@@ -356,6 +366,93 @@
         return null;
     }
 
+    function isSpotlightIdentity(identity) {
+        var participant = participantByIdentity.get(identity);
+        return Boolean(
+            participant
+            && participant.role === "student"
+            && String(participant.id) === String(spotlightParticipantId)
+        );
+    }
+
+    function shouldSubscribeToRemote(identity) {
+        var participant = participantByIdentity.get(identity);
+        if (role === "teacher") {
+            return Boolean(isSpotlightIdentity(identity) && participant && participant.screen_state === "sharing");
+        }
+        return Boolean(role === "student" && participant && participant.role === "teacher");
+    }
+
+    function setPublicationSubscribed(publication, subscribed) {
+        if (publication && typeof publication.setSubscribed === "function") {
+            publication.setSubscribed(Boolean(subscribed));
+        }
+    }
+
+    function isVideoPublication(publication) {
+        if (!publication) {
+            return false;
+        }
+        return !publication.kind
+            || publication.kind === "video"
+            || publication.kind === "kind_video"
+            || publication.trackKind === "video";
+    }
+
+    function rememberRemoteVideoPublication(identity, publication) {
+        if (!identity || !isVideoPublication(publication)) {
+            return;
+        }
+        remoteVideoPublications.set(identity, publication);
+    }
+
+    function rememberRemoteParticipantPublications(participant) {
+        if (!participant || !participant.identity) {
+            return;
+        }
+        var identity = participant.identity;
+        if (participant.videoTrackPublications && typeof participant.videoTrackPublications.forEach === "function") {
+            participant.videoTrackPublications.forEach(function (publication) {
+                rememberRemoteVideoPublication(identity, publication);
+            });
+            return;
+        }
+        if (participant.trackPublications && typeof participant.trackPublications.forEach === "function") {
+            participant.trackPublications.forEach(function (publication) {
+                rememberRemoteVideoPublication(identity, publication);
+            });
+        }
+    }
+
+    function syncRemoteSubscriptions() {
+        if (!room) {
+            return;
+        }
+        if (room.remoteParticipants && typeof room.remoteParticipants.forEach === "function") {
+            room.remoteParticipants.forEach(function (participant) {
+                rememberRemoteParticipantPublications(participant);
+            });
+        }
+        remoteVideoPublications.forEach(function (publication, identity) {
+            var shouldSubscribe = shouldSubscribeToRemote(identity);
+            setPublicationSubscribed(publication, shouldSubscribe);
+            if (!shouldSubscribe) {
+                participantStreams.delete(identity);
+            }
+        });
+    }
+
+    function ensureRemoteVideoSubscription(identity) {
+        var publication = remoteVideoPublications.get(identity);
+        if (!publication) {
+            syncRemoteSubscriptions();
+            publication = remoteVideoPublications.get(identity);
+        }
+        if (publication) {
+            setPublicationSubscribed(publication, shouldSubscribeToRemote(identity));
+        }
+    }
+
     function renderParticipants(participants) {
         if (!participantList) {
             return;
@@ -375,29 +472,9 @@
             var card = document.createElement("article");
             card.className = "live-classroom-participant";
             card.dataset.participantId = String(participant.id);
+            card.classList.add("is-" + (participant.screen_state || "none"));
             if (String(participant.id) === String(spotlightParticipantId)) {
                 card.classList.add("is-spotlight");
-            }
-
-            var videoShell = document.createElement("div");
-            videoShell.className = "live-classroom-participant__video";
-            var stream = participantStreams.get(participant.livekit_identity);
-            if (stream && !isLocalScreenSharing()) {
-                var video = document.createElement("video");
-                video.autoplay = true;
-                video.playsInline = true;
-                video.muted = true;
-                video.srcObject = stream;
-                videoShell.appendChild(video);
-            } else {
-                var placeholder = document.createElement("div");
-                placeholder.className = "live-classroom-participant__placeholder";
-                if (isLocalScreenSharing()) {
-                    placeholder.textContent = "本端共享中，已隐藏预览";
-                } else {
-                    placeholder.textContent = participant.screen_state === "sharing" ? "正在等待画面..." : "未共享屏幕";
-                }
-                videoShell.appendChild(placeholder);
             }
 
             var infoRow = document.createElement("div");
@@ -411,19 +488,25 @@
             meta.className = "live-classroom-participant__meta";
             meta.textContent = screenStateLabel(participant.screen_state);
 
+            var stateDot = document.createElement("span");
+            stateDot.className = "live-classroom-participant__dot";
+            stateDot.setAttribute("aria-hidden", "true");
+
             var actions = document.createElement("div");
             actions.className = "live-classroom-participant__actions";
             var spotlightButton = document.createElement("button");
             spotlightButton.type = "button";
-            spotlightButton.textContent = "投屏";
+            spotlightButton.textContent = String(participant.id) === String(spotlightParticipantId) ? "投屏中" : "投屏";
+            spotlightButton.disabled = participant.screen_state !== "sharing";
             spotlightButton.addEventListener("click", function () {
                 spotlightParticipantId = participant.id;
                 sendWs("teacher_view", {
                     view_mode: "spotlight_student",
                     spotlight_participant_id: participant.id
                 });
+                syncRemoteSubscriptions();
                 if (!setMainStream(participant.livekit_identity)) {
-                    setStatus("该学生还没有发布屏幕共享。");
+                    setStatus("正在接收该学生的高清投屏...");
                 }
                 renderParticipants(students);
             });
@@ -434,10 +517,10 @@
                 spotlightButton.click();
             });
 
+            infoRow.appendChild(stateDot);
             infoRow.appendChild(name);
             infoRow.appendChild(meta);
             infoRow.appendChild(actions);
-            card.appendChild(videoShell);
             card.appendChild(infoRow);
             participantList.appendChild(card);
         });
@@ -465,7 +548,19 @@
             return hasHiddenStream;
         }
         var stream = participantStreams.get(identity);
+        if (!stream) {
+            ensureRemoteVideoSubscription(identity);
+            stream = participantStreams.get(identity);
+        }
         showStreamOnMain(stream);
+        if (!stream) {
+            var participant = participantByIdentity.get(identity);
+            if (participant && participant.role === "teacher") {
+                setMainEmpty("正在接收老师屏幕", "老师共享屏幕后会显示在这里。");
+            } else {
+                setMainEmpty("正在接收投屏", "学生已共享屏幕，正在建立高清画面。");
+            }
+        }
         return Boolean(stream);
     }
 
@@ -475,10 +570,11 @@
             showStreamOnMain(null);
             return;
         }
-        if (teacherIdentity) {
+        if (role === "student" && teacherIdentity) {
             setMainStream(teacherIdentity);
             return;
         }
+        setMainEmpty(role === "teacher" ? "主屏幕" : "课堂主屏幕", role === "teacher" ? "点击上方“共享老师屏幕”，或从右侧选择学生投屏。" : "老师共享屏幕后会显示在这里。");
         showStreamOnMain(null);
     }
 
@@ -525,8 +621,9 @@
         snapshot = nextSnapshot || snapshot || {};
         var session = snapshot.session || {};
         var participants = snapshot.participants || [];
-        spotlightParticipantId = session.spotlight_participant_id || spotlightParticipantId;
+        spotlightParticipantId = session.view_mode === "spotlight_student" ? session.spotlight_participant_id : null;
         updateParticipantMaps(participants);
+        syncRemoteSubscriptions();
         setRecordingStatus(snapshot.recording);
         renderParticipants(participants);
         if (session.view_mode === "normal") {
@@ -537,7 +634,12 @@
                 return String(participant.id) === String(spotlightParticipantId);
             });
             if (spotlight) {
-                setMainStream(spotlight.livekit_identity);
+                if (spotlight.screen_state === "sharing") {
+                    setMainStream(spotlight.livekit_identity);
+                } else {
+                    showStreamOnMain(null);
+                    setMainEmpty("学生未共享", "该学生当前没有正在共享的屏幕。");
+                }
             }
         }
     }
@@ -564,23 +666,10 @@
             adaptiveStream: true,
             dynacast: true
         });
-        function shouldSubscribeToRemote(identity) {
-            if (role === "teacher") {
-                return true;
-            }
-            var knownParticipant = participantByIdentity.get(identity);
-            return Boolean(knownParticipant && knownParticipant.role === "teacher");
-        }
-        function unsubscribePublication(publication) {
-            if (publication && typeof publication.setSubscribed === "function") {
-                publication.setSubscribed(false);
-            }
-        }
         if (LiveKit.RoomEvent.TrackPublished) {
             room.on(LiveKit.RoomEvent.TrackPublished, function (publication, participant) {
-                if (!shouldSubscribeToRemote(participant.identity)) {
-                    unsubscribePublication(publication);
-                }
+                rememberRemoteVideoPublication(participant.identity, publication);
+                setPublicationSubscribed(publication, shouldSubscribeToRemote(participant.identity));
             });
         }
         room.on(LiveKit.RoomEvent.TrackSubscribed, function (track, publication, participant) {
@@ -588,9 +677,10 @@
                 return;
             }
             if (!shouldSubscribeToRemote(participant.identity)) {
-                unsubscribePublication(publication);
+                setPublicationSubscribed(publication, false);
                 return;
             }
+            rememberRemoteVideoPublication(participant.identity, publication);
             var stream = mediaStreamFromTrack(track);
             if (!stream) {
                 return;
@@ -613,6 +703,7 @@
             renderParticipants(snapshot.participants || []);
         });
         await room.connect(tokenPayload.livekit_url, tokenPayload.token);
+        syncRemoteSubscriptions();
         setStatus("已连接 LiveKit 房间。");
         return room;
     }
@@ -632,7 +723,7 @@
         var stream = null;
         try {
             stream = await navigator.mediaDevices.getDisplayMedia({
-                video: screenCaptureVideoConstraints(),
+                video: screenShareVideoConstraints(),
                 audio: false
             });
             var videoTrack = stream.getVideoTracks()[0];
