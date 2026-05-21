@@ -169,7 +169,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
 
     def test_student_join_prompt_page_keeps_lobby_websocket_root(self) -> None:
         create_live_session(self.teacher)
@@ -179,7 +179,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
 
     def test_student_active_page_keeps_share_button_above_status(self) -> None:
         session = create_live_session(self.teacher)
@@ -213,8 +213,8 @@ class LiveClassroomTests(TestCase):
         self.assertContains(response, "取消投屏")
         self.assertContains(response, "data-stage-fullscreen")
         self.assertContains(response, "历史文件")
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-spotlight-subscription-v7")
-        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-spotlight-subscription-v7")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
+        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-hd-spotlight-v8")
         self.assertNotContains(response, "compact-portal-header")
 
     def test_teacher_page_lists_downloadable_recording_history(self) -> None:
@@ -258,7 +258,10 @@ class LiveClassroomTests(TestCase):
         js_path = Path(__file__).resolve().parents[1] / "static" / "entry" / "js" / "live_classroom.js"
         source = js_path.read_text()
 
-        self.assertIn("simulcast: true", source)
+        self.assertIn("simulcast: false", source)
+        self.assertIn('degradationPreference: "maintain-resolution"', source)
+        self.assertIn("maxBitrate: 3500000", source)
+        self.assertIn("requestHighQualityVideo(publication)", source)
         self.assertIn('role === "teacher"', source)
         self.assertIn("isSpotlightIdentity(identity)", source)
         self.assertIn('participant.screen_state === "sharing"', source)

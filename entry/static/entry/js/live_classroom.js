@@ -311,23 +311,24 @@
     function screenShareVideoConstraints() {
         return {
             displaySurface: "monitor",
-            width: { ideal: 1600, max: 1920 },
-            height: { ideal: 900, max: 1080 },
-            frameRate: { ideal: 6, max: 8 }
+            width: { ideal: 1920, max: 2560 },
+            height: { ideal: 1080, max: 1440 },
+            frameRate: { ideal: 10, max: 12 }
         };
     }
 
     function screenSharePublishOptions(LiveKit, source) {
         return {
             source: source,
-            simulcast: true,
+            simulcast: false,
+            degradationPreference: "maintain-resolution",
             videoEncoding: {
-                maxBitrate: 1200000,
-                maxFramerate: 8
+                maxBitrate: 3500000,
+                maxFramerate: 12
             },
             screenShareEncoding: {
-                maxBitrate: 1200000,
-                maxFramerate: 8
+                maxBitrate: 3500000,
+                maxFramerate: 12
             }
         };
     }
@@ -425,6 +426,19 @@
         }
     }
 
+    function requestHighQualityVideo(publication) {
+        var LiveKit = window.LivekitClient || window.LiveKitClient || {};
+        if (publication && typeof publication.setVideoQuality === "function" && LiveKit.VideoQuality) {
+            publication.setVideoQuality(LiveKit.VideoQuality.HIGH);
+        }
+        if (publication && typeof publication.setVideoDimensions === "function") {
+            publication.setVideoDimensions({ width: 1920, height: 1080 });
+        }
+        if (publication && typeof publication.setVideoFPS === "function") {
+            publication.setVideoFPS(12);
+        }
+    }
+
     function isVideoPublication(publication) {
         if (!publication) {
             return false;
@@ -472,6 +486,9 @@
         remoteVideoPublications.forEach(function (publication, identity) {
             var shouldSubscribe = shouldSubscribeToRemote(identity);
             setPublicationSubscribed(publication, shouldSubscribe);
+            if (shouldSubscribe) {
+                requestHighQualityVideo(publication);
+            }
             if (!shouldSubscribe) {
                 participantStreams.delete(identity);
             }
@@ -486,6 +503,9 @@
         }
         if (publication) {
             setPublicationSubscribed(publication, shouldSubscribeToRemote(identity));
+            if (shouldSubscribeToRemote(identity)) {
+                requestHighQualityVideo(publication);
+            }
         }
     }
 
@@ -705,7 +725,11 @@
         if (LiveKit.RoomEvent.TrackPublished) {
             room.on(LiveKit.RoomEvent.TrackPublished, function (publication, participant) {
                 rememberRemoteVideoPublication(participant.identity, publication);
-                setPublicationSubscribed(publication, shouldSubscribeToRemote(participant.identity));
+                var shouldSubscribe = shouldSubscribeToRemote(participant.identity);
+                setPublicationSubscribed(publication, shouldSubscribe);
+                if (shouldSubscribe) {
+                    requestHighQualityVideo(publication);
+                }
             });
         }
         room.on(LiveKit.RoomEvent.TrackSubscribed, function (track, publication, participant) {
@@ -717,6 +741,7 @@
                 return;
             }
             rememberRemoteVideoPublication(participant.identity, publication);
+            requestHighQualityVideo(publication);
             var stream = mediaStreamFromTrack(track);
             if (!stream) {
                 return;

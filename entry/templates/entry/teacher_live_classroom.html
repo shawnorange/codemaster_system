@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-spotlight-subscription-v7">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-hd-spotlight-v8">
 {% endblock %}
 
 {% block system_content %}
@@ -103,6 +103,6 @@
 {% block extra_body_end %}
     {% if active_session %}
         <script src="{{ livekit_client_js_url }}"></script>
-        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-spotlight-subscription-v7"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-hd-spotlight-v8"></script>
     {% endif %}
 {% endblock %}
