@@ -166,7 +166,11 @@ class ClassroomLobbyConsumer(AsyncJsonWebsocketConsumer):
             await self.channel_layer.group_discard(group, self.channel_name)
 
     async def classroom_event(self, event: dict[str, Any]) -> None:
-        await self.send_json({"event": event.get("event", ""), "payload": event.get("payload", {})})
+        event_name = event.get("event", "")
+        user_payload = self.scope.get("codemaster_user") or {}
+        if event_name == "activity_summary_updated" and user_payload.get("role") != PortalUser.ROLE_TEACHER:
+            return
+        await self.send_json({"event": event_name, "payload": event.get("payload", {})})
 
 
 class ClassroomSessionConsumer(AsyncJsonWebsocketConsumer):

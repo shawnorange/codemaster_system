@@ -18,10 +18,18 @@ from .live_classroom import (
     create_live_session,
     end_live_session,
     get_accessible_session_for_user,
+    get_current_activity,
+    get_latest_activity_response_for_user,
     get_teacher_active_session,
     get_visible_active_sessions_for_student,
     join_live_session_as_student,
+    publish_live_activity,
+    serialize_activity,
+    serialize_activity_history,
+    serialize_activity_response,
+    serialize_activity_summary,
     serialize_recording,
+    submit_live_activity_response,
 )
 from .live_recording import (
     complete_browser_audio_recording,
@@ -81,6 +89,21 @@ def _parse_int(value: object) -> int:
         return int(str(value or "0").strip() or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _payload_options(payload: dict, request: HttpRequest) -> dict:
+    raw_options = payload.get("options")
+    if raw_options is None:
+        raw_options = request.POST.get("options")
+    if isinstance(raw_options, dict):
+        return raw_options
+    if isinstance(raw_options, str) and raw_options.strip():
+        try:
+            parsed = json.loads(raw_options)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _require_api_user(request: HttpRequest) -> PortalUser | JsonResponse:
@@ -173,6 +196,14 @@ def student_live_classroom(request: HttpRequest) -> HttpResponse:
 
     active_sessions = get_visible_active_sessions_for_student(student)
     snapshot = build_session_snapshot(selected_session) if selected_session else None
+    if snapshot and selected_session:
+        current_activity = get_current_activity(selected_session)
+        snapshot["activity_history"] = serialize_activity_history(selected_session, student_user=student_user)
+        snapshot["latest_activity_response"] = (
+            serialize_activity_response(get_latest_activity_response_for_user(current_activity, student_user))
+            if current_activity
+            else None
+        )
     return render(
         request,
         "entry/student_live_classroom.html",
@@ -212,6 +243,118 @@ def api_live_classroom_token(request: HttpRequest, session_id: int) -> JsonRespo
             "livekit_url": token.livekit_url,
             "room_name": token.room_name,
             "identity": token.identity,
+        }
+    )
+
+
+def api_live_classroom_activities(request: HttpRequest, session_id: int) -> JsonResponse:
+    portal_user_or_response = _require_api_user(request)
+    if isinstance(portal_user_or_response, JsonResponse):
+        return portal_user_or_response
+    portal_user = portal_user_or_response
+    if request.method not in {"GET", "POST"}:
+        return _json_error("只支持 GET 或 POST。", status=405, code="method_not_allowed")
+    try:
+        session = get_accessible_session_for_user(portal_user, session_id)
+    except PermissionDenied as exc:
+        return _json_error(str(exc), status=403, code="permission_denied")
+    except LiveClassroomError as exc:
+        return _json_error(exc.message, status=404, code=exc.code)
+
+    if request.method == "GET":
+        current_activity = get_current_activity(session)
+        student_history_user = portal_user if portal_user.role == PortalUser.ROLE_STUDENT else None
+        payload = {
+            "activity": serialize_activity(
+                current_activity,
+                include_correct_answer=portal_user.role == PortalUser.ROLE_TEACHER,
+            ),
+            "activity_history": serialize_activity_history(session, student_user=student_history_user),
+            "summary": serialize_activity_summary(current_activity, include_correct_answer=True)
+            if current_activity and portal_user.role == PortalUser.ROLE_TEACHER
+            else None,
+            "latest_response": serialize_activity_response(
+                get_latest_activity_response_for_user(current_activity, portal_user)
+            )
+            if current_activity and portal_user.role == PortalUser.ROLE_STUDENT
+            else None,
+        }
+        return JsonResponse(payload)
+
+    if portal_user.role != PortalUser.ROLE_TEACHER:
+        return _json_error("只有老师可以布置课堂任务。", status=403, code="permission_denied")
+    payload = _load_json_body(request)
+    try:
+        activity = publish_live_activity(
+            portal_user,
+            session,
+            activity_type=payload.get("activity_type") or request.POST.get("activity_type"),
+            title=payload.get("title") or request.POST.get("title"),
+            prompt_text=payload.get("prompt_text") or request.POST.get("prompt_text"),
+            options=_payload_options(payload, request),
+            correct_answer=payload.get("correct_answer") or request.POST.get("correct_answer"),
+        )
+    except PermissionDenied as exc:
+        return _json_error(str(exc), status=403, code="permission_denied")
+    except LiveClassroomError as exc:
+        status = 400 if exc.code.startswith("invalid") or exc.code.endswith("required") else 409
+        return _json_error(exc.message, status=status, code=exc.code)
+    return JsonResponse(
+        {
+            "activity": serialize_activity(activity, include_correct_answer=True),
+            "activity_history": serialize_activity_history(session),
+            "summary": serialize_activity_summary(activity, include_correct_answer=True),
+        },
+        status=201,
+    )
+
+
+def api_live_classroom_activity_response(request: HttpRequest, session_id: int, activity_id: int) -> JsonResponse:
+    portal_user_or_response = _require_api_user(request)
+    if isinstance(portal_user_or_response, JsonResponse):
+        return portal_user_or_response
+    portal_user = portal_user_or_response
+    if request.method != "POST":
+        return _json_error("只支持 POST。", status=405, code="method_not_allowed")
+    try:
+        session = get_accessible_session_for_user(portal_user, session_id)
+        payload = _load_json_body(request)
+        response = submit_live_activity_response(
+            portal_user,
+            session,
+            activity_id=activity_id,
+            answer=payload.get("answer") or request.POST.get("answer"),
+        )
+    except PermissionDenied as exc:
+        return _json_error(str(exc), status=403, code="permission_denied")
+    except LiveClassroomError as exc:
+        status = 404 if exc.code == "activity_not_found" else 400
+        return _json_error(exc.message, status=status, code=exc.code)
+    return JsonResponse({"response": serialize_activity_response(response)}, status=201)
+
+
+def api_live_classroom_activity_summary(request: HttpRequest, session_id: int, activity_id: int) -> JsonResponse:
+    portal_user_or_response = _require_api_user(request)
+    if isinstance(portal_user_or_response, JsonResponse):
+        return portal_user_or_response
+    teacher = portal_user_or_response
+    if teacher.role != PortalUser.ROLE_TEACHER:
+        return _json_error("只有老师可以查看课堂任务汇总。", status=403, code="permission_denied")
+    if request.method != "GET":
+        return _json_error("只支持 GET。", status=405, code="method_not_allowed")
+    try:
+        session = get_accessible_session_for_user(teacher, session_id)
+    except PermissionDenied as exc:
+        return _json_error(str(exc), status=403, code="permission_denied")
+    except LiveClassroomError as exc:
+        return _json_error(exc.message, status=404, code=exc.code)
+    activity = session.activities.filter(id=activity_id).first()
+    if activity is None:
+        return _json_error("课堂任务不存在。", status=404, code="activity_not_found")
+    return JsonResponse(
+        {
+            "activity": serialize_activity(activity, include_correct_answer=True),
+            "summary": serialize_activity_summary(activity, include_correct_answer=True),
         }
     )
 

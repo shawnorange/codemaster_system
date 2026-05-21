@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from io import StringIO
+import json
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from django.utils import timezone
 
 from entry.auth import AUTH_COOKIE_NAME, build_auth_token, build_user_payload
 from entry.live_classroom import (
+    build_session_snapshot,
     build_livekit_join_token,
     create_live_session,
     end_live_session,
@@ -25,6 +27,8 @@ from entry.live_classroom import (
 from entry.live_recording import resolve_recording_file_path
 from entry.live_views import _load_json_body
 from entry.models import (
+    ClassroomLiveActivity,
+    ClassroomLiveActivityResponse,
     ClassroomLiveParticipant,
     ClassroomLiveRecording,
     ClassroomLiveSession,
@@ -169,7 +173,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
 
     def test_student_join_prompt_page_keeps_lobby_websocket_root(self) -> None:
         create_live_session(self.teacher)
@@ -179,7 +183,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
 
     def test_student_active_page_keeps_share_button_above_status(self) -> None:
         session = create_live_session(self.teacher)
@@ -212,10 +216,220 @@ class LiveClassroomTests(TestCase):
         self.assertContains(response, "停止共享")
         self.assertContains(response, "取消投屏")
         self.assertContains(response, "data-stage-fullscreen")
-        self.assertContains(response, "历史文件")
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-hd-spotlight-v8")
-        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-hd-spotlight-v8")
+        self.assertNotContains(response, "历史文件")
+        self.assertNotContains(response, "data-recording-history-list")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
+        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-task-review-v3")
         self.assertNotContains(response, "compact-portal-header")
+
+    def test_teacher_active_page_exposes_classroom_task_controls(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+
+        response = client.get(f"{reverse('teacher-live-classroom')}?session_id={session.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "课堂任务")
+        self.assertContains(response, 'data-open-activity-dialog')
+        self.assertContains(response, 'data-activity-summary')
+        self.assertContains(response, reverse("api-live-classroom-activities", args=[session.id]))
+
+    def test_student_active_page_exposes_single_task_drawer(self) -> None:
+        session = create_live_session(self.teacher)
+        join_live_session_as_student(self.student_user, session)
+        client = self.authenticated_client(self.student_user)
+
+        response = client.get(f"{reverse('student-live-classroom')}?session_id={session.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-task-drawer')
+        self.assertContains(response, 'data-task-drawer-toggle')
+        self.assertContains(response, reverse("api-live-classroom-activities", args=[session.id]))
+
+    def test_teacher_can_publish_activity_and_new_activity_closes_previous(self) -> None:
+        session = create_live_session(self.teacher)
+        join_live_session_as_student(self.student_user, session)
+        client = self.authenticated_client(self.teacher)
+        url = reverse("api-live-classroom-activities", args=[session.id])
+
+        first_response = client.post(
+            url,
+            data=json.dumps(
+                {
+                    "activity_type": ClassroomLiveActivity.TYPE_SINGLE_CHOICE,
+                    "title": "第一题",
+                    "prompt_text": "以下哪个是整型？",
+                    "options": {"A": "int", "B": "cout"},
+                    "correct_answer": "A",
+                }
+            ),
+            content_type="application/json",
+        )
+        second_response = client.post(
+            url,
+            data=json.dumps(
+                {
+                    "activity_type": ClassroomLiveActivity.TYPE_TRUE_FALSE,
+                    "title": "第二题",
+                    "prompt_text": "C++ 变量需要先声明再使用。",
+                    "correct_answer": "true",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 201)
+        first_activity = ClassroomLiveActivity.objects.get(title="第一题")
+        second_activity = ClassroomLiveActivity.objects.get(title="第二题")
+        self.assertEqual(first_activity.status, ClassroomLiveActivity.STATUS_CLOSED)
+        self.assertEqual(second_activity.status, ClassroomLiveActivity.STATUS_PUBLISHED)
+        self.assertEqual(ClassroomLiveActivity.objects.filter(session=session).count(), 2)
+        payload = second_response.json()
+        self.assertEqual(payload["activity"]["activity_type"], ClassroomLiveActivity.TYPE_TRUE_FALSE)
+        self.assertEqual(payload["activity"]["correct_answer"], "true")
+        self.assertEqual(payload["summary"]["total_students"], 1)
+
+    def test_student_activity_response_records_every_attempt_and_updates_summary(self) -> None:
+        session = create_live_session(self.teacher)
+        join_live_session_as_student(self.student_user, session)
+        teacher_client = self.authenticated_client(self.teacher)
+        student_client = self.authenticated_client(self.student_user)
+        activity_url = reverse("api-live-classroom-activities", args=[session.id])
+        activity = teacher_client.post(
+            activity_url,
+            data=json.dumps(
+                {
+                    "activity_type": ClassroomLiveActivity.TYPE_SINGLE_CHOICE,
+                    "title": "变量题",
+                    "prompt_text": "哪个关键字声明整数？",
+                    "options": {"A": "int", "B": "float"},
+                    "correct_answer": "A",
+                }
+            ),
+            content_type="application/json",
+        ).json()["activity"]
+        response_url = reverse("api-live-classroom-activity-response", args=[session.id, activity["id"]])
+
+        first = student_client.post(response_url, data=json.dumps({"answer": "B"}), content_type="application/json")
+        second = student_client.post(response_url, data=json.dumps({"answer": "A"}), content_type="application/json")
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(ClassroomLiveActivityResponse.objects.filter(activity_id=activity["id"]).count(), 2)
+        latest = ClassroomLiveActivityResponse.objects.order_by("-created_at", "-id").first()
+        self.assertEqual(latest.answer, "A")
+        self.assertEqual(latest.attempt_no, 2)
+        self.assertTrue(latest.is_correct)
+
+        summary_url = reverse("api-live-classroom-activity-summary", args=[session.id, activity["id"]])
+        summary_response = teacher_client.get(summary_url)
+        self.assertEqual(summary_response.status_code, 200)
+        summary = summary_response.json()["summary"]
+        self.assertEqual(summary["submitted_count"], 1)
+        self.assertEqual(summary["answer_counts"]["A"], 1)
+        self.assertEqual(summary["response_count"], 2)
+        self.assertEqual(summary["students"][0]["attempt_count"], 2)
+
+        student_state_response = student_client.get(activity_url)
+        teacher_state_response = teacher_client.get(activity_url)
+        self.assertEqual(student_state_response.status_code, 200)
+        self.assertEqual(teacher_state_response.status_code, 200)
+        student_history_item = student_state_response.json()["activity_history"][0]
+        self.assertEqual(student_history_item["prompt_text"], "哪个关键字声明整数？")
+        self.assertEqual(student_history_item["latest_response"]["answer"], "A")
+        self.assertEqual(student_history_item["latest_response"]["attempt_no"], 2)
+        self.assertNotIn("correct_answer", student_history_item)
+        self.assertNotIn("latest_response", teacher_state_response.json()["activity_history"][0])
+
+    def test_session_snapshot_does_not_expose_activity_summary_to_students(self) -> None:
+        session = create_live_session(self.teacher)
+        join_live_session_as_student(self.student_user, session)
+        ClassroomLiveActivity.objects.create(
+            session=session,
+            teacher=self.teacher,
+            activity_type=ClassroomLiveActivity.TYPE_SINGLE_CHOICE,
+            title="隐私题",
+            prompt_text="哪个答案正确？",
+            options_json={"A": "选项一", "B": "选项二"},
+            correct_answer="A",
+        )
+
+        snapshot = build_session_snapshot(session)
+
+        self.assertIn("current_activity", snapshot)
+        self.assertNotIn("activity_summary", snapshot)
+        self.assertNotIn("correct_answer", snapshot["current_activity"])
+
+    def test_session_snapshot_keeps_all_activity_history(self) -> None:
+        session = create_live_session(self.teacher)
+        for index in range(12):
+            ClassroomLiveActivity.objects.create(
+                session=session,
+                teacher=self.teacher,
+                activity_type=ClassroomLiveActivity.TYPE_TRUE_FALSE,
+                title=f"历史题 {index}",
+                prompt_text="C++ 语句通常以分号结束。",
+                options_json={"true": "正确", "false": "错误"},
+                status=ClassroomLiveActivity.STATUS_CLOSED if index < 11 else ClassroomLiveActivity.STATUS_PUBLISHED,
+            )
+
+        snapshot = build_session_snapshot(session)
+
+        self.assertEqual(len(snapshot["activity_history"]), 12)
+        self.assertEqual(snapshot["current_activity"]["title"], "历史题 11")
+
+    def test_student_cannot_publish_and_unassigned_student_cannot_submit_activity(self) -> None:
+        session = create_live_session(self.teacher)
+        activity = ClassroomLiveActivity.objects.create(
+            session=session,
+            teacher=self.teacher,
+            activity_type=ClassroomLiveActivity.TYPE_TRUE_FALSE,
+            title="判断题",
+            prompt_text="C++ 使用分号结束语句。",
+            options_json={"true": "正确", "false": "错误"},
+        )
+        student_client = self.authenticated_client(self.student_user)
+        publish_response = student_client.post(
+            reverse("api-live-classroom-activities", args=[session.id]),
+            data=json.dumps({"activity_type": "true_false", "prompt_text": "x"}),
+            content_type="application/json",
+        )
+
+        outsider_user = self.create_user("student-outsider-live", PortalUser.ROLE_STUDENT, "学生乙")
+        Student.objects.create(user=outsider_user, display_name="学生乙", grade="五年级")
+        outsider_client = self.authenticated_client(outsider_user)
+        submit_response = outsider_client.post(
+            reverse("api-live-classroom-activity-response", args=[session.id, activity.id]),
+            data=json.dumps({"answer": "true"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(publish_response.status_code, 403)
+        self.assertEqual(submit_response.status_code, 403)
+
+    def test_activity_submit_rejects_closed_session(self) -> None:
+        session = create_live_session(self.teacher)
+        join_live_session_as_student(self.student_user, session)
+        activity = ClassroomLiveActivity.objects.create(
+            session=session,
+            teacher=self.teacher,
+            activity_type=ClassroomLiveActivity.TYPE_TRUE_FALSE,
+            title="判断题",
+            prompt_text="C++ 可以定义变量。",
+            options_json={"true": "正确", "false": "错误"},
+        )
+        end_live_session(self.teacher, session)
+        client = self.authenticated_client(self.student_user)
+
+        response = client.post(
+            reverse("api-live-classroom-activity-response", args=[session.id, activity.id]),
+            data=json.dumps({"answer": "true"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(ClassroomLiveActivityResponse.objects.count(), 0)
 
     def test_teacher_page_lists_downloadable_recording_history(self) -> None:
         session = create_live_session(self.teacher)
@@ -237,7 +451,8 @@ class LiveClassroomTests(TestCase):
                 expires_at=timezone.now() + timedelta(days=15),
             )
 
-            response = client.get(f"{reverse('teacher-live-classroom')}?session_id={session.id}")
+            end_live_session(self.teacher, session)
+            response = client.get(reverse("teacher-live-classroom"))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "历史文件")
@@ -265,6 +480,20 @@ class LiveClassroomTests(TestCase):
         self.assertIn('role === "teacher"', source)
         self.assertIn("isSpotlightIdentity(identity)", source)
         self.assertIn('participant.screen_state === "sharing"', source)
+
+    def test_live_classroom_js_handles_activity_drawer_and_summary_events(self) -> None:
+        js_path = Path(__file__).resolve().parents[1] / "static" / "entry" / "js" / "live_classroom.js"
+        source = js_path.read_text()
+
+        self.assertIn('message.event === "activity_published"', source)
+        self.assertIn('message.event === "activity_summary_updated"', source)
+        self.assertIn("renderTaskDrawer", source)
+        self.assertIn("activityHistoryGroupLabel", source)
+        self.assertIn("live-classroom-task-history__group", source)
+        self.assertIn("live-classroom-task-history__prompt", source)
+        self.assertIn("你的选择：", source)
+        self.assertIn("publishActivityFromForm", source)
+        self.assertIn("submitActivityAnswer", source)
 
     def test_teacher_recording_api_accepts_browser_audio_upload(self) -> None:
         session = create_live_session(self.teacher)

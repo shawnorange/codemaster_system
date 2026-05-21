@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-hd-spotlight-v8">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-task-review-v3">
 {% endblock %}
 
 {% block system_content %}
@@ -16,6 +16,7 @@
             data-session-id="{{ active_session.id }}"
             data-token-url="{% url 'api-live-classroom-token' active_session.id %}"
             data-recording-url="{% url 'api-live-classroom-recording' active_session.id %}"
+            data-activity-url="{% url 'api-live-classroom-activities' active_session.id %}"
         >
             {{ snapshot|json_script:"live-classroom-snapshot" }}
             <div class="live-classroom-toolbar">
@@ -29,6 +30,51 @@
                 </form>
                 <button class="system-header__link live-classroom-link-button" type="button" data-recording-action="start_screen">开始录屏</button>
                 <button class="system-header__link live-classroom-link-button" type="button" data-recording-action="stop_screen">停止录屏</button>
+                <button class="system-header__link live-classroom-link-button" type="button" data-open-activity-dialog>课堂任务</button>
+            </div>
+            <div class="live-classroom-dialog" data-activity-dialog hidden>
+                <div class="live-classroom-dialog__panel">
+                    <div class="live-classroom-dialog__header">
+                        <strong>课堂任务</strong>
+                        <button type="button" data-close-activity-dialog>关闭</button>
+                    </div>
+                    <form class="live-classroom-task-form" data-activity-form>
+                        <label>
+                            <span>题型</span>
+                            <select name="activity_type" data-activity-type>
+                                <option value="single_choice">选择题</option>
+                                <option value="true_false">判断题</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>标题</span>
+                            <input type="text" name="title" maxlength="128" placeholder="例如：变量类型快速检查">
+                        </label>
+                        <label>
+                            <span>题面</span>
+                            <textarea name="prompt_text" rows="7" required placeholder="粘贴题面"></textarea>
+                        </label>
+                        <div class="live-classroom-task-options" data-choice-options>
+                            <label><span>A</span><input type="text" data-option-key="A"></label>
+                            <label><span>B</span><input type="text" data-option-key="B"></label>
+                            <label><span>C</span><input type="text" data-option-key="C"></label>
+                            <label><span>D</span><input type="text" data-option-key="D"></label>
+                        </div>
+                        <label>
+                            <span>正确答案</span>
+                            <select name="correct_answer" data-correct-answer>
+                                <option value="">暂不设置</option>
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                                <option value="D">D</option>
+                            </select>
+                        </label>
+                        <div class="live-classroom-dialog__actions">
+                            <button class="login-button live-classroom-primary-button" type="submit">布置完成</button>
+                        </div>
+                    </form>
+                </div>
             </div>
             <div class="live-classroom__main">
                 <div class="live-classroom-stage" data-main-stage>
@@ -47,23 +93,7 @@
                 </div>
                 <div class="live-classroom-status" data-live-status>正在连接课堂状态...</div>
                 <div class="live-classroom-recording" data-recording-status>录制状态：未开始</div>
-                <div class="live-classroom-recording-history">
-                    <div class="live-classroom-recording-history__title">历史文件</div>
-                    <div class="live-classroom-recording-history__list" data-recording-history-list>
-                        {% for recording in recording_history %}
-                            <a
-                                class="live-classroom-recording-history__item is-completed"
-                                href="{% url 'api-live-classroom-recording-download' recording.id %}"
-                                data-recording-history-id="{{ recording.id }}"
-                                data-recording-sort-at="{{ recording.ended_at|date:'U' }}000"
-                            >
-                                {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %} · 已完成{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
-                            </a>
-                        {% empty %}
-                            <span>暂无可下载文件</span>
-                        {% endfor %}
-                    </div>
-                </div>
+                <div class="live-classroom-task-summary" data-activity-summary></div>
                 <div class="live-classroom-participants" data-participant-list></div>
             </aside>
         </section>
@@ -103,6 +133,6 @@
 {% block extra_body_end %}
     {% if active_session %}
         <script src="{{ livekit_client_js_url }}"></script>
-        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-hd-spotlight-v8"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-task-review-v3"></script>
     {% endif %}
 {% endblock %}

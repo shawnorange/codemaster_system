@@ -2,6 +2,9 @@ from django.urls import path
 
 from .hermes_api import api_hermes_oj_weekly_stats, api_hermes_oj_weekly_stats_import
 from .live_views import (
+    api_live_classroom_activities,
+    api_live_classroom_activity_response,
+    api_live_classroom_activity_summary,
     api_live_classroom_recording_download,
     api_live_classroom_recording,
     api_live_classroom_token,
@@ -95,6 +98,21 @@ urlpatterns = [
     path("api/miniapp/login", api_miniapp_login, name="api-miniapp-login"),
     path("api/miniapp/login_by_phone", api_miniapp_login_by_phone, name="api-miniapp-login-by-phone"),
     path("api/live-classroom/sessions/<int:session_id>/token", api_live_classroom_token, name="api-live-classroom-token"),
+    path(
+        "api/live-classroom/sessions/<int:session_id>/activities",
+        api_live_classroom_activities,
+        name="api-live-classroom-activities",
+    ),
+    path(
+        "api/live-classroom/sessions/<int:session_id>/activities/<int:activity_id>/responses",
+        api_live_classroom_activity_response,
+        name="api-live-classroom-activity-response",
+    ),
+    path(
+        "api/live-classroom/sessions/<int:session_id>/activities/<int:activity_id>/summary",
+        api_live_classroom_activity_summary,
+        name="api-live-classroom-activity-summary",
+    ),
     path(
         "api/live-classroom/sessions/<int:session_id>/recording",
         api_live_classroom_recording,

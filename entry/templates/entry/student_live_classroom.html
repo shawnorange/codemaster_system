@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-hd-spotlight-v8">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-task-review-v3">
 {% endblock %}
 
 {% block system_content %}
@@ -19,6 +19,7 @@
             data-role="student"
             data-session-id="{{ active_session.id }}"
             data-token-url="{% url 'api-live-classroom-token' active_session.id %}"
+            data-activity-url="{% url 'api-live-classroom-activities' active_session.id %}"
         >
             {{ snapshot|json_script:"live-classroom-snapshot" }}
             <div class="live-classroom__main">
@@ -42,6 +43,16 @@
                 <div class="live-classroom-status" data-live-status>正在连接课堂...</div>
                 <div class="entry-hint-bar">
                     浏览器选择器弹出后，必须选择整个显示器。系统会在选择后检查共享类型。
+                </div>
+            </aside>
+            <button class="live-classroom-task-fab" type="button" data-task-drawer-toggle hidden>课堂任务</button>
+            <aside class="live-classroom-task-drawer" data-task-drawer hidden>
+                <div class="live-classroom-task-drawer__header">
+                    <strong>课堂任务</strong>
+                    <button type="button" data-task-drawer-close>收起</button>
+                </div>
+                <div class="live-classroom-task-drawer__body" data-task-drawer-body>
+                    <div class="live-classroom-task-empty">暂无课堂任务</div>
                 </div>
             </aside>
         </section>
@@ -91,5 +102,5 @@
 
 {% block extra_body_end %}
     <script src="{{ livekit_client_js_url }}"></script>
-    <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-hd-spotlight-v8"></script>
+    <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-task-review-v3"></script>
 {% endblock %}

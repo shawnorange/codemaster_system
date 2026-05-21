@@ -399,6 +399,294 @@ body:has(.live-classroom) .system-main {
     gap: 8px;
 }
 
+.live-classroom-dialog[hidden],
+.live-classroom-task-drawer[hidden],
+.live-classroom-task-fab[hidden] {
+    display: none;
+}
+
+.live-classroom-dialog {
+    align-items: center;
+    background: rgba(15, 23, 42, 0.42);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 24px;
+    position: fixed;
+    z-index: 40;
+}
+
+.live-classroom-dialog__panel {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.25);
+    max-height: min(760px, 92vh);
+    max-width: 680px;
+    overflow: auto;
+    padding: 18px;
+    width: min(680px, 100%);
+}
+
+.live-classroom-dialog__header,
+.live-classroom-dialog__actions {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+}
+
+.live-classroom-dialog__header {
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+}
+
+.live-classroom-task-form {
+    display: grid;
+    gap: 12px;
+}
+
+.live-classroom-task-form label {
+    color: #334155;
+    display: grid;
+    font-size: 13px;
+    font-weight: 700;
+    gap: 6px;
+}
+
+.live-classroom-task-form input,
+.live-classroom-task-form select,
+.live-classroom-task-form textarea {
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font: inherit;
+    padding: 9px 10px;
+}
+
+.live-classroom-task-options {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.live-classroom-task-options label {
+    grid-template-columns: 24px minmax(0, 1fr);
+}
+
+.live-classroom-task-summary {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+}
+
+.live-classroom-task-summary:empty {
+    display: none;
+}
+
+.live-classroom-task-summary__title {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.live-classroom-task-summary__meta,
+.live-classroom-task-summary__student {
+    color: #475569;
+    font-size: 12px;
+}
+
+.live-classroom-task-summary__counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.live-classroom-task-summary__counts span {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 6px;
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 7px;
+}
+
+.live-classroom-task-summary__students {
+    display: grid;
+    gap: 4px;
+    max-height: 160px;
+    overflow: auto;
+}
+
+.live-classroom-task-fab {
+    bottom: 22px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
+    position: fixed;
+    right: 22px;
+    z-index: 25;
+}
+
+.live-classroom-task-drawer {
+    background: #fff;
+    border-left: 1px solid #dbe3ef;
+    box-shadow: -18px 0 60px rgba(15, 23, 42, 0.18);
+    display: flex;
+    flex-direction: column;
+    max-width: min(420px, calc(100vw - 28px));
+    position: fixed;
+    right: 0;
+    top: 86px;
+    width: 390px;
+    z-index: 24;
+}
+
+.live-classroom-task-drawer__header {
+    align-items: center;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 14px;
+}
+
+.live-classroom-task-drawer__body {
+    display: grid;
+    gap: 12px;
+    max-height: calc(100vh - 150px);
+    overflow: auto;
+    padding: 14px;
+}
+
+.live-classroom-task-current {
+    display: grid;
+    gap: 10px;
+}
+
+.live-classroom-task-current h3 {
+    color: #111827;
+    font-size: 17px;
+    line-height: 1.35;
+    margin: 0;
+}
+
+.live-classroom-task-current__eyebrow,
+.live-classroom-task-empty {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.live-classroom-task-current__prompt {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #1f2937;
+    font-size: 14px;
+    line-height: 1.6;
+    max-height: 240px;
+    overflow: auto;
+    padding: 10px;
+    white-space: pre-wrap;
+}
+
+.live-classroom-task-answer {
+    display: grid;
+    gap: 8px;
+}
+
+.live-classroom-task-answer label {
+    align-items: flex-start;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    color: #1f2937;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 9px;
+}
+
+.live-classroom-task-answer__latest,
+.live-classroom-task-history__item {
+    color: #475569;
+    font-size: 12px;
+}
+
+.live-classroom-task-history {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 10px;
+}
+
+.live-classroom-task-history summary {
+    color: #334155;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.live-classroom-task-history__group {
+    border-left: 2px solid #e2e8f0;
+    margin-top: 8px;
+    padding-left: 10px;
+}
+
+.live-classroom-task-history__group summary {
+    color: #475569;
+    font-size: 12px;
+}
+
+.live-classroom-task-history__item {
+    border-bottom: 1px solid #eef2f7;
+    line-height: 1.45;
+    padding: 7px 0;
+}
+
+.live-classroom-task-history__item summary {
+    color: #334155;
+    font-size: 12px;
+}
+
+.live-classroom-task-history__prompt {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #1f2937;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-top: 8px;
+    max-height: 180px;
+    overflow: auto;
+    padding: 8px;
+    white-space: pre-wrap;
+}
+
+.live-classroom-task-history__answer {
+    color: #0f766e;
+    font-size: 12px;
+    font-weight: 800;
+    margin-top: 8px;
+}
+
+.live-classroom-task-history__options {
+    display: grid;
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.live-classroom-task-history__option {
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    color: #475569;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+.live-classroom-task-history__option.is-selected {
+    background: #ecfdf5;
+    border-color: #5eead4;
+    color: #115e59;
+    font-weight: 800;
+}
+
 @media (max-width: 920px) {
     .live-classroom,
     .live-classroom--student {
@@ -413,5 +701,17 @@ body:has(.live-classroom) .system-main {
 
     .live-classroom-participants {
         max-height: 420px;
+    }
+
+    .live-classroom-task-options {
+        grid-template-columns: 1fr;
+    }
+
+    .live-classroom-task-drawer {
+        left: 14px;
+        max-width: none;
+        right: 14px;
+        top: 74px;
+        width: auto;
     }
 }

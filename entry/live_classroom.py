@@ -8,11 +8,13 @@ from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import (
+    ClassroomLiveActivity,
+    ClassroomLiveActivityResponse,
     ClassroomLiveParticipant,
     ClassroomLiveRecording,
     ClassroomLiveSession,
@@ -36,6 +38,10 @@ class LiveKitJoinToken:
     livekit_url: str
     room_name: str
     identity: str
+
+
+ANSWER_OPTIONS = ("A", "B", "C", "D", "E", "F")
+TRUE_FALSE_OPTIONS = {"true": "正确", "false": "错误"}
 
 
 def lobby_group_name_for_teacher(teacher_id: int) -> str:
@@ -302,6 +308,320 @@ def update_teacher_view_state(
     return session
 
 
+def _clean_text(value: object, *, max_length: int = 10000) -> str:
+    return str(value or "").strip()[:max_length]
+
+
+def _normalize_activity_type(activity_type: object) -> str:
+    normalized = _clean_text(activity_type, max_length=32)
+    allowed = {choice[0] for choice in ClassroomLiveActivity.TYPE_CHOICES}
+    if normalized not in allowed:
+        raise LiveClassroomError("不支持的题型。", code="invalid_activity_type")
+    return normalized
+
+
+def _normalize_answer(answer: object, activity_type: str) -> str:
+    normalized = _clean_text(answer, max_length=16)
+    if activity_type == ClassroomLiveActivity.TYPE_SINGLE_CHOICE:
+        normalized = normalized.upper()
+        if normalized not in ANSWER_OPTIONS:
+            raise LiveClassroomError("选择题答案必须是 A-F。", code="invalid_answer")
+        return normalized
+    if activity_type == ClassroomLiveActivity.TYPE_TRUE_FALSE:
+        lowered = normalized.lower()
+        truthy = {"true", "t", "yes", "y", "1", "正确", "对"}
+        falsy = {"false", "f", "no", "n", "0", "错误", "错"}
+        if lowered in truthy or normalized in truthy:
+            return "true"
+        if lowered in falsy or normalized in falsy:
+            return "false"
+    raise LiveClassroomError("判断题答案必须是正确或错误。", code="invalid_answer")
+
+
+def _normalize_options(activity_type: str, options: object) -> dict[str, str]:
+    if activity_type == ClassroomLiveActivity.TYPE_TRUE_FALSE:
+        return TRUE_FALSE_OPTIONS.copy()
+    if not isinstance(options, dict):
+        raise LiveClassroomError("选择题需要提供选项。", code="invalid_options")
+    normalized: dict[str, str] = {}
+    for key in ANSWER_OPTIONS:
+        value = _clean_text(options.get(key) or options.get(key.lower()), max_length=500)
+        if value:
+            normalized[key] = value
+    if len(normalized) < 2:
+        raise LiveClassroomError("选择题至少需要 2 个选项。", code="invalid_options")
+    return normalized
+
+
+def get_current_activity(session: ClassroomLiveSession) -> ClassroomLiveActivity | None:
+    return (
+        ClassroomLiveActivity.objects.filter(
+            session=session,
+            status=ClassroomLiveActivity.STATUS_PUBLISHED,
+        )
+        .order_by("-published_at", "-id")
+        .first()
+    )
+
+
+def serialize_activity(activity: ClassroomLiveActivity | None, *, include_correct_answer: bool = False) -> dict[str, Any] | None:
+    if activity is None:
+        return None
+    payload = {
+        "id": activity.id,
+        "session_id": activity.session_id,
+        "activity_type": activity.activity_type,
+        "title": activity.title,
+        "prompt_text": activity.prompt_text,
+        "options": activity.options_json or {},
+        "status": activity.status,
+        "has_correct_answer": bool(activity.correct_answer),
+        "published_at": activity.published_at.isoformat() if activity.published_at else "",
+        "closed_at": activity.closed_at.isoformat() if activity.closed_at else "",
+    }
+    if include_correct_answer:
+        payload["correct_answer"] = activity.correct_answer
+    return payload
+
+
+def serialize_activity_response(
+    response: ClassroomLiveActivityResponse | None,
+    *,
+    include_correctness: bool = False,
+) -> dict[str, Any] | None:
+    if response is None:
+        return None
+    payload = {
+        "id": response.id,
+        "activity_id": response.activity_id,
+        "session_id": response.session_id,
+        "participant_id": response.participant_id,
+        "student_id": response.student_id,
+        "answer": response.answer,
+        "attempt_no": response.attempt_no,
+        "submitted_at": response.created_at.isoformat() if response.created_at else "",
+    }
+    if include_correctness:
+        payload["is_correct"] = response.is_correct
+    return payload
+
+
+def get_latest_activity_response_for_user(
+    activity: ClassroomLiveActivity,
+    student_user: PortalUser,
+) -> ClassroomLiveActivityResponse | None:
+    if student_user.role != PortalUser.ROLE_STUDENT:
+        return None
+    student = get_student_by_user(student_user)
+    return (
+        ClassroomLiveActivityResponse.objects.filter(activity=activity, student=student)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+
+
+def serialize_activity_history(
+    session: ClassroomLiveSession,
+    *,
+    student_user: PortalUser | None = None,
+) -> list[dict[str, Any]]:
+    activities = ClassroomLiveActivity.objects.filter(session=session).order_by("-published_at", "-id")
+    if not student_user or student_user.role != PortalUser.ROLE_STUDENT:
+        return [serialize_activity(activity) for activity in activities if activity]
+
+    student = get_student_by_user(student_user)
+    latest_by_activity: dict[int, ClassroomLiveActivityResponse] = {}
+    responses = (
+        ClassroomLiveActivityResponse.objects.filter(activity__in=activities, student=student)
+        .order_by("-created_at", "-id")
+    )
+    for response in responses:
+        if response.activity_id not in latest_by_activity:
+            latest_by_activity[response.activity_id] = response
+
+    history: list[dict[str, Any]] = []
+    for activity in activities:
+        payload = serialize_activity(activity)
+        if payload:
+            payload["latest_response"] = serialize_activity_response(latest_by_activity.get(activity.id))
+            history.append(payload)
+    return history
+
+
+def _latest_responses_by_student(activity: ClassroomLiveActivity) -> dict[int, ClassroomLiveActivityResponse]:
+    latest: dict[int, ClassroomLiveActivityResponse] = {}
+    responses = (
+        ClassroomLiveActivityResponse.objects.select_related("student", "participant")
+        .filter(activity=activity)
+        .order_by("-created_at", "-id")
+    )
+    for response in responses:
+        if response.student_id not in latest:
+            latest[response.student_id] = response
+    return latest
+
+
+def serialize_activity_summary(activity: ClassroomLiveActivity, *, include_correct_answer: bool = False) -> dict[str, Any]:
+    participants = list(
+        ClassroomLiveParticipant.objects.select_related("student", "portal_user")
+        .filter(session=activity.session, role=ClassroomLiveParticipant.ROLE_STUDENT, student__isnull=False)
+        .order_by("student__display_name", "id")
+    )
+    latest_by_student = _latest_responses_by_student(activity)
+    attempt_counts = dict(
+        ClassroomLiveActivityResponse.objects.filter(activity=activity)
+        .values("student_id")
+        .annotate(total=Count("id"))
+        .values_list("student_id", "total")
+    )
+    answer_counts = {key: 0 for key in (activity.options_json or {}).keys()}
+    students: list[dict[str, Any]] = []
+    submitted_count = 0
+    for participant in participants:
+        latest = latest_by_student.get(participant.student_id)
+        if latest:
+            submitted_count += 1
+            answer_counts[latest.answer] = answer_counts.get(latest.answer, 0) + 1
+        students.append(
+            {
+                "participant_id": participant.id,
+                "student_id": participant.student_id,
+                "student_name": participant.student.display_name if participant.student else participant.portal_user.full_name,
+                "latest_answer": latest.answer if latest else "",
+                "is_correct": latest.is_correct if include_correct_answer and latest else None,
+                "submitted_at": latest.created_at.isoformat() if latest else "",
+                "attempt_count": attempt_counts.get(participant.student_id, 0),
+            }
+        )
+    summary = {
+        "activity_id": activity.id,
+        "total_students": len(participants),
+        "submitted_count": submitted_count,
+        "unsubmitted_count": max(len(participants) - submitted_count, 0),
+        "answer_counts": answer_counts,
+        "students": students,
+        "response_count": ClassroomLiveActivityResponse.objects.filter(activity=activity).count(),
+    }
+    if include_correct_answer:
+        summary["correct_answer"] = activity.correct_answer
+    return summary
+
+
+def publish_live_activity(
+    teacher: PortalUser,
+    session: ClassroomLiveSession,
+    *,
+    activity_type: object,
+    title: object,
+    prompt_text: object,
+    options: object,
+    correct_answer: object = "",
+) -> ClassroomLiveActivity:
+    if not teacher_can_access_session(teacher, session):
+        raise PermissionDenied("无权给该课堂布置任务。")
+    if session.status != ClassroomLiveSession.STATUS_ACTIVE:
+        raise LiveClassroomError("课堂已结束，不能布置任务。", code="session_not_active")
+
+    normalized_type = _normalize_activity_type(activity_type)
+    normalized_prompt = _clean_text(prompt_text)
+    if not normalized_prompt:
+        raise LiveClassroomError("题面不能为空。", code="prompt_required")
+    normalized_options = _normalize_options(normalized_type, options)
+    normalized_answer = ""
+    if _clean_text(correct_answer, max_length=16):
+        normalized_answer = _normalize_answer(correct_answer, normalized_type)
+        if normalized_answer not in normalized_options:
+            raise LiveClassroomError("正确答案必须属于当前选项。", code="invalid_correct_answer")
+    normalized_title = _clean_text(title, max_length=128) or normalized_prompt.splitlines()[0][:64] or "课堂任务"
+
+    with transaction.atomic():
+        now = timezone.now()
+        ClassroomLiveActivity.objects.select_for_update().filter(
+            session=session,
+            status=ClassroomLiveActivity.STATUS_PUBLISHED,
+        ).update(status=ClassroomLiveActivity.STATUS_CLOSED, closed_at=now, updated_at=now)
+        activity = ClassroomLiveActivity.objects.create(
+            session=session,
+            teacher=teacher,
+            activity_type=normalized_type,
+            title=normalized_title,
+            prompt_text=normalized_prompt,
+            options_json=normalized_options,
+            correct_answer=normalized_answer,
+        )
+
+    broadcast_session_event(
+        session.id,
+        "activity_published",
+        {
+            "activity": serialize_activity(activity),
+            "activity_history": serialize_activity_history(session),
+        },
+    )
+    return activity
+
+
+def submit_live_activity_response(
+    student_user: PortalUser,
+    session: ClassroomLiveSession,
+    *,
+    activity_id: int,
+    answer: object,
+) -> ClassroomLiveActivityResponse:
+    if student_user.role != PortalUser.ROLE_STUDENT:
+        raise PermissionDenied("只有学生可以提交课堂任务。")
+    student = get_student_by_user(student_user)
+    if not student_can_access_session(student, session):
+        raise PermissionDenied("无权提交该课堂任务。")
+    if session.status != ClassroomLiveSession.STATUS_ACTIVE:
+        raise LiveClassroomError("课堂已结束，不能提交答案。", code="session_not_active")
+
+    activity = (
+        ClassroomLiveActivity.objects.select_related("session")
+        .filter(id=activity_id, session=session)
+        .first()
+    )
+    if activity is None:
+        raise LiveClassroomError("课堂任务不存在。", code="activity_not_found")
+    if activity.status != ClassroomLiveActivity.STATUS_PUBLISHED:
+        raise LiveClassroomError("该课堂任务已关闭。", code="activity_closed")
+
+    participant = ClassroomLiveParticipant.objects.filter(
+        session=session,
+        portal_user=student_user,
+        role=ClassroomLiveParticipant.ROLE_STUDENT,
+    ).first()
+    if participant is None:
+        participant = join_live_session_as_student(student_user, session)
+
+    normalized_answer = _normalize_answer(answer, activity.activity_type)
+    if normalized_answer not in (activity.options_json or {}):
+        raise LiveClassroomError("答案不属于当前题目选项。", code="invalid_answer")
+    attempt_no = (
+        ClassroomLiveActivityResponse.objects.filter(activity=activity, student=student).count() + 1
+    )
+    correct_answer = activity.correct_answer or ""
+    response = ClassroomLiveActivityResponse.objects.create(
+        activity=activity,
+        session=session,
+        participant=participant,
+        student=student,
+        answer=normalized_answer,
+        is_correct=(normalized_answer == correct_answer) if correct_answer else None,
+        correct_answer_snapshot=correct_answer,
+        attempt_no=attempt_no,
+    )
+    broadcast_session_event(
+        session.id,
+        "activity_summary_updated",
+        {
+            "activity_id": activity.id,
+            "summary": serialize_activity_summary(activity),
+        },
+    )
+    return response
+
+
 def get_or_create_recording(session: ClassroomLiveSession) -> ClassroomLiveRecording:
     try:
         return ClassroomLiveRecording.objects.create(
@@ -402,11 +722,14 @@ def build_session_snapshot(session: ClassroomLiveSession) -> dict[str, Any]:
         .order_by("-started_at", "-id")
     )
     recording = recordings[0] if recordings else None
+    current_activity = get_current_activity(refreshed_session)
     return {
         "session": serialize_session(refreshed_session),
         "participants": [serialize_participant(participant) for participant in participants],
         "recordings": [serialize_recording(item) for item in recordings],
         "recording": serialize_recording(recording),
+        "current_activity": serialize_activity(current_activity),
+        "activity_history": serialize_activity_history(refreshed_session),
     }
 
 

@@ -1207,3 +1207,88 @@ class ClassroomLiveRecording(models.Model):
         if expires_at and expires_at <= timezone.now():
             return False
         return True
+
+
+class ClassroomLiveActivity(models.Model):
+    TYPE_SINGLE_CHOICE = "single_choice"
+    TYPE_TRUE_FALSE = "true_false"
+    TYPE_CHOICES = [
+        (TYPE_SINGLE_CHOICE, "选择题"),
+        (TYPE_TRUE_FALSE, "判断题"),
+    ]
+
+    STATUS_PUBLISHED = "published"
+    STATUS_CLOSED = "closed"
+    STATUS_CHOICES = [
+        (STATUS_PUBLISHED, "进行中"),
+        (STATUS_CLOSED, "已关闭"),
+    ]
+
+    session = models.ForeignKey(ClassroomLiveSession, on_delete=models.CASCADE, related_name="activities")
+    teacher = models.ForeignKey(PortalUser, on_delete=models.CASCADE, related_name="classroom_live_activities")
+    activity_type = models.CharField("题型", max_length=32, choices=TYPE_CHOICES)
+    title = models.CharField("标题", max_length=128)
+    prompt_text = models.TextField("题面")
+    options_json = models.JSONField("选项", default=dict, blank=True)
+    correct_answer = models.CharField("正确答案", max_length=16, blank=True)
+    status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_PUBLISHED)
+    published_at = models.DateTimeField("发布时间", default=timezone.now)
+    closed_at = models.DateTimeField("关闭时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-published_at", "-id"]
+        verbose_name = "实时课堂任务"
+        verbose_name_plural = "实时课堂任务"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session"],
+                condition=models.Q(status="published"),
+                name="uniq_published_live_activity_per_session",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["session", "status", "-published_at"], name="cla_session_status_pub_idx"),
+            models.Index(fields=["teacher", "-published_at"], name="cla_teacher_pub_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} / {self.title}"
+
+    def close(self) -> bool:
+        if self.status == self.STATUS_CLOSED:
+            return False
+        self.status = self.STATUS_CLOSED
+        self.closed_at = timezone.now()
+        return True
+
+
+class ClassroomLiveActivityResponse(models.Model):
+    activity = models.ForeignKey(ClassroomLiveActivity, on_delete=models.CASCADE, related_name="responses")
+    session = models.ForeignKey(ClassroomLiveSession, on_delete=models.CASCADE, related_name="activity_responses")
+    participant = models.ForeignKey(
+        ClassroomLiveParticipant,
+        on_delete=models.CASCADE,
+        related_name="activity_responses",
+    )
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="classroom_live_activity_responses")
+    answer = models.CharField("答案", max_length=16)
+    is_correct = models.BooleanField("是否正确", null=True, blank=True)
+    correct_answer_snapshot = models.CharField("正确答案快照", max_length=16, blank=True)
+    attempt_no = models.PositiveIntegerField("提交次数", default=1)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "实时课堂答题记录"
+        verbose_name_plural = "实时课堂答题记录"
+        indexes = [
+            models.Index(fields=["activity", "student", "-created_at"], name="clar_activity_student_idx"),
+            models.Index(fields=["session", "student", "-created_at"], name="clar_session_student_idx"),
+            models.Index(fields=["activity", "answer"], name="clar_activity_answer_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.activity_id} / {self.student.display_name} / {self.answer}"

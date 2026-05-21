@@ -10,9 +10,11 @@
     var sessionId = root.dataset.sessionId || "";
     var tokenUrl = root.dataset.tokenUrl || "";
     var recordingUrl = root.dataset.recordingUrl || "";
+    var activityUrl = root.dataset.activityUrl || "";
     var statusEl = root.querySelector("[data-live-status]");
     var recordingStatusEl = root.querySelector("[data-recording-status]");
     var recordingHistoryList = root.querySelector("[data-recording-history-list]");
+    var activitySummaryEl = root.querySelector("[data-activity-summary]");
     var participantList = root.querySelector("[data-participant-list]");
     var mainStage = root.querySelector("[data-main-stage]");
     var mainVideo = root.querySelector("[data-main-video]");
@@ -22,6 +24,15 @@
     var stopShareButton = root.querySelector("[data-stop-share]");
     var viewNormalButton = root.querySelector("[data-view-normal]");
     var fullscreenButton = root.querySelector("[data-stage-fullscreen]");
+    var activityDialog = root.querySelector("[data-activity-dialog]");
+    var activityForm = root.querySelector("[data-activity-form]");
+    var activityTypeSelect = root.querySelector("[data-activity-type]");
+    var correctAnswerSelect = root.querySelector("[data-correct-answer]");
+    var choiceOptions = root.querySelector("[data-choice-options]");
+    var taskDrawer = root.querySelector("[data-task-drawer]");
+    var taskDrawerBody = root.querySelector("[data-task-drawer-body]");
+    var taskDrawerToggle = root.querySelector("[data-task-drawer-toggle]");
+    var taskDrawerClose = root.querySelector("[data-task-drawer-close]");
     var snapshotScript = document.getElementById("live-classroom-snapshot");
     var snapshot = {};
     var ws = null;
@@ -45,6 +56,7 @@
     var participantByIdentity = new Map();
     var spotlightParticipantId = null;
     var teacherIdentity = null;
+    var taskDrawerCollapsed = false;
     var SCREEN_RECORDING_SEGMENT_MS = 10 * 60 * 1000;
 
     try {
@@ -358,6 +370,389 @@
             return JSON.parse(text);
         } catch (error) {
             throw new Error(fallbackMessage || "服务器返回了非 JSON 响应，请查看后端日志。");
+        }
+    }
+
+    function activityTypeLabel(activityType) {
+        if (activityType === "true_false") {
+            return "判断题";
+        }
+        if (activityType === "single_choice") {
+            return "选择题";
+        }
+        return "课堂任务";
+    }
+
+    function activityOptions(activity) {
+        return activity && activity.options && typeof activity.options === "object" ? activity.options : {};
+    }
+
+    function answerLabel(activity, answer) {
+        var options = activityOptions(activity);
+        if (!answer) {
+            return "";
+        }
+        if (Object.prototype.hasOwnProperty.call(options, answer)) {
+            return answer + "：" + options[answer];
+        }
+        return answer;
+    }
+
+    function activityHistoryGroupLabel(activity) {
+        var value = activity && activity.published_at ? activity.published_at : "";
+        var date = value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) {
+            return "未分组";
+        }
+        return date.toLocaleDateString("zh-CN", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+        });
+    }
+
+    function activityHistoryTimeLabel(activity) {
+        var value = activity && activity.published_at ? activity.published_at : "";
+        var date = value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) {
+            return "";
+        }
+        return date.toLocaleTimeString("zh-CN", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit"
+        });
+    }
+
+    function setActivityState(activity, summary, history, latestResponse, autoOpenDrawer) {
+        snapshot.current_activity = activity || null;
+        if (summary !== undefined) {
+            snapshot.activity_summary = summary || null;
+        }
+        if (Array.isArray(history)) {
+            snapshot.activity_history = history;
+        }
+        if (latestResponse !== undefined) {
+            snapshot.latest_activity_response = latestResponse || null;
+        }
+        renderActivitySummary();
+        renderTaskDrawer(Boolean(autoOpenDrawer));
+    }
+
+    function renderActivitySummary() {
+        if (!activitySummaryEl) {
+            return;
+        }
+        var activity = snapshot.current_activity;
+        var summary = snapshot.activity_summary;
+        activitySummaryEl.innerHTML = "";
+        var title = document.createElement("div");
+        title.className = "live-classroom-task-summary__title";
+        title.textContent = activity ? "当前任务：" + activity.title : "当前没有课堂任务";
+        activitySummaryEl.appendChild(title);
+        if (!activity || !summary) {
+            return;
+        }
+        var meta = document.createElement("div");
+        meta.className = "live-classroom-task-summary__meta";
+        meta.textContent = activityTypeLabel(activity.activity_type) + " · 已提交 " + (summary.submitted_count || 0) + "/" + (summary.total_students || 0);
+        activitySummaryEl.appendChild(meta);
+
+        var counts = document.createElement("div");
+        counts.className = "live-classroom-task-summary__counts";
+        var options = activityOptions(activity);
+        Object.keys(options).forEach(function (key) {
+            var item = document.createElement("span");
+            item.textContent = key + " " + (summary.answer_counts && summary.answer_counts[key] ? summary.answer_counts[key] : 0);
+            counts.appendChild(item);
+        });
+        activitySummaryEl.appendChild(counts);
+
+        var students = document.createElement("div");
+        students.className = "live-classroom-task-summary__students";
+        (summary.students || []).forEach(function (student) {
+            var row = document.createElement("div");
+            row.className = "live-classroom-task-summary__student";
+            var answer = student.latest_answer ? answerLabel(activity, student.latest_answer) : "未提交";
+            row.textContent = student.student_name + " · " + answer;
+            students.appendChild(row);
+        });
+        activitySummaryEl.appendChild(students);
+    }
+
+    function renderTaskDrawer(autoOpen) {
+        if (!taskDrawer || !taskDrawerBody) {
+            return;
+        }
+        var activity = snapshot.current_activity;
+        var history = Array.isArray(snapshot.activity_history) ? snapshot.activity_history : [];
+        if (!activity && !history.length) {
+            taskDrawer.hidden = true;
+            if (taskDrawerToggle) {
+                taskDrawerToggle.hidden = true;
+            }
+            return;
+        }
+        if (taskDrawerToggle) {
+            taskDrawerToggle.hidden = false;
+        }
+        if (autoOpen) {
+            taskDrawerCollapsed = false;
+        }
+        taskDrawer.hidden = taskDrawerCollapsed;
+        taskDrawerBody.innerHTML = "";
+
+        if (activity) {
+            var current = document.createElement("section");
+            current.className = "live-classroom-task-current";
+            var eyebrow = document.createElement("div");
+            eyebrow.className = "live-classroom-task-current__eyebrow";
+            eyebrow.textContent = activityTypeLabel(activity.activity_type);
+            var title = document.createElement("h3");
+            title.textContent = activity.title;
+            var prompt = document.createElement("div");
+            prompt.className = "live-classroom-task-current__prompt";
+            prompt.textContent = activity.prompt_text || "";
+            current.appendChild(eyebrow);
+            current.appendChild(title);
+            current.appendChild(prompt);
+
+            var form = document.createElement("form");
+            form.className = "live-classroom-task-answer";
+            var options = activityOptions(activity);
+            Object.keys(options).forEach(function (key) {
+                var label = document.createElement("label");
+                var input = document.createElement("input");
+                input.type = "radio";
+                input.name = "answer";
+                input.value = key;
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(key + "：" + options[key]));
+                form.appendChild(label);
+            });
+            var latest = snapshot.latest_activity_response;
+            if (latest && String(latest.activity_id) === String(activity.id)) {
+                var latestLabel = document.createElement("div");
+                latestLabel.className = "live-classroom-task-answer__latest";
+                latestLabel.textContent = "已提交：" + answerLabel(activity, latest.answer) + " · 第 " + latest.attempt_no + " 次";
+                form.appendChild(latestLabel);
+            }
+            var submit = document.createElement("button");
+            submit.className = "login-button live-classroom-primary-button";
+            submit.type = "submit";
+            submit.textContent = "提交答案";
+            form.appendChild(submit);
+            form.addEventListener("submit", function (event) {
+                event.preventDefault();
+                submitActivityAnswer(activity, form);
+            });
+            current.appendChild(form);
+            taskDrawerBody.appendChild(current);
+        } else {
+            var empty = document.createElement("div");
+            empty.className = "live-classroom-task-empty";
+            empty.textContent = "暂无课堂任务";
+            taskDrawerBody.appendChild(empty);
+        }
+
+        var pastActivities = history.filter(function (item) {
+            return !activity || String(item.id) !== String(activity.id);
+        });
+        if (pastActivities.length) {
+            var details = document.createElement("details");
+            details.className = "live-classroom-task-history";
+            var summary = document.createElement("summary");
+            summary.textContent = "历史任务 " + pastActivities.length;
+            details.appendChild(summary);
+
+            var grouped = new Map();
+            pastActivities.forEach(function (item) {
+                var groupLabel = activityHistoryGroupLabel(item);
+                if (!grouped.has(groupLabel)) {
+                    grouped.set(groupLabel, []);
+                }
+                grouped.get(groupLabel).push(item);
+            });
+            grouped.forEach(function (items, groupLabel) {
+                var group = document.createElement("details");
+                group.className = "live-classroom-task-history__group";
+                var groupSummary = document.createElement("summary");
+                groupSummary.textContent = groupLabel + " · " + items.length + " 题";
+                group.appendChild(groupSummary);
+                items.forEach(function (item) {
+                    var row = document.createElement("details");
+                    row.className = "live-classroom-task-history__item";
+                    var rowSummary = document.createElement("summary");
+                    var time = activityHistoryTimeLabel(item);
+                    rowSummary.textContent = (time ? time + " · " : "") + activityTypeLabel(item.activity_type) + " · " + item.title;
+                    row.appendChild(rowSummary);
+
+                    var prompt = document.createElement("div");
+                    prompt.className = "live-classroom-task-history__prompt";
+                    prompt.textContent = item.prompt_text || "";
+                    row.appendChild(prompt);
+
+                    var latestResponse = item.latest_response || null;
+                    var answer = document.createElement("div");
+                    answer.className = "live-classroom-task-history__answer";
+                    answer.textContent = latestResponse
+                        ? "你的选择：" + answerLabel(item, latestResponse.answer) + (latestResponse.attempt_no ? " · 第 " + latestResponse.attempt_no + " 次" : "")
+                        : "你未提交这道题";
+                    row.appendChild(answer);
+
+                    var options = document.createElement("div");
+                    options.className = "live-classroom-task-history__options";
+                    Object.keys(activityOptions(item)).forEach(function (key) {
+                        var option = document.createElement("div");
+                        option.className = "live-classroom-task-history__option";
+                        if (latestResponse && String(latestResponse.answer) === String(key)) {
+                            option.className += " is-selected";
+                        }
+                        option.textContent = key + "：" + activityOptions(item)[key];
+                        options.appendChild(option);
+                    });
+                    row.appendChild(options);
+                    group.appendChild(row);
+                });
+                details.appendChild(group);
+            });
+            taskDrawerBody.appendChild(details);
+        }
+    }
+
+    function updateHistoryResponse(response) {
+        if (!response || !response.activity_id || !Array.isArray(snapshot.activity_history)) {
+            return;
+        }
+        snapshot.activity_history.forEach(function (item) {
+            if (String(item.id) === String(response.activity_id)) {
+                item.latest_response = response;
+            }
+        });
+    }
+
+    async function refreshActivityState() {
+        if (!activityUrl) {
+            return;
+        }
+        try {
+            var response = await csrfFetch(activityUrl, { method: "GET", headers: {} });
+            var payload = await readJsonResponse(response, "课堂任务接口返回异常。");
+            if (!response.ok) {
+                throw new Error(payload.error || "课堂任务加载失败。");
+            }
+            setActivityState(payload.activity || null, payload.summary, payload.activity_history || [], payload.latest_response, false);
+        } catch (error) {
+            setStatus(error.message || "课堂任务加载失败。");
+        }
+    }
+
+    async function submitActivityAnswer(activity, form) {
+        var checked = form.querySelector('input[name="answer"]:checked');
+        if (!checked) {
+            setStatus("请先选择答案。");
+            return;
+        }
+        try {
+            var response = await csrfFetch(activityUrl + "/" + activity.id + "/responses", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ answer: checked.value })
+            });
+            var payload = await readJsonResponse(response, "提交答案接口返回异常。");
+            if (!response.ok) {
+                throw new Error(payload.error || "提交答案失败。");
+            }
+            snapshot.latest_activity_response = payload.response || null;
+            updateHistoryResponse(snapshot.latest_activity_response);
+            renderTaskDrawer(false);
+            setStatus("答案已提交。");
+        } catch (error) {
+            setStatus(error.message || "提交答案失败。");
+        }
+    }
+
+    function setActivityDialogOpen(open) {
+        if (activityDialog) {
+            activityDialog.hidden = !open;
+        }
+    }
+
+    function updateActivityFormForType() {
+        if (!activityTypeSelect || !correctAnswerSelect) {
+            return;
+        }
+        var type = activityTypeSelect.value;
+        if (choiceOptions) {
+            choiceOptions.hidden = type === "true_false";
+        }
+        correctAnswerSelect.innerHTML = "";
+        var empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "暂不设置";
+        correctAnswerSelect.appendChild(empty);
+        if (type === "true_false") {
+            [
+                ["true", "正确"],
+                ["false", "错误"]
+            ].forEach(function (item) {
+                var option = document.createElement("option");
+                option.value = item[0];
+                option.textContent = item[1];
+                correctAnswerSelect.appendChild(option);
+            });
+            return;
+        }
+        ["A", "B", "C", "D"].forEach(function (key) {
+            var option = document.createElement("option");
+            option.value = key;
+            option.textContent = key;
+            correctAnswerSelect.appendChild(option);
+        });
+    }
+
+    async function publishActivityFromForm(event) {
+        event.preventDefault();
+        if (!activityForm || !activityUrl) {
+            return;
+        }
+        var formData = new FormData(activityForm);
+        var activityType = String(formData.get("activity_type") || "single_choice");
+        var options = {};
+        if (activityType === "true_false") {
+            options = { true: "正确", false: "错误" };
+        } else {
+            activityForm.querySelectorAll("[data-option-key]").forEach(function (input) {
+                var key = input.dataset.optionKey || "";
+                var value = String(input.value || "").trim();
+                if (key && value) {
+                    options[key] = value;
+                }
+            });
+        }
+        try {
+            var response = await csrfFetch(activityUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    activity_type: activityType,
+                    title: formData.get("title") || "",
+                    prompt_text: formData.get("prompt_text") || "",
+                    options: options,
+                    correct_answer: formData.get("correct_answer") || ""
+                })
+            });
+            var payload = await readJsonResponse(response, "布置课堂任务接口返回异常。");
+            if (!response.ok) {
+                throw new Error(payload.error || "布置课堂任务失败。");
+            }
+            setActivityState(payload.activity || null, payload.summary, payload.activity_history || [], null, false);
+            activityForm.reset();
+            updateActivityFormForType();
+            setActivityDialogOpen(false);
+            setStatus("课堂任务已发布。");
+        } catch (error) {
+            setStatus(error.message || "布置课堂任务失败。");
         }
     }
 
@@ -681,6 +1076,8 @@
         updateParticipantMaps(participants);
         syncRemoteSubscriptions();
         setRecordingStatus(snapshot.recording);
+        renderActivitySummary();
+        renderTaskDrawer(false);
         renderParticipants(participants);
         if (session.view_mode === "normal") {
             showDefaultMainStream();
@@ -1293,6 +1690,27 @@
                 upsertRecording(recording || null);
                 setRecordingStatus(recording);
                 setStatus(recording ? recordingTypeLabel(recording.recording_type) + "状态：" + recordingStatusLabel(recording.status) : "录制状态已更新。");
+            } else if (message.event === "activity_published") {
+                setActivityState(
+                    message.payload && message.payload.activity ? message.payload.activity : null,
+                    message.payload ? message.payload.summary : null,
+                    message.payload && Array.isArray(message.payload.activity_history) ? message.payload.activity_history : [],
+                    null,
+                    role === "student"
+                );
+                setStatus("老师发布了新的课堂任务。");
+                if (role === "teacher" || role === "student") {
+                    refreshActivityState();
+                }
+            } else if (message.event === "activity_summary_updated") {
+                if (
+                    snapshot.current_activity
+                    && message.payload
+                    && String(message.payload.activity_id) === String(snapshot.current_activity.id)
+                ) {
+                    snapshot.activity_summary = message.payload.summary || null;
+                    renderActivitySummary();
+                }
             } else if (message.event === "error") {
                 setStatus(message.payload && message.payload.error ? message.payload.error : "课堂状态同步失败。");
             }
@@ -1357,8 +1775,39 @@
             }
         });
     });
+    root.querySelectorAll("[data-open-activity-dialog]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            updateActivityFormForType();
+            setActivityDialogOpen(true);
+        });
+    });
+    root.querySelectorAll("[data-close-activity-dialog]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            setActivityDialogOpen(false);
+        });
+    });
+    if (activityTypeSelect) {
+        activityTypeSelect.addEventListener("change", updateActivityFormForType);
+        updateActivityFormForType();
+    }
+    if (activityForm) {
+        activityForm.addEventListener("submit", publishActivityFromForm);
+    }
+    if (taskDrawerToggle) {
+        taskDrawerToggle.addEventListener("click", function () {
+            taskDrawerCollapsed = false;
+            renderTaskDrawer(false);
+        });
+    }
+    if (taskDrawerClose) {
+        taskDrawerClose.addEventListener("click", function () {
+            taskDrawerCollapsed = true;
+            renderTaskDrawer(false);
+        });
+    }
 
     applySnapshot(snapshot);
+    refreshActivityState();
     if (role === "student-lobby") {
         connectLobbySocket();
     } else {
