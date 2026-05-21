@@ -242,6 +242,17 @@ class LiveClassroomTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "历史文件")
         self.assertContains(response, reverse("api-live-classroom-recording-download", args=[recording.id]))
+        self.assertContains(response, 'data-recording-history-id="')
+        self.assertContains(response, "已完成")
+
+    def test_live_classroom_js_history_updates_active_and_completed_recordings(self) -> None:
+        js_path = Path(__file__).resolve().parents[1] / "static" / "entry" / "js" / "live_classroom.js"
+        source = js_path.read_text()
+
+        self.assertIn("upsertRecordingHistory(recording)", source)
+        self.assertIn("recordingStatusLabel(recording.status)", source)
+        self.assertIn("sortRecordingHistory()", source)
+        self.assertIn('shouldLink = Boolean(recording.download_url && recording.status === "completed")', source)
 
     def test_live_classroom_js_only_subscribes_student_video_for_spotlight(self) -> None:
         js_path = Path(__file__).resolve().parents[1] / "static" / "entry" / "js" / "live_classroom.js"

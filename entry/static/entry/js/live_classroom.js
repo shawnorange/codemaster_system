@@ -136,7 +136,7 @@
         }
         snapshot.recordings = recordings;
         snapshot.recording = recordings[0] || recording;
-        prependRecordingHistory(recording);
+        upsertRecordingHistory(recording);
     }
 
     function recordingFileSizeLabel(fileSize) {
@@ -153,32 +153,68 @@
         return size + " B";
     }
 
-    function prependRecordingHistory(recording) {
-        if (
-            !recordingHistoryList
-            || !recording
-            || recording.status !== "completed"
-            || !recording.download_url
-        ) {
+    function recordingHistorySortValue(recording) {
+        var value = recording && (recording.ended_at || recording.started_at || "");
+        var date = value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) {
+            return Date.now();
+        }
+        return date.getTime();
+    }
+
+    function buildRecordingHistoryLabel(recording) {
+        var labelTime = formatDateTime(recording.ended_at || recording.started_at) || "刚刚";
+        var label = labelTime + " · " + recordingTypeLabel(recording.recording_type);
+        label += " · " + recordingStatusLabel(recording.status);
+        var sizeLabel = recordingFileSizeLabel(recording.file_size);
+        if (sizeLabel) {
+            label += " · " + sizeLabel;
+        }
+        return label;
+    }
+
+    function sortRecordingHistory() {
+        if (!recordingHistoryList) {
             return;
         }
-        if (recordingHistoryList.querySelector('[data-recording-history-id="' + String(recording.id) + '"]')) {
+        Array.from(recordingHistoryList.children)
+            .sort(function (a, b) {
+                return Number(b.dataset.recordingSortAt || 0) - Number(a.dataset.recordingSortAt || 0);
+            })
+            .forEach(function (item) {
+                recordingHistoryList.appendChild(item);
+            });
+    }
+
+    function upsertRecordingHistory(recording) {
+        if (!recordingHistoryList || !recording || !recording.id) {
             return;
         }
         var empty = recordingHistoryList.querySelector("span");
         if (empty) {
             empty.remove();
         }
-        var link = document.createElement("a");
-        link.href = recording.download_url;
-        link.dataset.recordingHistoryId = String(recording.id);
-        var label = (formatDateTime(recording.ended_at) || "刚刚") + " · " + recordingTypeLabel(recording.recording_type);
-        var sizeLabel = recordingFileSizeLabel(recording.file_size);
-        if (sizeLabel) {
-            label += " · " + sizeLabel;
+
+        var selector = '[data-recording-history-id="' + String(recording.id) + '"]';
+        var existing = recordingHistoryList.querySelector(selector);
+        var shouldLink = Boolean(recording.download_url && recording.status === "completed");
+        var item = existing;
+        if (!item || (shouldLink && item.tagName !== "A") || (!shouldLink && item.tagName === "A")) {
+            item = document.createElement(shouldLink ? "a" : "div");
+            if (existing) {
+                existing.replaceWith(item);
+            } else {
+                recordingHistoryList.prepend(item);
+            }
         }
-        link.textContent = label;
-        recordingHistoryList.prepend(link);
+        item.className = "live-classroom-recording-history__item is-" + (recording.status || "unknown");
+        item.dataset.recordingHistoryId = String(recording.id);
+        item.dataset.recordingSortAt = String(recordingHistorySortValue(recording));
+        item.textContent = buildRecordingHistoryLabel(recording);
+        if (shouldLink) {
+            item.href = recording.download_url;
+        }
+        sortRecordingHistory();
     }
 
     function formatDateTime(value) {

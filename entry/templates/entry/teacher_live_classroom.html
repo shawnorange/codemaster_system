@@ -51,8 +51,13 @@
                     <div class="live-classroom-recording-history__title">历史文件</div>
                     <div class="live-classroom-recording-history__list" data-recording-history-list>
                         {% for recording in recording_history %}
-                            <a href="{% url 'api-live-classroom-recording-download' recording.id %}">
-                                {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %}{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
+                            <a
+                                class="live-classroom-recording-history__item is-completed"
+                                href="{% url 'api-live-classroom-recording-download' recording.id %}"
+                                data-recording-history-id="{{ recording.id }}"
+                                data-recording-sort-at="{{ recording.ended_at|date:'U' }}000"
+                            >
+                                {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %} · 已完成{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
                             </a>
                         {% empty %}
                             <span>暂无可下载文件</span>
@@ -78,8 +83,13 @@
                 <div class="live-classroom-recording-history__title">历史文件</div>
                 <div class="live-classroom-recording-history__list">
                     {% for recording in recording_history %}
-                        <a href="{% url 'api-live-classroom-recording-download' recording.id %}">
-                            {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %}{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
+                        <a
+                            class="live-classroom-recording-history__item is-completed"
+                            href="{% url 'api-live-classroom-recording-download' recording.id %}"
+                            data-recording-history-id="{{ recording.id }}"
+                            data-recording-sort-at="{{ recording.ended_at|date:'U' }}000"
+                        >
+                            {{ recording.ended_at|date:"Ymd H:i:s" }} · {% if recording.recording_type == "audio" %}录音{% else %}录屏{% endif %} · 已完成{% if recording.file_size %} · {{ recording.file_size|filesizeformat }}{% endif %}
                         </a>
                     {% empty %}
                         <span>暂无可下载文件</span>

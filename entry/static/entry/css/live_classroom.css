@@ -277,16 +277,30 @@ body:has(.live-classroom) .system-main {
 }
 
 .live-classroom-recording-history__list a,
-.live-classroom-recording-history__list span {
+.live-classroom-recording-history__list span,
+.live-classroom-recording-history__item {
     color: #475569;
     font-size: 12px;
     line-height: 1.35;
 }
 
-.live-classroom-recording-history__list a {
+.live-classroom-recording-history__list a,
+.live-classroom-recording-history__item.is-completed {
     color: #1d4ed8;
     font-weight: 650;
     text-decoration: none;
+}
+
+.live-classroom-recording-history__item.is-active,
+.live-classroom-recording-history__item.is-starting,
+.live-classroom-recording-history__item.is-stopping {
+    color: #9a3412;
+    font-weight: 650;
+}
+
+.live-classroom-recording-history__item.is-failed {
+    color: #991b1b;
+    font-weight: 650;
 }
 
 .live-classroom-participants {
