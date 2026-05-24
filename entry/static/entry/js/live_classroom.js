@@ -26,8 +26,11 @@
     var fullscreenButton = root.querySelector("[data-stage-fullscreen]");
     var activityDialog = root.querySelector("[data-activity-dialog]");
     var activityForm = root.querySelector("[data-activity-form]");
+    var activityDialogStatus = root.querySelector("[data-activity-dialog-status]");
+    var activitySubmitButton = root.querySelector("[data-activity-submit]");
     var activityTypeSelect = root.querySelector("[data-activity-type]");
     var correctAnswerSelect = root.querySelector("[data-correct-answer]");
+    var promptFileInput = root.querySelector("[data-prompt-file]");
     var choiceOptions = root.querySelector("[data-choice-options]");
     var taskDrawer = root.querySelector("[data-task-drawer]");
     var taskDrawerBody = root.querySelector("[data-task-drawer-body]");
@@ -676,6 +679,18 @@
         if (activityDialog) {
             activityDialog.hidden = !open;
         }
+        if (open) {
+            setActivityDialogStatus("");
+        }
+    }
+
+    function setActivityDialogStatus(message, isError) {
+        if (!activityDialogStatus) {
+            return;
+        }
+        activityDialogStatus.hidden = !message;
+        activityDialogStatus.textContent = message || "";
+        activityDialogStatus.classList.toggle("is-error", Boolean(isError));
     }
 
     function updateActivityFormForType() {
@@ -730,18 +745,52 @@
                 }
             });
         }
+        var title = formData.get("title") || "";
+        var promptText = String(formData.get("prompt_text") || "").trim();
+        var promptFile = promptFileInput && promptFileInput.files && promptFileInput.files.length ? promptFileInput.files[0] : null;
+        if (!promptText && !promptFile) {
+            setActivityDialogStatus("请粘贴题面或上传文本文件。", true);
+            setStatus("请粘贴题面或上传文本文件。");
+            return;
+        }
+        if (activityType !== "true_false" && Object.keys(options).length < 2) {
+            setActivityDialogStatus("选择题至少需要填写 2 个选项。上传文件只负责识别题面文本，选项需要在 A/B/C/D 中填写。", true);
+            setStatus("选择题至少需要填写 2 个选项。");
+            return;
+        }
+        setActivityDialogStatus(promptFile ? "正在上传并识别题面文件..." : "正在发布课堂任务...", false);
+        if (activitySubmitButton) {
+            activitySubmitButton.disabled = true;
+        }
         try {
-            var response = await csrfFetch(activityUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
+            var requestOptions;
+            if (promptFile) {
+                var uploadData = new FormData();
+                uploadData.append("activity_type", activityType);
+                uploadData.append("title", title);
+                uploadData.append("prompt_text", promptText);
+                uploadData.append("options", JSON.stringify(options));
+                uploadData.append("correct_answer", formData.get("correct_answer") || "");
+                uploadData.append("prompt_file", promptFile);
+                requestOptions = {
+                    method: "POST",
+                    headers: {},
+                    body: uploadData
+                };
+            } else {
+                requestOptions = {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
                     activity_type: activityType,
-                    title: formData.get("title") || "",
-                    prompt_text: formData.get("prompt_text") || "",
+                    title: title,
+                    prompt_text: promptText,
                     options: options,
                     correct_answer: formData.get("correct_answer") || ""
                 })
-            });
+                };
+            }
+            var response = await csrfFetch(activityUrl, requestOptions);
             var payload = await readJsonResponse(response, "布置课堂任务接口返回异常。");
             if (!response.ok) {
                 throw new Error(payload.error || "布置课堂任务失败。");
@@ -749,10 +798,16 @@
             setActivityState(payload.activity || null, payload.summary, payload.activity_history || [], null, false);
             activityForm.reset();
             updateActivityFormForType();
+            setActivityDialogStatus("");
             setActivityDialogOpen(false);
             setStatus("课堂任务已发布。");
         } catch (error) {
+            setActivityDialogStatus(error.message || "布置课堂任务失败。", true);
             setStatus(error.message || "布置课堂任务失败。");
+        } finally {
+            if (activitySubmitButton) {
+                activitySubmitButton.disabled = false;
+            }
         }
     }
 

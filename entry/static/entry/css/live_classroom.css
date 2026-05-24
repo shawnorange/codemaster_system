@@ -462,6 +462,29 @@ body:has(.live-classroom) .system-main {
     padding: 9px 10px;
 }
 
+.live-classroom-task-form__hint {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+}
+
+.live-classroom-task-form__status {
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 13px;
+    line-height: 1.45;
+    padding: 9px 10px;
+}
+
+.live-classroom-task-form__status.is-error {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
 .live-classroom-task-options {
     display: grid;
     gap: 8px;

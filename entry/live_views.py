@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from html.parser import HTMLParser
+import io
 import json
+from pathlib import Path
+from xml.etree import ElementTree
+import zipfile
 
 from django.core.exceptions import PermissionDenied
 from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
 from django.db.models import Q
 from django.shortcuts import redirect, render
@@ -44,6 +50,141 @@ from .live_recording import (
 )
 from .models import ClassroomLiveRecording, ClassroomLiveSession, PortalUser
 from .portal_context import get_student_by_user
+
+
+ACTIVITY_PROMPT_FILE_MAX_BYTES = 2 * 1024 * 1024
+ACTIVITY_PROMPT_TEXT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".csv",
+    ".tsv",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".py",
+    ".java",
+    ".js",
+    ".json",
+    ".html",
+    ".htm",
+}
+
+
+class _ActivityPromptHTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self._skip_depth += 1
+        if tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4"}:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._skip_depth:
+            self._skip_depth -= 1
+        if tag in {"p", "div", "li", "tr", "h1", "h2", "h3", "h4"}:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip_depth:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return _normalize_activity_prompt_text("".join(self._parts))
+
+
+def _normalize_activity_prompt_text(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in normalized.splitlines()]
+    compacted: list[str] = []
+    blank_seen = False
+    for line in lines:
+        if line.strip():
+            compacted.append(line)
+            blank_seen = False
+        elif not blank_seen:
+            compacted.append("")
+            blank_seen = True
+    return "\n".join(compacted).strip()
+
+
+def _decode_activity_prompt_text(raw_bytes: bytes) -> str:
+    for encoding in ("utf-8", "utf-8-sig", "gb18030"):
+        try:
+            return _normalize_activity_prompt_text(raw_bytes.decode(encoding))
+        except UnicodeDecodeError:
+            continue
+    return _normalize_activity_prompt_text(raw_bytes.decode("utf-8", errors="ignore"))
+
+
+def _extract_activity_prompt_html(raw_bytes: bytes) -> str:
+    extractor = _ActivityPromptHTMLTextExtractor()
+    extractor.feed(_decode_activity_prompt_text(raw_bytes))
+    return extractor.get_text()
+
+
+def _extract_activity_prompt_docx(raw_bytes: bytes) -> str:
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw_bytes)) as archive:
+            xml_bytes = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise LiveClassroomError("DOCX 文件无法解析，请换成 txt 或重新导出 docx。", code="invalid_prompt_file") from exc
+    try:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError as exc:
+        raise LiveClassroomError("DOCX 文档结构异常，无法解析题面文本。", code="invalid_prompt_file") from exc
+    parts: list[str] = []
+    for node in root.iter():
+        if node.tag.endswith("}t") and node.text:
+            parts.append(node.text)
+        elif node.tag.endswith("}p"):
+            parts.append("\n")
+    return _normalize_activity_prompt_text("".join(parts))
+
+
+def _extract_activity_prompt_file_text(uploaded_file: UploadedFile | None) -> str:
+    if uploaded_file is None:
+        return ""
+    if uploaded_file.size <= 0:
+        raise LiveClassroomError("上传文件为空，请重新选择。", code="invalid_prompt_file")
+    if uploaded_file.size > ACTIVITY_PROMPT_FILE_MAX_BYTES:
+        raise LiveClassroomError("课堂任务文件不能超过 2MB。", code="invalid_prompt_file")
+
+    suffix = Path(str(uploaded_file.name or "")).suffix.lower()
+    raw_bytes = uploaded_file.read()
+    if hasattr(uploaded_file, "seek"):
+        uploaded_file.seek(0)
+
+    if suffix == ".docx":
+        extracted = _extract_activity_prompt_docx(raw_bytes)
+    elif suffix in {".html", ".htm"}:
+        extracted = _extract_activity_prompt_html(raw_bytes)
+    elif suffix in ACTIVITY_PROMPT_TEXT_EXTENSIONS or str(uploaded_file.content_type or "").startswith("text/"):
+        extracted = _decode_activity_prompt_text(raw_bytes)
+    elif suffix == ".doc":
+        raise LiveClassroomError("旧版 .doc 暂不支持，请另存为 .docx 或 .txt 后上传。", code="invalid_prompt_file")
+    else:
+        raise LiveClassroomError("当前只支持 txt / md / csv / 代码文本 / html / docx 文件。", code="invalid_prompt_file")
+
+    if not extracted:
+        raise LiveClassroomError("上传文件未识别到文本，请换成 txt 或直接粘贴题面。", code="invalid_prompt_file")
+    return extracted
+
+
+def _activity_prompt_text_from_request(payload: dict, request: HttpRequest) -> str:
+    pasted_text = _normalize_activity_prompt_text(str(payload.get("prompt_text") or request.POST.get("prompt_text") or ""))
+    file_text = _extract_activity_prompt_file_text(
+        request.FILES.get("prompt_file") or request.FILES.get("source_file")
+    )
+    if pasted_text and file_text:
+        return f"{pasted_text}\n\n{file_text}"
+    return pasted_text or file_text
 
 
 def _get_portal_user_from_request(request: HttpRequest) -> PortalUser:
@@ -290,7 +431,7 @@ def api_live_classroom_activities(request: HttpRequest, session_id: int) -> Json
             session,
             activity_type=payload.get("activity_type") or request.POST.get("activity_type"),
             title=payload.get("title") or request.POST.get("title"),
-            prompt_text=payload.get("prompt_text") or request.POST.get("prompt_text"),
+            prompt_text=_activity_prompt_text_from_request(payload, request),
             options=_payload_options(payload, request),
             correct_answer=payload.get("correct_answer") or request.POST.get("correct_answer"),
         )

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 import json
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
+import zipfile
 
 from django.core.management import call_command
 from django.core.exceptions import PermissionDenied
@@ -76,6 +77,25 @@ class LiveClassroomTests(TestCase):
         client = Client()
         client.cookies[AUTH_COOKIE_NAME] = build_auth_token(build_user_payload(portal_user))
         return client
+
+    def build_docx_bytes(self, body_text: str) -> bytes:
+        buffer = BytesIO()
+        escaped = (
+            body_text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                (
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    f"<w:body><w:p><w:r><w:t>{escaped}</w:t></w:r></w:p></w:body>"
+                    "</w:document>"
+                ),
+            )
+        return buffer.getvalue()
 
     def test_teacher_start_is_idempotent_and_creates_teacher_participant(self) -> None:
         session = create_live_session(self.teacher)
@@ -173,7 +193,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260522-task-upload-feedback-v5")
 
     def test_student_join_prompt_page_keeps_lobby_websocket_root(self) -> None:
         create_live_session(self.teacher)
@@ -183,7 +203,7 @@ class LiveClassroomTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'data-role="student-lobby"')
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260522-task-upload-feedback-v5")
 
     def test_student_active_page_keeps_share_button_above_status(self) -> None:
         session = create_live_session(self.teacher)
@@ -218,8 +238,8 @@ class LiveClassroomTests(TestCase):
         self.assertContains(response, "data-stage-fullscreen")
         self.assertNotContains(response, "历史文件")
         self.assertNotContains(response, "data-recording-history-list")
-        self.assertContains(response, "entry/js/live_classroom.js?v=20260521-task-review-v3")
-        self.assertContains(response, "entry/css/live_classroom.css?v=20260521-task-review-v3")
+        self.assertContains(response, "entry/js/live_classroom.js?v=20260522-task-upload-feedback-v5")
+        self.assertContains(response, "entry/css/live_classroom.css?v=20260522-task-upload-feedback-v5")
         self.assertNotContains(response, "compact-portal-header")
 
     def test_teacher_active_page_exposes_classroom_task_controls(self) -> None:
@@ -232,6 +252,10 @@ class LiveClassroomTests(TestCase):
         self.assertContains(response, "课堂任务")
         self.assertContains(response, 'data-open-activity-dialog')
         self.assertContains(response, 'data-activity-summary')
+        self.assertContains(response, 'data-prompt-file')
+        self.assertContains(response, 'data-activity-dialog-status')
+        self.assertContains(response, 'data-activity-submit')
+        self.assertContains(response, ".txt,.md,.csv")
         self.assertContains(response, reverse("api-live-classroom-activities", args=[session.id]))
 
     def test_student_active_page_exposes_single_task_drawer(self) -> None:
@@ -289,6 +313,79 @@ class LiveClassroomTests(TestCase):
         self.assertEqual(payload["activity"]["activity_type"], ClassroomLiveActivity.TYPE_TRUE_FALSE)
         self.assertEqual(payload["activity"]["correct_answer"], "true")
         self.assertEqual(payload["summary"]["total_students"], 1)
+
+    def test_teacher_can_publish_activity_from_text_file_upload(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+        url = reverse("api-live-classroom-activities", args=[session.id])
+
+        response = client.post(
+            url,
+            data={
+                "activity_type": ClassroomLiveActivity.TYPE_SINGLE_CHOICE,
+                "title": "上传题面",
+                "options": json.dumps({"A": "int", "B": "cout"}),
+                "correct_answer": "A",
+                "prompt_file": SimpleUploadedFile(
+                    "activity.txt",
+                    "哪个关键字声明整数？".encode("utf-8"),
+                    content_type="text/plain",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["activity"]
+        self.assertEqual(payload["prompt_text"], "哪个关键字声明整数？")
+        self.assertEqual(ClassroomLiveActivity.objects.get(id=payload["id"]).prompt_text, "哪个关键字声明整数？")
+
+    def test_teacher_can_publish_activity_from_docx_file_upload(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+        url = reverse("api-live-classroom-activities", args=[session.id])
+
+        response = client.post(
+            url,
+            data={
+                "activity_type": ClassroomLiveActivity.TYPE_TRUE_FALSE,
+                "title": "",
+                "prompt_text": "先看材料：",
+                "correct_answer": "true",
+                "prompt_file": SimpleUploadedFile(
+                    "activity.docx",
+                    self.build_docx_bytes("C++ 语句通常以分号结束。"),
+                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        prompt_text = response.json()["activity"]["prompt_text"]
+        self.assertIn("先看材料：", prompt_text)
+        self.assertIn("C++ 语句通常以分号结束。", prompt_text)
+
+    def test_activity_file_upload_rejects_unsupported_doc_file(self) -> None:
+        session = create_live_session(self.teacher)
+        client = self.authenticated_client(self.teacher)
+        url = reverse("api-live-classroom-activities", args=[session.id])
+
+        response = client.post(
+            url,
+            data={
+                "activity_type": ClassroomLiveActivity.TYPE_SINGLE_CHOICE,
+                "title": "旧格式",
+                "options": json.dumps({"A": "1", "B": "2"}),
+                "prompt_file": SimpleUploadedFile(
+                    "activity.doc",
+                    b"legacy-binary",
+                    content_type="application/msword",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error_code"], "invalid_prompt_file")
+        self.assertEqual(ClassroomLiveActivity.objects.count(), 0)
 
     def test_student_activity_response_records_every_attempt_and_updates_summary(self) -> None:
         session = create_live_session(self.teacher)
@@ -492,6 +589,10 @@ class LiveClassroomTests(TestCase):
         self.assertIn("live-classroom-task-history__group", source)
         self.assertIn("live-classroom-task-history__prompt", source)
         self.assertIn("你的选择：", source)
+        self.assertIn("prompt_file", source)
+        self.assertIn("new FormData()", source)
+        self.assertIn("setActivityDialogStatus", source)
+        self.assertIn("选择题至少需要填写 2 个选项", source)
         self.assertIn("publishActivityFromForm", source)
         self.assertIn("submitActivityAnswer", source)
 

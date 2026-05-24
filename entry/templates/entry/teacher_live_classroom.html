@@ -4,7 +4,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260521-task-review-v3">
+    <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260522-task-upload-feedback-v5">
 {% endblock %}
 
 {% block system_content %}
@@ -52,7 +52,12 @@
                         </label>
                         <label>
                             <span>题面</span>
-                            <textarea name="prompt_text" rows="7" required placeholder="粘贴题面"></textarea>
+                            <textarea name="prompt_text" rows="7" placeholder="粘贴题面，或上传文本文件自动识别"></textarea>
+                        </label>
+                        <label>
+                            <span>上传题面文件</span>
+                            <input type="file" name="prompt_file" data-prompt-file accept=".txt,.md,.csv,.tsv,.c,.cc,.cpp,.cxx,.h,.hpp,.py,.java,.js,.json,.html,.htm,.docx,text/plain,text/html">
+                            <span class="live-classroom-task-form__hint">仅识别文本内容，支持 txt / docx / html / 代码文本；暂不做 OCR 或大模型解析。</span>
                         </label>
                         <div class="live-classroom-task-options" data-choice-options>
                             <label><span>A</span><input type="text" data-option-key="A"></label>
@@ -70,8 +75,9 @@
                                 <option value="D">D</option>
                             </select>
                         </label>
+                        <div class="live-classroom-task-form__status" data-activity-dialog-status hidden></div>
                         <div class="live-classroom-dialog__actions">
-                            <button class="login-button live-classroom-primary-button" type="submit">布置完成</button>
+                            <button class="login-button live-classroom-primary-button" type="submit" data-activity-submit>布置完成</button>
                         </div>
                     </form>
                 </div>
@@ -133,6 +139,6 @@
 {% block extra_body_end %}
     {% if active_session %}
         <script src="{{ livekit_client_js_url }}"></script>
-        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260521-task-review-v3"></script>
+        <script src="{% static 'entry/js/live_classroom.js' %}?v=20260522-task-upload-feedback-v5"></script>
     {% endif %}
 {% endblock %}
