@@ -895,7 +895,7 @@ class ExamMVPTests(TestCase):
         self.assertContains(edit_response, 'data-add-new-question', html=False)
         self.assertContains(edit_response, f'name="question_{question.id}_option_d"', html=False)
         self.assertContains(edit_response, "int main()")
-        self.assertNotContains(edit_response, "```cpp")
+        self.assertContains(edit_response, "```cpp")
 
         save_response = self.client.post(
             reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
@@ -1481,6 +1481,7 @@ class ExamMVPTests(TestCase):
                 "```cpp",
                 "1 int a = 1;",
                 "2 | cout << a;",
+                "3",
                 "3 return 0;",
                 "```",
                 "A. 1",
@@ -1496,10 +1497,160 @@ class ExamMVPTests(TestCase):
         self.assertIn("int a = 1;", question["stem_md"])
         self.assertIn("cout << a;", question["stem_md"])
         self.assertIn("return 0;", question["stem_md"])
+        self.assertNotIn("\n3\n", question["stem_md"])
         self.assertNotIn("1 int a", question["stem_md"])
         self.assertNotIn("2 | cout", question["stem_md"])
 
-    def test_teacher_edit_display_hides_code_fence_but_save_restores_cpp_marker(self) -> None:
+    def test_ocr_markdown_wraps_unfenced_numbered_cpp_block(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 7 |",
+                "| 答案 | A |",
+                "第 7 题 下面 C++ 代码执行时，其说法正确的是（ ）。",
+                "1 int M = 0, N = 0;",
+                "2 cin >> M;",
+                "3 cin >> N;",
+                "4",
+                "5 if (N > M)",
+                "6     cout << (N - M);",
+                "7 else",
+                "8     cout << (M - N);",
+                "A. 正确",
+                "B. 错误",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        stem_md = parsed_questions[0]["stem_md"]
+        self.assertIn("```cpp", stem_md)
+        self.assertIn("int M = 0, N = 0;", stem_md)
+        self.assertIn("\n\nif (N > M)", stem_md)
+        self.assertIn("    cout << (N - M);", stem_md)
+        self.assertNotIn("\n4\n", stem_md)
+        self.assertNotIn("1 int M", stem_md)
+
+    def test_choice_option_numeric_code_content_is_not_stripped_as_line_number(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 8 |",
+                "| 答案 | A |",
+                "第 8 题 下面程序输出结果是？（ ）",
+                "A.",
+                "```",
+                "1 | 24 5",
+                "```",
+                "B.",
+                "```",
+                "1 | 10 5",
+                "```",
+                "C.",
+                "```",
+                "1 0 4",
+                "```",
+                "D.",
+                "```",
+                "1 0 5",
+                "```",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        question = parsed_questions[0]
+        self.assertIn("24 5", question["options"]["A"])
+        self.assertNotIn("1 | 24 5", question["options"]["A"])
+        self.assertNotIn("``` 5 ```", question["options"]["A"])
+        self.assertIn("10 5", question["options"]["B"])
+        self.assertIn("0 4", question["options"]["C"])
+        self.assertIn("0 5", question["options"]["D"])
+
+    def test_choice_option_compact_code_fence_splits_output_lines(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 5 |",
+                "| 答案 | A |",
+                "第 5 题 输出是？（ ）",
+                "A. ```6143```",
+                "B. ```5234```",
+                "C. ```6244```",
+                "D. ```6232```",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        options = parsed_questions[0]["options"]
+        self.assertIn("61\n43", options["A"])
+        self.assertIn("52\n34", options["B"])
+        self.assertNotIn("6143", options["A"])
+
+    def test_programming_reference_solution_stops_before_next_programming_question(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "3 编程题（每题 25 分，共 50 分）",
+                "3.1 编程题 1",
+                "试题名称：交朋友",
+                "3.1.1 题目描述",
+                "Alice 想交朋友。",
+                "3.1.7 参考程序",
+                "```cpp",
+                "#include <iostream>",
+                "int main() { return 0; }",
+                "```",
+                "3.2 编程题 2",
+                "试题名称：数字替换",
+                "3.2.1 题目描述",
+                "把 4 替换成 8。",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+        first_programming = next(item for item in parsed_questions if item["question_no"] == 1)
+        second_programming = next(item for item in parsed_questions if item["question_no"] == 2)
+
+        self.assertIn("交朋友", first_programming["stem_md"])
+        self.assertNotIn("参考程序", first_programming["stem_md"])
+        self.assertNotIn("数字替换", first_programming["analysis_md"])
+        self.assertIn("参考程序", first_programming["analysis_md"])
+        self.assertIn("数字替换", second_programming["stem_md"])
+
+    def test_programming_unfenced_reference_solution_moves_to_analysis(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "3 编程题（每题 25 分，共 50 分）",
+                "3.1 编程题 1",
+                "试题名称：交朋友",
+                "3.1.1 题目描述",
+                "Alice 想交朋友。",
+                "### 3.1.7 参考程序",
+                "1 #include <iostream>",
+                "2",
+                "3 using namespace std;",
+                "4 int main(){",
+                "5     return 0;",
+                "6 }",
+                "3.2 编程题 2",
+                "试题名称：数字替换",
+                "3.2.1 题目描述",
+                "把 4 替换成 8。",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+        first_programming = next(item for item in parsed_questions if item["question_no"] == 1)
+        second_programming = next(item for item in parsed_questions if item["question_no"] == 2)
+
+        self.assertNotIn("参考程序", first_programming["stem_md"])
+        self.assertNotIn("#include <iostream>", first_programming["stem_md"])
+        self.assertIn("参考程序", first_programming["analysis_md"])
+        self.assertIn("#include <iostream>", first_programming["analysis_md"])
+        self.assertIn("数字替换", second_programming["stem_md"])
+
+    def test_teacher_edit_display_keeps_code_fence_and_save_restores_cpp_marker(self) -> None:
         original = "第 1 题 阅读代码。\n\n```cpp\n1 int main() {\n2     return 0;\n3 }\n```"
 
         display_text = format_exam_markdown_for_teacher_edit(original)
@@ -1508,7 +1659,7 @@ class ExamMVPTests(TestCase):
             original,
         )
 
-        self.assertNotIn("```cpp", display_text)
+        self.assertIn("```cpp", display_text)
         self.assertIn("int main()", display_text)
         self.assertIn("```cpp", saved_text)
         self.assertIn("return 0;", saved_text)

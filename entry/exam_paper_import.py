@@ -32,8 +32,12 @@ OCR_PAGE_PROMPT = """You are recognizing one rendered GESP C++ exam page.
 Return faithful Markdown. Preserve question numbers, options, code blocks, formulas, diagrams, and answer/analysis text when visible.
 For flowcharts, do not transcribe the text inside the flowchart and do not convert it to Mermaid or pseudo-code. Keep only a short placeholder like `[流程图见图]`; the image crop pipeline will preserve the flowchart as an image asset.
 For single-choice options containing code, keep each option label (`A.`, `B.`, `C.`, `D.`) outside the code fence, and close that option's code fence before the next option label, next question title, or next section header.
+For code screenshots with visible line numbers, keep the code in a fenced code block and remove the visual line numbers. If a numbered blank line appears, preserve it as a blank line instead of outputting the number.
+For answer options that are small output snippets, preserve line breaks: for example OCR output like `6143` from two visual lines should become `61` and `43` on separate lines, and `1 | 24 5` should become `24 5`.
 Never merge later sections such as `2 判断题` or `3 编程题` into the previous choice question, even when the previous option has an empty or malformed code block.
 Programming questions have clear titles such as `3.1 编程题 1` and `3.2 编程题 2`; preserve those title lines exactly.
+When you see `参考程序` or `参考代码` in a programming problem, keep that reference solution in a clearly separated section after the problem statement; do not merge it into the next programming problem.
+Do not include PDF page footers such as `第 1 页 / 共 10 页`.
 Do not invent missing text.
 """
 
@@ -372,8 +376,15 @@ def normalize_markdown_math_for_display(text: str) -> str:
 
 CODE_FENCE_RE = re.compile(r"^\s*```")
 CODE_LINE_NUMBER_PIPE_RE = re.compile(r"^(\s*)\d{1,4}\s+\|\s(.*)$")
-CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s+(?=\S)(.*)$")
+CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s(?=[A-Za-z_#{};/])(.*)$")
+CODE_LINE_NUMBER_ANY_RE = re.compile(r"^(\s*)\d{1,4}(?:\s+\|\s*|\s)(.*\S)\s*$")
+CODE_LINE_NUMBER_ONLY_RE = re.compile(r"^(\s*)\d{1,4}\s*$")
 PDF_PAGE_FOOTER_RE = re.compile(r"^\s*(?:第\s*)?\d{1,3}\s*页\s*/\s*共\s*\d{1,3}\s*页\s*$")
+COMPACT_CODE_FENCE_RE = re.compile(r"```\s*([0-9]{4})\s*```")
+OPTION_COMPACT_CODE_FENCE_RE = re.compile(
+    r"^(\s*(?:[-*]\s*)?(?:\[\s*[xX ]?\s*\]\s*)?(?:[（(]?[A-Da-d][）)]|[A-Da-d])[\.．、:：])\s*```\s*([0-9]{4})\s*```\s*$",
+    re.MULTILINE,
+)
 
 
 def unwrap_outer_markdown_fence(markdown_text: str) -> str:
@@ -387,22 +398,131 @@ def strip_code_block_line_numbers(markdown_text: str) -> str:
     lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     in_code_block = False
     cleaned_lines: list[str] = []
+    code_lines: list[str] = []
+
+    def clean_code_lines(raw_code_lines: list[str]) -> list[str]:
+        nonblank_lines = [line for line in raw_code_lines if line.strip()]
+        if nonblank_lines and all(CODE_LINE_NUMBER_ONLY_RE.match(line) for line in nonblank_lines):
+            return [line.rstrip() for line in raw_code_lines]
+        normalized_code_lines: list[str] = []
+        for code_line in raw_code_lines:
+            stripped_line = strip_numbered_code_line(code_line)
+            normalized_code_lines.append(code_line.rstrip() if stripped_line is None else stripped_line)
+        return normalized_code_lines
+
     for line in lines:
         if CODE_FENCE_RE.match(line):
+            if in_code_block:
+                cleaned_lines.extend(clean_code_lines(code_lines))
+                code_lines = []
             in_code_block = not in_code_block
             cleaned_lines.append(line)
             continue
         if in_code_block:
-            match = CODE_LINE_NUMBER_PIPE_RE.match(line)
-            if match:
-                cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
-                continue
-            match = CODE_LINE_NUMBER_SPACE_RE.match(line)
-            if match:
-                cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
-                continue
+            code_lines.append(line)
+            continue
         cleaned_lines.append(line)
+    if in_code_block:
+        cleaned_lines.extend(clean_code_lines(code_lines))
     return "\n".join(cleaned_lines).strip()
+
+
+def strip_numbered_code_line(line: str, *, allow_numeric_output: bool = False) -> str | None:
+    if CODE_LINE_NUMBER_ONLY_RE.match(line):
+        return ""
+    match = CODE_LINE_NUMBER_PIPE_RE.match(line)
+    if match:
+        return f"{match.group(1)}{match.group(2)}".rstrip()
+    match = (CODE_LINE_NUMBER_ANY_RE if allow_numeric_output else CODE_LINE_NUMBER_SPACE_RE).match(line)
+    if match:
+        return f"{match.group(1)}{match.group(2)}".rstrip()
+    return None
+
+
+def normalize_compact_code_fences(markdown_text: str) -> str:
+    def replace_option_match(match: re.Match[str]) -> str:
+        compact_digits = match.group(2)
+        return f"{match.group(1)}\n```\n{compact_digits[:2]}\n{compact_digits[2:]}\n```"
+
+    def replace_match(match: re.Match[str]) -> str:
+        compact_digits = match.group(1)
+        return f"```\n{compact_digits[:2]}\n{compact_digits[2:]}\n```"
+
+    normalized = OPTION_COMPACT_CODE_FENCE_RE.sub(replace_option_match, markdown_text)
+    return COMPACT_CODE_FENCE_RE.sub(replace_match, normalized)
+
+
+def normalize_ocr_numbered_code_blocks(markdown_text: str) -> str:
+    lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    normalized_lines: list[str] = []
+    index = 0
+    in_code_block = False
+    while index < len(lines):
+        line = lines[index]
+        if CODE_FENCE_RE.match(line):
+            in_code_block = not in_code_block
+            normalized_lines.append(line)
+            index += 1
+            continue
+        if in_code_block:
+            normalized_lines.append(line)
+            index += 1
+            continue
+
+        run: list[str] = []
+        cursor = index
+        while cursor < len(lines):
+            candidate = lines[cursor]
+            if CODE_FENCE_RE.match(candidate):
+                break
+            stripped_candidate = candidate.strip()
+            if not stripped_candidate:
+                if run:
+                    run.append("")
+                    cursor += 1
+                    continue
+                break
+            stripped_line = strip_numbered_code_line(candidate)
+            if stripped_line is None:
+                break
+            run.append(stripped_line)
+            cursor += 1
+
+        nonblank_run = [part for part in run if part.strip()]
+        if len(nonblank_run) >= 2 and any(is_likely_cpp_code_line(part) for part in nonblank_run):
+            normalized_lines.append("```cpp")
+            normalized_lines.extend(run)
+            normalized_lines.append("```")
+            index = cursor
+            continue
+
+        normalized_lines.append(line)
+        index += 1
+    return "\n".join(normalized_lines).strip()
+
+
+def normalize_option_code_text(option_text: str) -> str:
+    normalized = normalize_compact_code_fences(str(option_text or "").strip())
+    fence_lines = normalized.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if len(fence_lines) >= 3 and CODE_FENCE_RE.match(fence_lines[0]) and CODE_FENCE_RE.match(fence_lines[-1]):
+        body_lines = fence_lines[1:-1]
+        nonblank_body_lines = [line for line in body_lines if line.strip()]
+        if nonblank_body_lines and all(re.fullmatch(r"\s*\d+\s*", line) for line in nonblank_body_lines):
+            return "\n".join(line.strip() for line in body_lines).strip()
+    normalized = strip_code_block_line_numbers(normalized)
+    lines = normalized.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    nonblank_lines = [line for line in lines if line.strip()]
+    has_numbered_payload = any(
+        CODE_LINE_NUMBER_PIPE_RE.match(line) or CODE_LINE_NUMBER_ANY_RE.match(line)
+        for line in nonblank_lines
+    )
+    if (
+        nonblank_lines
+        and all(strip_numbered_code_line(line, allow_numeric_output=True) is not None for line in nonblank_lines)
+        and (len(nonblank_lines) > 1 or has_numbered_payload)
+    ):
+        return "\n".join(strip_numbered_code_line(line, allow_numeric_output=True) or "" for line in lines).strip()
+    return normalized.strip()
 
 
 def strip_pdf_page_footers(markdown_text: str) -> str:
@@ -416,10 +536,13 @@ def format_exam_markdown_for_teacher_edit(markdown_text: object) -> str:
     formatted_lines: list[str] = []
     in_code_block = False
     code_lines: list[str] = []
+    opening_fence = ""
 
     def flush_code() -> None:
         nonlocal code_lines
         if not code_lines:
+            formatted_lines.append(opening_fence or "```")
+            formatted_lines.append("```")
             return
         while code_lines and not code_lines[0].strip():
             code_lines.pop(0)
@@ -432,7 +555,9 @@ def format_exam_markdown_for_teacher_edit(markdown_text: object) -> str:
             indent = len(code_line) - len(code_line.lstrip(" "))
             min_indent = indent if min_indent is None else min(min_indent, indent)
         trim = min_indent or 0
+        formatted_lines.append(opening_fence or "```")
         formatted_lines.extend(code_line[trim:].rstrip() for code_line in code_lines)
+        formatted_lines.append("```")
         code_lines = []
 
     for line in lines:
@@ -442,6 +567,7 @@ def format_exam_markdown_for_teacher_edit(markdown_text: object) -> str:
                 in_code_block = False
             else:
                 in_code_block = True
+                opening_fence = line.strip()
                 code_lines = []
             continue
         if in_code_block:
@@ -559,6 +685,8 @@ def clean_imported_markdown(markdown_text: str) -> str:
     normalized = markdown_text.replace("\r\n", "\n").replace("\r", "\n").replace("\u3000", " ")
     normalized = unwrap_outer_markdown_fence(normalized)
     normalized = strip_pdf_page_footers(normalized)
+    normalized = normalize_compact_code_fences(normalized)
+    normalized = normalize_ocr_numbered_code_blocks(normalized)
     normalized = strip_code_block_line_numbers(normalized)
     normalized = normalize_markdown_math_for_display(normalized)
     normalized = re.sub(r"\n{4,}", "\n\n\n", normalized)
@@ -821,9 +949,24 @@ def split_programming_reference_solution(stem_md: str, analysis_md: str = "") ->
         return str(stem_md or "").strip(), str(analysis_md or "").strip()
 
     stem_part = "\n".join(lines[:split_index]).strip()
-    reference_part = "\n".join(lines[split_index:]).strip()
+    reference_lines = lines[split_index:]
+    next_programming_index: int | None = None
+    in_code_block = False
+    for offset, line in enumerate(reference_lines[1:], start=1):
+        if CODE_FENCE_RE.match(line):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        if detect_programming_question_start(line):
+            next_programming_index = offset
+            break
+    reference_part = "\n".join(reference_lines[:next_programming_index]).strip() if next_programming_index else "\n".join(reference_lines).strip()
+    trailing_part = "\n".join(reference_lines[next_programming_index:]).strip() if next_programming_index else ""
     existing_analysis = str(analysis_md or "").strip()
     merged_analysis = "\n\n".join(part for part in [existing_analysis, reference_part] if part)
+    if trailing_part:
+        stem_part = "\n\n".join(part for part in [stem_part, trailing_part] if part)
     return stem_part, merged_analysis
 
 
@@ -933,13 +1076,15 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
                 option_lines.setdefault(current_option_key, [])
                 if option[1]:
                     option_lines[current_option_key].append(option[1])
+                    if CODE_FENCE_RE.match(option[1]):
+                        in_code_block = True
                 continue
             if section == QUESTION_SECTION_SINGLE_CHOICE and current_option_key and raw_line.strip():
                 option_lines.setdefault(current_option_key, []).append(raw_line.strip())
                 continue
             stem_lines.append(raw_line)
         options = {
-            key: "\n".join(part for part in option_lines.get(key, []) if part).strip()
+            key: normalize_option_code_text("\n".join(part for part in option_lines.get(key, []) if part).strip())
             for key in EXAM_CHOICE_KEYS
         }
         option_count = sum(1 for value in options.values() if value)

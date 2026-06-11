@@ -2703,7 +2703,8 @@ def normalize_exam_inline_math_for_display(value: object) -> str:
 
 EXAM_CODE_FENCE_RE = re.compile(r"^\s*```")
 EXAM_CODE_LINE_NUMBER_PIPE_RE = re.compile(r"^(\s*)\d{1,4}\s+\|\s(.*)$")
-EXAM_CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s+(?=\S)(.*)$")
+EXAM_CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s(?=[A-Za-z_#{};/])(.*)$")
+EXAM_CODE_LINE_NUMBER_ONLY_RE = re.compile(r"^(\s*)\d{1,4}\s*$")
 
 
 def strip_exam_display_code_line_numbers(value: object) -> str:
@@ -2716,6 +2717,10 @@ def strip_exam_display_code_line_numbers(value: object) -> str:
             cleaned_lines.append(line)
             continue
         if in_code_block:
+            match = EXAM_CODE_LINE_NUMBER_ONLY_RE.match(line)
+            if match:
+                cleaned_lines.append("")
+                continue
             match = EXAM_CODE_LINE_NUMBER_PIPE_RE.match(line) or EXAM_CODE_LINE_NUMBER_SPACE_RE.match(line)
             if match:
                 cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
