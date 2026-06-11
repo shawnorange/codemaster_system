@@ -17,6 +17,20 @@
             margin: 0;
         }
 
+        .available-paper-actions {
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            justify-content: center;
+            max-width: 100%;
+            overflow: visible;
+            white-space: nowrap;
+        }
+
+        .available-paper-actions .cm-tabulator-btn {
+            flex: 0 0 auto;
+        }
+
         .teacher-exam-toolbar--aligned {
             align-items: flex-end;
             justify-content: flex-end;
@@ -306,6 +320,12 @@
         </form>
     </dialog>
 
+    <form method="post" id="available-paper-delete-form" hidden>
+        {% csrf_token %}
+        <input type="hidden" name="form_action" value="delete_bank_paper">
+        <input type="hidden" name="bank_paper_id" id="available-paper-delete-id">
+    </form>
+
     <dialog class="topic-access-modal" id="teacher-exam-schedule-dialog">
         <form method="post" class="topic-access-modal__panel">
             {% csrf_token %}
@@ -400,6 +420,8 @@
             const availablePaperPublishDuration = document.getElementById("available-paper-publish-duration");
             const closeAvailablePaperPublishDialog = document.getElementById("close-available-paper-publish-dialog");
             const cancelAvailablePaperPublishDialog = document.getElementById("cancel-available-paper-publish-dialog");
+            const availablePaperDeleteForm = document.getElementById("available-paper-delete-form");
+            const availablePaperDeleteId = document.getElementById("available-paper-delete-id");
             const examManagementDataScript = document.getElementById("teacher-exam-management-data");
             const examManagementGrid = document.getElementById("teacher-exam-management-grid");
             const examManagementFallback = document.getElementById("teacher-exam-management-fallback");
@@ -764,10 +786,11 @@
             };
             const buildAvailablePaperActions = (row) => {
                 return [
-                    '<div class="teacher-exam-actions">',
+                    '<div class="teacher-exam-actions available-paper-actions">',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href || "#") + '">预览</a>',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
                     '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '">发布</button>',
+                    '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
                     '</div>',
                 ].join("");
             };
@@ -819,7 +842,8 @@
                         {
                             title: "操作",
                             field: "id",
-                            minWidth: 210,
+                            minWidth: 340,
+                            width: 340,
                             hozAlign: "center",
                             headerSort: false,
                             formatter: (cell) => buildAvailablePaperActions(cell.getRow().getData()),
@@ -1048,6 +1072,20 @@
                     const paperId = Number(publishButton.dataset.paperId || 0);
                     const row = availablePaperRows.find((item) => Number(item.id) === paperId);
                     openAvailablePaperPublishDialog(row);
+                    return;
+                }
+                const deleteButton = event.target.closest(".available-paper-delete-button");
+                if (deleteButton) {
+                    const paperId = Number(deleteButton.dataset.paperId || 0);
+                    if (!availablePaperDeleteForm || !availablePaperDeleteId || !paperId) {
+                        return;
+                    }
+                    const confirmed = window.confirm(deleteButton.dataset.confirmMessage || "是否确定删除这张可用试卷？");
+                    if (!confirmed) {
+                        return;
+                    }
+                    availablePaperDeleteId.value = String(paperId);
+                    availablePaperDeleteForm.submit();
                     return;
                 }
                 const editButton = event.target.closest(".teacher-exam-edit-schedule");

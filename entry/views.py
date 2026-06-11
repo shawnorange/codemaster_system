@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Max
+from django.db.models import Count, F, Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -61,6 +61,7 @@ from .exam_online import (
 )
 from .exam_paper_import import (
     ExamPaperImportConfirmError,
+    build_default_question_analysis_md,
     clean_imported_markdown,
     combine_raw_ocr_page_markdown,
     confirm_exam_question_bank_import_job,
@@ -900,6 +901,84 @@ def get_teacher_exam_import_job_rows(portal_user: PortalUser, *, limit: int = 10
     return [serialize_exam_import_job_row(item) for item in recent_import_jobs]
 
 
+def serialize_confirmed_exam_bank_paper_row(
+    paper: ExamQuestionBankPaper,
+    *,
+    published_bank_paper_ids: set[int] | None = None,
+) -> dict[str, object]:
+    subject_title = infer_exam_bank_paper_subject(paper)
+    source_text = dict(ExamQuestionBankPaper.SOURCE_CHOICES).get(paper.source, paper.source or "系统")
+    question_count = int(getattr(paper, "question_count", 0) or 0)
+    year_month_text = f"{paper.year}年{paper.month}月" if paper.year and paper.month else "未设置"
+    created_at_text = timezone.localtime(paper.created_at).strftime("%Y-%m-%d %H:%M") if paper.created_at else ""
+    updated_at_text = timezone.localtime(paper.updated_at).strftime("%Y-%m-%d %H:%M") if paper.updated_at else ""
+    has_exam_management_record = (
+        paper.id in published_bank_paper_ids
+        if published_bank_paper_ids is not None
+        else exam_bank_paper_has_exam_management_record(paper.id)
+    )
+    return {
+        "id": paper.id,
+        "title": paper.title,
+        "subject_title": subject_title,
+        "level_text": paper.level or "未分级",
+        "year_month_text": year_month_text,
+        "source_text": source_text,
+        "source_pdf_id": paper.source_pdf_id,
+        "source_file": paper.source_file,
+        "question_count": question_count,
+        "created_at_text": created_at_text,
+        "updated_at_text": updated_at_text,
+        "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
+        "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
+        "publish_href": f"{reverse('teacher-exams')}#available-exam-papers",
+        "has_exam_management_record": has_exam_management_record,
+        "delete_label": "删除" if has_exam_management_record else "硬删除",
+        "delete_confirm_message": (
+            "这张试卷已经发布过，删除后会进入已删除试卷，可恢复。是否继续？"
+            if has_exam_management_record
+            else "这张试卷还没有发布过，将硬删除题库快照和对应识别任务，之后可重新上传识别。是否继续？"
+        ),
+        "search_text": " ".join(
+            [
+                paper.title,
+                subject_title,
+                paper.level or "",
+                year_month_text,
+                source_text,
+                paper.source_file or "",
+                paper.source_pdf_id or "",
+            ]
+        ).lower(),
+    }
+
+
+def get_confirmed_exam_bank_paper_rows(*, limit: int = 100) -> list[dict[str, object]]:
+    published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
+    papers = list(
+        ExamQuestionBankPaper.objects.filter(is_active=True)
+        .annotate(question_count=Count("questions"))
+        .order_by("-updated_at", "-created_at", "-id")[:limit]
+    )
+    return [
+        serialize_confirmed_exam_bank_paper_row(paper, published_bank_paper_ids=published_bank_paper_ids)
+        for paper in papers
+    ]
+
+
+def get_deleted_exam_bank_paper_rows(*, limit: int = 100) -> list[dict[str, object]]:
+    published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
+    papers = list(
+        ExamQuestionBankPaper.objects.filter(is_active=False, id__in=published_bank_paper_ids)
+        .annotate(question_count=Count("questions"))
+        .order_by("-updated_at", "-created_at", "-id")[:limit]
+    )
+    return [
+        serialize_confirmed_exam_bank_paper_row(paper, published_bank_paper_ids=published_bank_paper_ids)
+        for paper in papers
+    ]
+
+
 def get_exam_bank_question_type_review_label(question_type: object) -> str:
     normalized_type = str(question_type or "")
     if normalized_type == ExamQuestionBankQuestion.QUESTION_TYPE_RAW_MARKDOWN:
@@ -1085,12 +1164,21 @@ def get_exam_bank_paper_review_context(
 
 def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: HttpRequest) -> None:
     question_ids = normalize_positive_int_list(request.POST.getlist("question_ids"))
-    if not question_ids:
+    new_question_keys: list[str] = []
+    seen_new_question_keys: set[str] = set()
+    for raw_key in request.POST.getlist("new_question_keys"):
+        key = re.sub(r"[^0-9A-Za-z_-]", "", str(raw_key or "").strip())
+        if key and key not in seen_new_question_keys:
+            new_question_keys.append(key)
+            seen_new_question_keys.add(key)
+    if not question_ids and not new_question_keys:
         raise ValidationError("当前试卷没有可保存的题目。")
-    valid_question_ids = set(paper.questions.filter(id__in=question_ids).values_list("id", flat=True))
-    if valid_question_ids != set(question_ids):
-        raise ValidationError("提交的题目数据不属于当前试卷，请刷新后重试。")
+    if question_ids:
+        valid_question_ids = set(paper.questions.filter(id__in=question_ids).values_list("id", flat=True))
+        if valid_question_ids != set(question_ids):
+            raise ValidationError("提交的题目数据不属于当前试卷，请刷新后重试。")
 
+    option_keys = ["A", "B", "C", "D"]
     type_values = {choice[0] for choice in ExamQuestionBankQuestion.QUESTION_TYPE_CHOICES}
     with transaction.atomic():
         locked_paper = ExamQuestionBankPaper.objects.select_for_update().get(id=paper.id, is_active=True)
@@ -1125,7 +1213,7 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
             ).strip()
             question.save(update_fields=["question_type", "stem_md", "answer_json", "analysis_md", "updated_at"])
 
-            for sort_order, option_key in enumerate(["A", "B", "C", "D"], start=1):
+            for sort_order, option_key in enumerate(option_keys, start=1):
                 option_text = normalize_preserved_multiline_text(
                     request.POST.get(f"question_{question_id}_option_{option_key.lower()}") or ""
                 ).strip()
@@ -1140,6 +1228,73 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
                     )
                 else:
                     ExamQuestionBankOption.objects.filter(question=question, option_key=option_key).delete()
+
+        next_question_no = (locked_paper.questions.aggregate(max_no=Max("question_no")).get("max_no") or 0) + 1
+        created_count = 0
+        for key in new_question_keys:
+            question_type = str(
+                request.POST.get(f"new_question_{key}_type")
+                or ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE
+            ).strip()
+            if question_type not in type_values:
+                raise ValidationError("新增题目题型不合法。")
+            stem_md = normalize_preserved_multiline_text(
+                request.POST.get(f"new_question_{key}_stem_md") or ""
+            ).strip()
+            answer_text = str(request.POST.get(f"new_question_{key}_answer") or "").strip()
+            analysis_md = normalize_preserved_multiline_text(
+                request.POST.get(f"new_question_{key}_analysis") or ""
+            ).strip()
+            options: dict[str, str] = {
+                option_key: normalize_preserved_multiline_text(
+                    request.POST.get(f"new_question_{key}_option_{option_key.lower()}") or ""
+                ).strip()
+                for option_key in option_keys
+            }
+            has_any_value = bool(stem_md or answer_text or analysis_md or any(options.values()))
+            if not has_any_value:
+                continue
+            if not stem_md:
+                raise ValidationError("新增题目的题干 Markdown 不能为空。")
+            answer_json = (
+                {"correct_answer": answer_text.upper()}
+                if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE
+                else {"answer": answer_text}
+            )
+            analysis_md = build_default_question_analysis_md(
+                question_type=question_type,
+                stem_md=stem_md,
+                answer_json=answer_json,
+                options=options,
+                existing_analysis_md=analysis_md,
+            )
+            question_uid_prefix = re.sub(r"\s+", "_", str(locked_paper.source_pdf_id or locked_paper.id).strip())[:96]
+            new_question = ExamQuestionBankQuestion.objects.create(
+                paper=locked_paper,
+                question_uid=f"{question_uid_prefix or locked_paper.id}-manual-{uuid.uuid4().hex[:12]}",
+                question_no=next_question_no,
+                question_type=question_type,
+                stem_md=stem_md,
+                answer_json=answer_json,
+                analysis_md=analysis_md,
+                programming_json={},
+                full_json={"source": "teacher_manual_edit"},
+            )
+            for sort_order, option_key in enumerate(option_keys, start=1):
+                option_text = options.get(option_key, "")
+                if not option_text:
+                    continue
+                ExamQuestionBankOption.objects.create(
+                    question=new_question,
+                    option_key=option_key,
+                    option_text_md=option_text,
+                    sort_order=sort_order,
+                )
+            next_question_no += 1
+            created_count += 1
+
+        if not question_ids and created_count == 0:
+            raise ValidationError("当前试卷没有可保存的题目。")
 
 
 def get_safe_next_path(request: HttpRequest, fallback_url_name: str) -> str:
@@ -2188,6 +2343,47 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
     return normalize_positive_int(marker_match.group(1), default=0, minimum=1) or None
 
 
+def exam_bank_paper_has_exam_management_record(bank_paper_id: int) -> bool:
+    marker = build_exam_bank_paper_publish_marker(bank_paper_id)
+    return ExamPaper.objects.filter(description__contains=marker).exists()
+
+
+def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
+    bank_paper_ids: set[int] = set()
+    descriptions = ExamPaper.objects.exclude(description="").values_list("description", flat=True)
+    for description in descriptions:
+        bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
+        if bank_paper_id:
+            bank_paper_ids.add(bank_paper_id)
+    return bank_paper_ids
+
+
+def delete_exam_bank_paper_by_usage(bank_paper_id: int) -> dict[str, object]:
+    with transaction.atomic():
+        bank_paper = (
+            ExamQuestionBankPaper.objects.select_for_update()
+            .filter(id=bank_paper_id)
+            .first()
+        )
+        if bank_paper is None:
+            return {"deleted_count": 0, "mode": "missing"}
+        if exam_bank_paper_has_exam_management_record(bank_paper.id):
+            if not bank_paper.is_active:
+                return {"deleted_count": 0, "mode": "soft"}
+            bank_paper.is_active = False
+            bank_paper.save(update_fields=["is_active", "updated_at"])
+            return {"deleted_count": 1, "mode": "soft"}
+
+        source_pdf_id = bank_paper.source_pdf_id
+        bank_paper.delete()
+        if source_pdf_id:
+            ExamQuestionBankImportJob.objects.filter(source_pdf_id=source_pdf_id).update(
+                is_active=False,
+                updated_at=timezone.now(),
+            )
+        return {"deleted_count": 1, "mode": "hard"}
+
+
 def get_bank_question_exam_answer(question: ExamQuestionBankQuestion) -> str:
     answer_json = question.answer_json if isinstance(question.answer_json, dict) else {}
     raw_answer = (
@@ -2552,6 +2748,9 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).first()
             success_message = f"{paper.title} 已进入可用试卷列表。" if paper else "试卷已进入可用试卷列表。"
+        elif op == "bank_paper_deleted":
+            delete_mode = str(request.GET.get("mode") or "").strip()
+            success_message = "未发布试卷已硬删除。" if delete_mode == "hard" else "可用试卷已删除。"
         elif op in {"bank_paper_added", "bank_paper_exists"}:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).first()
@@ -2602,6 +2801,19 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper.access_code = ""
             paper.save(update_fields=["is_active", "access_code", "updated_at"])
             return redirect(build_redirect_with_query(reverse("teacher-exams"), params={"op": "deleted"}))
+
+        if action == "delete_bank_paper":
+            bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            delete_result = delete_exam_bank_paper_by_usage(bank_paper_id)
+            if not delete_result["deleted_count"]:
+                return render_exam_page(error_message="未找到可删除的试卷。")
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={"op": "bank_paper_deleted", "mode": delete_result["mode"]},
+                    anchor="available-exam-papers",
+                )
+            )
 
         if action == "create_exam_from_bank_paper":
             bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
@@ -2731,6 +2943,18 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
     if feedback_op == "deleted":
         deleted_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
         upload_success_message = f"已删除 {deleted_count} 条识别任务。"
+    elif feedback_op == "bank_paper_deleted":
+        deleted_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
+        delete_mode = str(request.GET.get("mode") or "").strip()
+        if delete_mode == "hard":
+            upload_success_message = f"已硬删除 {deleted_count} 张未发布试卷，可重新上传识别。"
+        else:
+            upload_success_message = f"已删除 {deleted_count} 张已发布试卷，可在“已删除试卷”中恢复。"
+    elif feedback_op == "bank_paper_restored":
+        restored_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
+        upload_success_message = f"已恢复 {restored_count} 张试卷。"
+    elif feedback_op == "restore_available":
+        upload_success_message = "这份文件对应的试卷已入库但当前处于已删除状态，请在下方“已删除试卷”中点击恢复。"
     elif feedback_job_id and feedback_op in {"queued", "existing"}:
         feedback_job = (
             ExamQuestionBankImportJob.objects.filter(teacher=portal_user, is_active=True, id=feedback_job_id)
@@ -2745,6 +2969,35 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST":
         action = str(request.POST.get("form_action") or "").strip()
+        if action == "delete_bank_paper":
+            bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            delete_result = delete_exam_bank_paper_by_usage(bank_paper_id)
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exam-paper-new"),
+                    params={
+                        "op": "bank_paper_deleted",
+                        "count": delete_result["deleted_count"],
+                        "mode": delete_result["mode"],
+                    },
+                    anchor="confirmed-bank-papers",
+                )
+            )
+        if action == "restore_bank_paper":
+            bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            restored_count = 0
+            if exam_bank_paper_has_exam_management_record(bank_paper_id):
+                restored_count = ExamQuestionBankPaper.objects.filter(id=bank_paper_id, is_active=False).update(
+                    is_active=True,
+                    updated_at=timezone.now(),
+                )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exam-paper-new"),
+                    params={"op": "bank_paper_restored", "count": restored_count},
+                    anchor="confirmed-bank-papers",
+                )
+            )
         if action == "delete_import_job":
             import_job_id = normalize_positive_int(request.POST.get("import_job_id"), default=0, minimum=1)
             deleted_count = ExamQuestionBankImportJob.objects.filter(
@@ -2870,13 +3123,32 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
                         .first()
                     )
                     if existing_job is not None:
-                        return redirect(
-                            build_redirect_with_query(
-                                reverse("teacher-exam-paper-new"),
-                                params={"op": "existing", "job_id": existing_job.id},
-                                anchor="recent-import-jobs",
+                        inactive_bank_paper = ExamQuestionBankPaper.objects.filter(
+                            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+                            source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
+                            is_active=False,
+                        ).first()
+                        if inactive_bank_paper is not None and exam_bank_paper_has_exam_management_record(inactive_bank_paper.id):
+                            return redirect(
+                                build_redirect_with_query(
+                                    reverse("teacher-exam-paper-new"),
+                                    params={"op": "restore_available", "paper_id": inactive_bank_paper.id},
+                                    anchor="deleted-bank-papers",
+                                )
                             )
-                        )
+                        if inactive_bank_paper is not None:
+                            ExamQuestionBankImportJob.objects.filter(id=existing_job.id).update(
+                                is_active=False,
+                                updated_at=timezone.now(),
+                            )
+                        else:
+                            return redirect(
+                                build_redirect_with_query(
+                                    reverse("teacher-exam-paper-new"),
+                                    params={"op": "existing", "job_id": existing_job.id},
+                                    anchor="recent-import-jobs",
+                                )
+                            )
                     import_job = ExamQuestionBankImportJob.objects.create(
                         teacher=portal_user,
                         course=selected_course,
@@ -2952,6 +3224,8 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
         or ""
     ).strip()
     recent_import_job_rows = get_teacher_exam_import_job_rows(portal_user)
+    confirmed_bank_paper_rows = get_confirmed_exam_bank_paper_rows()
+    deleted_bank_paper_rows = get_deleted_exam_bank_paper_rows()
 
     context = {
         "page_title": "新增试卷",
@@ -2972,6 +3246,8 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
         "uploaded_pdf_metadata": uploaded_pdf_metadata,
         "exam_import_accept": ",".join(sorted(get_supported_exam_import_extensions())),
         "recent_import_job_rows": recent_import_job_rows,
+        "confirmed_bank_paper_rows": confirmed_bank_paper_rows,
+        "deleted_bank_paper_rows": deleted_bank_paper_rows,
         "import_job_status_url": reverse("teacher-exam-paper-import-jobs-status"),
         "qwen_check_items": [
             {
@@ -2994,13 +3270,6 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
                 "value": "当前项目已有 pypdfium2；Hermes 建议 PyMuPDF 300 DPI",
                 "tone": "warning",
             },
-        ],
-        "implementation_items": [
-            "后台命令：python manage.py process_exam_paper_import_jobs --once 可处理已上传任务。",
-            "当前已完成 PDF 页面截图和 Qwen OCR，下一步要接结构化解析。",
-            "GESP/CSP 解析规则：确认各级别题量、题型分布、答案区格式、编程题字段。",
-            "人工复核页面：识别后先展示整卷题目，老师修改后再写入 ExamQuestionBankPaper。",
-            "图片资产策略：evidence 截图只做复核，content 图片才进入学生考试题面。",
         ],
         "back_href": reverse("teacher-exams"),
     }

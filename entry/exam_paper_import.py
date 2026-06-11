@@ -31,6 +31,9 @@ from .models import (
 OCR_PAGE_PROMPT = """You are recognizing one rendered GESP C++ exam page.
 Return faithful Markdown. Preserve question numbers, options, code blocks, formulas, diagrams, and answer/analysis text when visible.
 For flowcharts, do not transcribe the text inside the flowchart and do not convert it to Mermaid or pseudo-code. Keep only a short placeholder like `[流程图见图]`; the image crop pipeline will preserve the flowchart as an image asset.
+For single-choice options containing code, keep each option label (`A.`, `B.`, `C.`, `D.`) outside the code fence, and close that option's code fence before the next option label, next question title, or next section header.
+Never merge later sections such as `2 判断题` or `3 编程题` into the previous choice question, even when the previous option has an empty or malformed code block.
+Programming questions have clear titles such as `3.1 编程题 1` and `3.2 编程题 2`; preserve those title lines exactly.
 Do not invent missing text.
 """
 
@@ -68,6 +71,64 @@ class ExamPaperImportError(RuntimeError):
 
 class ExamPaperImportConfirmError(RuntimeError):
     pass
+
+
+def get_answer_text_from_json(answer_json: dict[str, Any] | None, question_type: str = "") -> str:
+    if not isinstance(answer_json, dict):
+        return ""
+    answer_keys = (
+        ("correct_answer", "answer", "value")
+        if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE
+        else ("answer", "correct_answer", "value")
+    )
+    for key in answer_keys:
+        answer_text = str(answer_json.get(key) or "").strip()
+        if answer_text:
+            return answer_text
+    return ""
+
+
+def build_default_question_analysis_md(
+    *,
+    question_type: str,
+    stem_md: str,
+    answer_json: dict[str, Any] | None,
+    options: dict[str, Any] | None = None,
+    existing_analysis_md: str = "",
+) -> str:
+    existing_analysis = str(existing_analysis_md or "").strip()
+    if existing_analysis:
+        return existing_analysis
+
+    answer_text = get_answer_text_from_json(answer_json, question_type).strip()
+    if not answer_text:
+        return ""
+
+    normalized_options = {
+        str(key).strip().upper(): re.sub(r"\s+", " ", str(value or "")).strip()
+        for key, value in (options or {}).items()
+        if str(key).strip()
+    }
+    display_answer = answer_text.upper() if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE else answer_text
+
+    if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE:
+        option_text = normalized_options.get(display_answer, "")
+        if option_text:
+            return f"正确答案：{display_answer}。\n\n解析：本题答案为 {display_answer}，对应选项为“{option_text}”。"
+        return f"正确答案：{display_answer}。\n\n解析：本题答案为 {display_answer}。"
+
+    if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE:
+        return f"正确答案：{display_answer}。\n\n解析：本题为判断题，应结合题干条件判断表述是否成立。"
+
+    if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING:
+        return f"参考答案：\n\n{answer_text}"
+
+    stem_preview = re.sub(r"\s+", " ", str(stem_md or "")).strip()
+    if len(stem_preview) > 80:
+        stem_preview = stem_preview[:80].rstrip() + "..."
+    if stem_preview:
+        return f"参考答案：{answer_text}。\n\n解析：请结合题干“{stem_preview}”复核答案。"
+    return f"参考答案：{answer_text}。"
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -557,6 +618,33 @@ def parse_option_line(line: str) -> tuple[str, str] | None:
     return key, str(match.group(3) or "").strip()
 
 
+def detect_section_question_boundary(line: str, current_section: str) -> tuple[str, tuple[int, str] | str] | None:
+    detected_section = detect_question_section_header(line)
+    if detected_section:
+        return "section", detected_section
+    programming_start = detect_programming_question_start(line)
+    if programming_start:
+        return "programming_question", programming_start
+    start = (
+        None
+        if current_section == QUESTION_SECTION_PROGRAMMING
+        else detect_question_start(line)
+    )
+    if start:
+        return "question", start
+    return None
+
+
+def is_strong_question_boundary(line: str, current_section: str) -> bool:
+    if detect_question_section_header(line):
+        return True
+    if detect_question_start(line):
+        return True
+    if detect_programming_question_start(line):
+        return True
+    return False
+
+
 def split_programming_reference_solution(stem_md: str, analysis_md: str = "") -> tuple[str, str]:
     lines = str(stem_md or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     split_index: int | None = None
@@ -594,34 +682,35 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
     in_code_block = False
 
     for line in lines:
-        if CODE_FENCE_RE.match(line):
-            if current is not None:
-                current["lines"].append(line)
-            in_code_block = not in_code_block
-            continue
-        if in_code_block:
-            if current is not None:
-                current["lines"].append(line)
-            continue
-        detected_section = detect_question_section_header(line)
-        if detected_section:
+        boundary = detect_section_question_boundary(line, current_section)
+        if boundary and (not in_code_block or is_strong_question_boundary(line, current_section)):
+            in_code_block = False
+            if boundary[0] == "section":
+                detected_section = str(boundary[1])
+                if current is not None:
+                    blocks.append(current)
+                    current = None
+                current_section = detected_section
+                get_section_base(current_section, section_bases, section_counts, max_global_no)
+                continue
+            if boundary[0] == "programming_question":
+                if current is not None:
+                    blocks.append(current)
+                current_section = QUESTION_SECTION_PROGRAMMING
+                local_question_no, title_line = boundary[1]  # type: ignore[misc]
+                section_base = get_section_base(current_section, section_bases, section_counts, max_global_no)
+                question_no = section_base + local_question_no
+                max_global_no = max(max_global_no, question_no)
+                current = {
+                    "section": current_section,
+                    "local_question_no": local_question_no,
+                    "question_no": question_no,
+                    "lines": [title_line],
+                }
+                continue
+            local_question_no, title_line = boundary[1]  # type: ignore[misc]
             if current is not None:
                 blocks.append(current)
-                current = None
-            current_section = detected_section
-            get_section_base(current_section, section_bases, section_counts, max_global_no)
-            continue
-        if should_drop_non_question_line(line):
-            continue
-        start = (
-            detect_programming_question_start(line)
-            if current_section == QUESTION_SECTION_PROGRAMMING
-            else detect_question_start(line)
-        )
-        if start:
-            if current is not None:
-                blocks.append(current)
-            local_question_no, title_line = start
             section_base = get_section_base(current_section, section_bases, section_counts, max_global_no)
             question_no = section_base + local_question_no
             max_global_no = max(max_global_no, question_no)
@@ -631,6 +720,17 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
                 "question_no": question_no,
                 "lines": [title_line],
             }
+            continue
+        if CODE_FENCE_RE.match(line):
+            if current is not None:
+                current["lines"].append(line)
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            if current is not None:
+                current["lines"].append(line)
+            continue
+        if should_drop_non_question_line(line):
             continue
         if current is None:
             continue
@@ -653,14 +753,24 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
         current_option_key = ""
         in_code_block = False
         for raw_line in block["lines"]:
+            option = None if in_code_block else parse_option_line(raw_line)
+            if in_code_block and section == QUESTION_SECTION_SINGLE_CHOICE:
+                option = parse_option_line(raw_line)
+                if option:
+                    in_code_block = False
             if CODE_FENCE_RE.match(raw_line):
-                stem_lines.append(raw_line)
+                if section == QUESTION_SECTION_SINGLE_CHOICE and current_option_key:
+                    option_lines.setdefault(current_option_key, []).append(raw_line)
+                else:
+                    stem_lines.append(raw_line)
                 in_code_block = not in_code_block
                 continue
             if in_code_block:
-                stem_lines.append(raw_line)
+                if section == QUESTION_SECTION_SINGLE_CHOICE and current_option_key:
+                    option_lines.setdefault(current_option_key, []).append(raw_line)
+                else:
+                    stem_lines.append(raw_line)
                 continue
-            option = parse_option_line(raw_line)
             if section == QUESTION_SECTION_SINGLE_CHOICE and option:
                 current_option_key = option[0]
                 option_lines.setdefault(current_option_key, [])
@@ -692,6 +802,18 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
         if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING:
             stem_md, analysis_md = split_programming_reference_solution(stem_md)
         answer = answer_map.get((section, local_question_no))
+        answer_json = (
+            {
+                "correct_answer" if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE else "answer": answer,
+                "source": "ocr_answer_table",
+                "needs_teacher_review": False,
+            }
+            if answer
+            else {
+                "source": "ocr_question_split",
+                "needs_teacher_review": True,
+            }
+        )
         parsed_blocks.append(
             {
                 "question_no": question_no,
@@ -699,18 +821,7 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
                 "question_type": question_type,
                 "stem_md": stem_md,
                 "options": options,
-                "answer_json": (
-                    {
-                        "correct_answer" if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE else "answer": answer,
-                        "source": "ocr_answer_table",
-                        "needs_teacher_review": False,
-                    }
-                    if answer
-                    else {
-                        "source": "ocr_question_split",
-                        "needs_teacher_review": True,
-                    }
-                ),
+                "answer_json": answer_json,
                 "analysis_md": analysis_md,
                 "programming_json": {"source": "ocr_question_split"} if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING else {},
             }
@@ -1018,6 +1129,7 @@ def confirm_exam_question_bank_import_job(
             page_no = int(page_payload["page_no"])
             question_no = int(payload["question_no"])
             options = payload["options"] if isinstance(payload.get("options"), dict) else {}
+            analysis_md = str(payload.get("analysis_md") or "").strip()
             question = ExamQuestionBankQuestion.objects.create(
                 paper=paper,
                 question_uid=str(payload["question_uid"]),
@@ -1025,7 +1137,7 @@ def confirm_exam_question_bank_import_job(
                 question_type=str(payload["question_type"]),
                 stem_md=str(payload["stem_md"]),
                 answer_json=payload["answer_json"] if isinstance(payload["answer_json"], dict) else {},
-                analysis_md=str(payload.get("analysis_md") or ""),
+                analysis_md=analysis_md,
                 programming_json=payload.get("programming_json") if isinstance(payload.get("programming_json"), dict) else {},
                 full_json={
                     "import_job_id": import_job.id,

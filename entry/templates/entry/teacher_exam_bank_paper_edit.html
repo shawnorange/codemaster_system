@@ -26,6 +26,16 @@
             font-weight: 700;
         }
 
+        .exam-bank-edit-question__header span {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .exam-bank-edit-question--new {
+            border-color: rgba(31, 122, 86, 0.24);
+            background: #fbfffd;
+        }
+
         .exam-bank-edit-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -57,6 +67,20 @@
             border: 1px solid rgba(45, 95, 140, 0.14);
             border-radius: 8px;
             background: #fff;
+        }
+
+        .exam-bank-edit-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+
+        .exam-bank-edit-action-button {
+            width: auto;
+            min-width: 128px;
+            padding: 10px 14px;
         }
 
         @media (max-width: 760px) {
@@ -111,7 +135,7 @@
                 </label>
             </div>
 
-            <div class="exam-bank-edit-list">
+            <div class="exam-bank-edit-list" data-exam-bank-edit-list>
                 {% for question in question_rows %}
                     <article class="exam-bank-edit-question">
                         <input type="hidden" name="question_ids" value="{{ question.id }}">
@@ -161,10 +185,110 @@
                 {% endfor %}
             </div>
 
+            <template id="new-exam-bank-question-template">
+                <article class="exam-bank-edit-question exam-bank-edit-question--new" data-new-question-card>
+                    <input type="hidden" name="new_question_keys" value="__KEY__">
+                    <div class="exam-bank-edit-question__header">
+                        <span>新增题目</span>
+                        <span>保存后自动追加到试卷末尾</span>
+                    </div>
+                    <label class="exam-bank-edit-field">
+                        <span>题干 Markdown</span>
+                        <textarea name="new_question___KEY___stem_md" rows="8"></textarea>
+                    </label>
+                    <div class="exam-bank-edit-grid">
+                        <label class="exam-bank-edit-field">
+                            <span>题型</span>
+                            <select name="new_question___KEY___type">
+                                {% for value,label in question_type_choices %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label class="exam-bank-edit-field">
+                            <span>答案</span>
+                            <input type="text" name="new_question___KEY___answer" value="" maxlength="255">
+                        </label>
+                    </div>
+                    <div class="exam-bank-edit-grid">
+                        {% for key in option_keys %}
+                            <label class="exam-bank-edit-field">
+                                <span>选项 {{ key }}</span>
+                                <input type="text" name="new_question___KEY___option_{{ key|lower }}" value="" maxlength="500">
+                            </label>
+                        {% endfor %}
+                    </div>
+                    <label class="exam-bank-edit-field">
+                        <span>解析</span>
+                        <textarea name="new_question___KEY___analysis" rows="4"></textarea>
+                    </label>
+                </article>
+            </template>
+
+            <div class="exam-bank-edit-actions" aria-label="新增题目操作">
+                <button type="button" class="teacher-secondary-button exam-bank-edit-action-button" data-remove-new-question>－ 移除新增题目</button>
+                <button type="button" class="login-button exam-bank-edit-action-button" data-add-new-question>＋ 新增题目</button>
+            </div>
+
             <div class="topic-access-modal__footer topic-access-modal__footer--course">
                 <a class="teacher-anchor-link" href="{{ preview_href }}">取消并返回预览</a>
                 <button type="submit" class="login-button">保存修改</button>
             </div>
         </form>
     </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script>
+        (function () {
+            const list = document.querySelector("[data-exam-bank-edit-list]");
+            const template = document.getElementById("new-exam-bank-question-template");
+            const addButton = document.querySelector("[data-add-new-question]");
+            const removeButton = document.querySelector("[data-remove-new-question]");
+            let nextKey = 1;
+
+            function refreshRemoveState() {
+                if (!removeButton) {
+                    return;
+                }
+                removeButton.disabled = !document.querySelector("[data-new-question-card]");
+            }
+
+            function addQuestionCard() {
+                if (!list || !template) {
+                    return;
+                }
+                const key = String(nextKey++);
+                const wrapper = document.createElement("div");
+                wrapper.innerHTML = template.innerHTML.replaceAll("__KEY__", key).trim();
+                const card = wrapper.firstElementChild;
+                if (!card) {
+                    return;
+                }
+                list.appendChild(card);
+                refreshRemoveState();
+                const stemField = card.querySelector("textarea");
+                if (stemField) {
+                    stemField.focus();
+                }
+            }
+
+            function removeLastQuestionCard() {
+                const cards = document.querySelectorAll("[data-new-question-card]");
+                const lastCard = cards[cards.length - 1];
+                if (lastCard) {
+                    lastCard.remove();
+                }
+                refreshRemoveState();
+            }
+
+            if (addButton) {
+                addButton.addEventListener("click", addQuestionCard);
+            }
+            if (removeButton) {
+                removeButton.addEventListener("click", removeLastQuestionCard);
+            }
+            refreshRemoveState();
+        })();
+    </script>
 {% endblock %}

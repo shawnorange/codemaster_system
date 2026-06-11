@@ -23,6 +23,10 @@
             min-height: 280px;
         }
 
+        .exam-bank-paper-grid {
+            min-height: 260px;
+        }
+
         .exam-paper-import-job-actions {
             display: flex;
             gap: 8px;
@@ -31,7 +35,20 @@
             flex-wrap: wrap;
         }
 
+        .exam-bank-paper-actions {
+            align-items: center;
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
         .exam-paper-import-job-actions form {
+            margin: 0;
+        }
+
+        .exam-bank-paper-actions form {
             margin: 0;
         }
 
@@ -228,17 +245,100 @@
         </div>
     </section>
 
-    <section class="surface-panel surface-panel--primary">
+    <section class="surface-panel surface-panel--primary" id="confirmed-bank-papers">
         <div class="section-heading">
-            <p class="section-heading__eyebrow">Implementation Notes</p>
-            <h3>后续还需要补齐</h3>
+            <p class="section-heading__eyebrow">Confirmed Papers</p>
+            <h3>已入库试卷</h3>
         </div>
-        <div class="content-access-list">
-            {% for item in implementation_items %}
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                    <label for="exam-bank-paper-search">试卷检索</label>
+                    <input id="exam-bank-paper-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按试卷名称 / 学科 / 级别 / source_pdf_id 搜索">
+                </div>
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <div class="portal-grid-meta teacher-tabulator-meta">
+                        <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">已入库<strong>{{ confirmed_bank_paper_rows|length }}</strong></span>
+                    </div>
+                </div>
+            </div>
+            <div id="exam-bank-paper-table" class="portal-grid-container teacher-tabulator-container exam-bank-paper-grid"></div>
+        </div>
+        <div class="content-access-list" id="exam-bank-paper-fallback">
+            {% if confirmed_bank_paper_rows %}
+                {% for item in confirmed_bank_paper_rows %}
                 <article class="content-access-card">
-                    <p class="content-access-card__description">{{ item }}</p>
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>#{{ item.id }} {{ item.title }}</h5>
+                            <p>{{ item.subject_title }} / {{ item.level_text }} / {{ item.year_month_text }} · {{ item.question_count }} 题</p>
+                        </div>
+                        <span class="state-pill state-pill--success">{{ item.source_text }}</span>
+                    </div>
+                    <p class="content-access-card__description">{{ item.source_pdf_id }}{% if item.source_file %} · {{ item.source_file }}{% endif %}</p>
+                    <div class="content-access-card__footer">
+                        <a class="cm-tabulator-btn" href="{{ item.preview_href }}">预览</a>
+                        <a class="cm-tabulator-btn" href="{{ item.edit_href }}">编辑</a>
+                        <a class="cm-tabulator-btn cm-tabulator-btn--primary" href="{{ item.publish_href }}">去发布</a>
+                        <form method="post" class="exam-bank-paper-delete-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="delete_bank_paper">
+                            <input type="hidden" name="bank_paper_id" value="{{ item.id }}">
+                            <button type="submit" class="cm-tabulator-btn exam-paper-import-delete-button" data-confirm-message="{{ item.delete_confirm_message }}">{{ item.delete_label }}</button>
+                        </form>
+                    </div>
                 </article>
-            {% endfor %}
+                {% endfor %}
+            {% else %}
+                <div class="entry-hint-bar">当前还没有已确认入库的试卷。</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary" id="deleted-bank-papers">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Deleted Papers</p>
+            <h3>已删除试卷</h3>
+        </div>
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                    <label for="exam-deleted-bank-paper-search">试卷检索</label>
+                    <input id="exam-deleted-bank-paper-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按试卷名称 / 学科 / 级别 / source_pdf_id 搜索">
+                </div>
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <div class="portal-grid-meta teacher-tabulator-meta">
+                        <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">可恢复<strong>{{ deleted_bank_paper_rows|length }}</strong></span>
+                    </div>
+                </div>
+            </div>
+            <div id="exam-deleted-bank-paper-table" class="portal-grid-container teacher-tabulator-container exam-bank-paper-grid"></div>
+        </div>
+        <div class="content-access-list" id="exam-deleted-bank-paper-fallback">
+            {% if deleted_bank_paper_rows %}
+                {% for item in deleted_bank_paper_rows %}
+                <article class="content-access-card">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>#{{ item.id }} {{ item.title }}</h5>
+                            <p>{{ item.subject_title }} / {{ item.level_text }} / {{ item.year_month_text }} · {{ item.question_count }} 题</p>
+                        </div>
+                        <span class="state-pill state-pill--locked">已删除</span>
+                    </div>
+                    <p class="content-access-card__description">{{ item.source_pdf_id }}{% if item.source_file %} · {{ item.source_file }}{% endif %}</p>
+                    <div class="content-access-card__footer">
+                        <form method="post" class="exam-bank-paper-restore-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="restore_bank_paper">
+                            <input type="hidden" name="bank_paper_id" value="{{ item.id }}">
+                            <button type="submit" class="cm-tabulator-btn cm-tabulator-btn--primary">恢复</button>
+                        </form>
+                    </div>
+                </article>
+                {% endfor %}
+            {% else %}
+                <div class="entry-hint-bar">当前没有已删除的试卷。</div>
+            {% endif %}
         </div>
     </section>
 {% endblock %}
@@ -246,6 +346,8 @@
 {% block extra_body_end %}
     {{ level_options_by_course_id|json_script:"exam-paper-level-options-by-course" }}
     {{ recent_import_job_rows|json_script:"exam-paper-import-job-data" }}
+    {{ confirmed_bank_paper_rows|json_script:"exam-bank-paper-data" }}
+    {{ deleted_bank_paper_rows|json_script:"exam-deleted-bank-paper-data" }}
     {% include "entry/includes/teacher_tabulator_scripts.html" %}
     <script>
         (function () {
@@ -600,9 +702,188 @@
                 };
                 window.setInterval(refreshImportJobs, 3000);
             }
+            const bankPaperTableElement = document.getElementById("exam-bank-paper-table");
+            const bankPaperFallbackElement = document.getElementById("exam-bank-paper-fallback");
+            const bankPaperSearchInput = document.getElementById("exam-bank-paper-search");
+            const deletedBankPaperTableElement = document.getElementById("exam-deleted-bank-paper-table");
+            const deletedBankPaperFallbackElement = document.getElementById("exam-deleted-bank-paper-fallback");
+            const deletedBankPaperSearchInput = document.getElementById("exam-deleted-bank-paper-search");
+            const normalizeBankPaperRows = (rows) => rows.map((row) => ({
+                id: row.id,
+                title: normalizeText(row.title),
+                subject_title: normalizeText(row.subject_title),
+                level_text: normalizeText(row.level_text),
+                year_month_text: normalizeText(row.year_month_text),
+                source_text: normalizeText(row.source_text),
+                source_pdf_id: normalizeText(row.source_pdf_id),
+                source_file: normalizeText(row.source_file),
+                question_count: Number(row.question_count || 0),
+                created_at_text: normalizeText(row.created_at_text),
+                updated_at_text: normalizeText(row.updated_at_text),
+                preview_href: normalizeText(row.preview_href),
+                edit_href: normalizeText(row.edit_href),
+                publish_href: normalizeText(row.publish_href),
+                delete_label: normalizeText(row.delete_label || "删除"),
+                delete_confirm_message: normalizeText(row.delete_confirm_message || "是否确定删除这张试卷？"),
+                search_text: [
+                    row.title,
+                    row.subject_title,
+                    row.level_text,
+                    row.year_month_text,
+                    row.source_text,
+                    row.source_file,
+                    row.source_pdf_id,
+                ].map(normalizeText).join(" ").toLowerCase(),
+            }));
+            const bankPaperRows = normalizeBankPaperRows(readJsonScript("exam-bank-paper-data", []));
+            const deletedBankPaperRows = normalizeBankPaperRows(readJsonScript("exam-deleted-bank-paper-data", []));
+            if (bankPaperTableElement && typeof Tabulator !== "undefined") {
+                const bankPaperTable = new Tabulator(bankPaperTableElement, {
+                    data: bankPaperRows,
+                    layout: "fitColumns",
+                    placeholder: "当前还没有已确认入库的试卷。",
+                    index: "id",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        {
+                            title: "试卷名称",
+                            field: "title",
+                            minWidth: 260,
+                            widthGrow: 2,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return '<div class="homework-topic-cell"><strong class="homework-topic-cell__title">#' + escapeHtml(row.id) + " " + escapeHtml(row.title) + '</strong><span class="homework-topic-cell__subtitle">' + escapeHtml(row.source_pdf_id) + "</span></div>";
+                            },
+                        },
+                        {title: "所属学科", field: "subject_title", minWidth: 110},
+                        {title: "所属级别", field: "level_text", minWidth: 110},
+                        {title: "年月", field: "year_month_text", minWidth: 120},
+                        {
+                            title: "题数",
+                            field: "question_count",
+                            hozAlign: "center",
+                            minWidth: 90,
+                            formatter: (cell) => escapeHtml(cell.getValue()) + " 题",
+                        },
+                        {title: "更新时间", field: "updated_at_text", minWidth: 150},
+                        {
+                            title: "操作",
+                            field: "id",
+                            hozAlign: "center",
+                            headerSort: false,
+                            minWidth: 340,
+                            width: 340,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return [
+                                    '<div class="exam-bank-paper-actions">',
+                                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href) + '">预览</a>',
+                                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href) + '">编辑</a>',
+                                    '<a class="cm-tabulator-btn cm-tabulator-btn--primary" href="' + escapeHtml(row.publish_href) + '">去发布</a>',
+                                    '<form method="post" class="exam-bank-paper-delete-form">',
+                                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                                    '<input type="hidden" name="form_action" value="delete_bank_paper">',
+                                    '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
+                                    '<button type="submit" class="cm-tabulator-btn exam-paper-import-delete-button" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
+                                    '</form>',
+                                    '</div>',
+                                ].join("");
+                            },
+                        },
+                    ],
+                });
+                if (bankPaperFallbackElement) {
+                    bankPaperFallbackElement.style.display = "none";
+                }
+                if (bankPaperSearchInput) {
+                    bankPaperSearchInput.addEventListener("input", () => {
+                        const query = normalizeText(bankPaperSearchInput.value).toLowerCase();
+                        bankPaperTable.setFilter((row) => !query || row.search_text.includes(query));
+                    });
+                }
+            }
+            if (deletedBankPaperTableElement && typeof Tabulator !== "undefined") {
+                const deletedBankPaperTable = new Tabulator(deletedBankPaperTableElement, {
+                    data: deletedBankPaperRows,
+                    layout: "fitColumns",
+                    placeholder: "当前没有已删除的试卷。",
+                    index: "id",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        {
+                            title: "试卷名称",
+                            field: "title",
+                            minWidth: 260,
+                            widthGrow: 2,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return '<div class="homework-topic-cell"><strong class="homework-topic-cell__title">#' + escapeHtml(row.id) + " " + escapeHtml(row.title) + '</strong><span class="homework-topic-cell__subtitle">' + escapeHtml(row.source_pdf_id) + "</span></div>";
+                            },
+                        },
+                        {title: "所属学科", field: "subject_title", minWidth: 110},
+                        {title: "所属级别", field: "level_text", minWidth: 110},
+                        {title: "年月", field: "year_month_text", minWidth: 120},
+                        {
+                            title: "题数",
+                            field: "question_count",
+                            hozAlign: "center",
+                            minWidth: 90,
+                            formatter: (cell) => escapeHtml(cell.getValue()) + " 题",
+                        },
+                        {title: "删除时间", field: "updated_at_text", minWidth: 150},
+                        {
+                            title: "操作",
+                            field: "id",
+                            hozAlign: "center",
+                            headerSort: false,
+                            minWidth: 140,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return [
+                                    '<div class="exam-bank-paper-actions">',
+                                    '<form method="post" class="exam-bank-paper-restore-form">',
+                                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                                    '<input type="hidden" name="form_action" value="restore_bank_paper">',
+                                    '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
+                                    '<button type="submit" class="cm-tabulator-btn cm-tabulator-btn--primary">恢复</button>',
+                                    '</form>',
+                                    '</div>',
+                                ].join("");
+                            },
+                        },
+                    ],
+                });
+                if (deletedBankPaperFallbackElement) {
+                    deletedBankPaperFallbackElement.style.display = "none";
+                }
+                if (deletedBankPaperSearchInput) {
+                    deletedBankPaperSearchInput.addEventListener("input", () => {
+                        const query = normalizeText(deletedBankPaperSearchInput.value).toLowerCase();
+                        deletedBankPaperTable.setFilter((row) => !query || row.search_text.includes(query));
+                    });
+                }
+            }
             document.addEventListener("submit", (event) => {
                 if (event.target.matches(".exam-paper-import-job-delete-form")) {
                     const confirmed = window.confirm("是否确定删除这条识别任务？");
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
+                if (event.target.matches(".exam-bank-paper-delete-form")) {
+                    const submitter = event.submitter || event.target.querySelector("button[type='submit']");
+                    const message = submitter && submitter.dataset.confirmMessage ? submitter.dataset.confirmMessage : "是否确定删除这张试卷？";
+                    const confirmed = window.confirm(message);
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
+                if (event.target.matches(".exam-bank-paper-restore-form")) {
+                    const confirmed = window.confirm("是否确定恢复这张试卷？");
                     if (!confirmed) {
                         event.preventDefault();
                     }

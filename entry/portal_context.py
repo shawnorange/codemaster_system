@@ -2808,6 +2808,16 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
         return None
 
 
+def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
+    bank_paper_ids: set[int] = set()
+    descriptions = ExamPaper.objects.exclude(description="").values_list("description", flat=True)
+    for description in descriptions:
+        bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
+        if bank_paper_id:
+            bank_paper_ids.add(bank_paper_id)
+    return bank_paper_ids
+
+
 def collect_exam_paper_question_meta(paper: ExamPaper) -> dict[str, str]:
     questions = list(
         paper.questions.filter(is_active=True)
@@ -2920,12 +2930,22 @@ def infer_exam_bank_paper_subject(paper: ExamQuestionBankPaper) -> str:
     return "未绑定学科"
 
 
-def serialize_available_exam_bank_paper(paper: ExamQuestionBankPaper, *, publisher_name: str = "") -> dict:
+def serialize_available_exam_bank_paper(
+    paper: ExamQuestionBankPaper,
+    *,
+    publisher_name: str = "",
+    published_bank_paper_ids: set[int] | None = None,
+) -> dict:
     subject_title = infer_exam_bank_paper_subject(paper)
     normalized_publisher_name = publisher_name or dict(ExamQuestionBankPaper.SOURCE_CHOICES).get(
         paper.source, paper.source or "系统"
     )
     created_at_value = timezone.localtime(paper.created_at).date().isoformat() if paper.created_at else ""
+    has_exam_management_record = (
+        paper.id in published_bank_paper_ids
+        if published_bank_paper_ids is not None
+        else paper.id in get_exam_bank_paper_ids_with_exam_management_records()
+    )
     return {
         "id": paper.id,
         "paper_id": paper.id,
@@ -2940,6 +2960,13 @@ def serialize_available_exam_bank_paper(paper: ExamQuestionBankPaper, *, publish
         "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
         "operation_label": "发布",
+        "has_exam_management_record": has_exam_management_record,
+        "delete_label": "删除" if has_exam_management_record else "硬删除",
+        "delete_confirm_message": (
+            "这张试卷已经发布过，删除后会进入已删除试卷，可恢复。是否继续？"
+            if has_exam_management_record
+            else "这张试卷还没有发布过，将硬删除题库快照和对应识别任务，之后可重新上传识别。是否继续？"
+        ),
         "search_text": " ".join(
             [
                 paper.title,
@@ -3228,8 +3255,14 @@ def build_teacher_exam_page_context(
         ExamQuestionBankPaper.objects.filter(is_active=True).order_by("-year", "-month", "level", "source_pdf_id", "id")
     )
     current_teacher_name = portal_user.full_name or portal_user.username
+    published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
     available_paper_rows = [
-        serialize_available_exam_bank_paper(paper, publisher_name=current_teacher_name) for paper in available_papers
+        serialize_available_exam_bank_paper(
+            paper,
+            publisher_name=current_teacher_name,
+            published_bank_paper_ids=published_bank_paper_ids,
+        )
+        for paper in available_papers
     ]
     teacher_filter_options = [
         {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import re
 import shutil
@@ -21,6 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from entry.auth import AUTH_COOKIE_NAME, AUTH_COOKIE_SALT
+from entry.exam_paper_import import split_ocr_markdown_into_question_blocks
 from entry.models import (
     Course,
     ExamPaper,
@@ -226,6 +228,11 @@ class ExamMVPTests(TestCase):
         self.assertContains(response, ".png")
         self.assertNotContains(response, 'type="number" name="year"', html=False)
         self.assertNotContains(response, 'type="number" name="month"', html=False)
+        self.assertContains(response, "已入库试卷")
+        self.assertContains(response, "已删除试卷")
+        self.assertContains(response, 'id="exam-bank-paper-table"', html=False)
+        self.assertContains(response, 'id="exam-deleted-bank-paper-table"', html=False)
+        self.assertNotContains(response, "后续还需要补齐")
 
         match = re.search(
             r'<script id="exam-paper-level-options-by-course" type="application/json">(.*?)</script>',
@@ -285,6 +292,199 @@ class ExamMVPTests(TestCase):
         self.assertEqual(duplicate_response.status_code, 302)
         self.assertIn("op=existing", duplicate_response["Location"])
         self.assertEqual(ExamQuestionBankImportJob.objects.filter(source_pdf_id="2026_3_c_1").count(), 1)
+
+    def test_teacher_new_exam_paper_page_shows_confirmed_bank_paper_grid(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2024,
+            month=3,
+            source_pdf_id="confirmed_new_page_paper",
+            source_file="2024年3月C++二级真题.pdf",
+            title="2024年3月C++二级真题",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        import_job = ExamQuestionBankImportJob.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            level_code="GESP2",
+            title="2024年3月C++二级真题",
+            year=2024,
+            month=3,
+            source_pdf_id="confirmed_new_page_paper",
+            source_pdf=SimpleUploadedFile("confirmed.pdf", b"fake", content_type="application/pdf"),
+            source_filename="confirmed.pdf",
+            source_sha256=hashlib.sha256(b"fake").hexdigest(),
+            status=ExamQuestionBankImportJob.STATUS_IMPORTED,
+            is_active=True,
+        )
+        for question_no in [1, 2]:
+            ExamQuestionBankQuestion.objects.create(
+                paper=bank_paper,
+                question_uid=f"confirmed_new_page_paper_q{question_no}",
+                question_no=question_no,
+                question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                stem_md=f"第 {question_no} 题题干",
+                answer_json={"correct_answer": "A"},
+                analysis_md="解析",
+            )
+
+        response = self.client.get(reverse("teacher-exam-paper-new"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "已入库试卷")
+        self.assertContains(response, "2024年3月C++二级真题")
+        self.assertContains(response, "confirmed_new_page_paper")
+        self.assertContains(response, "2 题")
+        self.assertContains(response, reverse("teacher-exam-bank-paper-preview", args=[bank_paper.id]))
+        self.assertContains(response, reverse("teacher-exam-bank-paper-edit", args=[bank_paper.id]))
+        self.assertContains(response, "exam-bank-paper-delete-form")
+        self.assertContains(response, 'name="form_action" value="delete_bank_paper"', html=False)
+        self.assertContains(response, "硬删除")
+        self.assertContains(response, "去发布")
+        self.assertNotContains(response, "后续还需要补齐")
+
+        delete_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "form_action": "delete_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+            },
+        )
+
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertIn("op=bank_paper_deleted", delete_response["Location"])
+        self.assertIn("mode=hard", delete_response["Location"])
+        self.assertIn("#confirmed-bank-papers", delete_response["Location"])
+        self.assertFalse(ExamQuestionBankPaper.objects.filter(id=bank_paper.id).exists())
+        import_job.refresh_from_db()
+        self.assertFalse(import_job.is_active)
+
+        updated_response = self.client.get(reverse("teacher-exam-paper-new"))
+        self.assertNotContains(updated_response, "2024年3月C++二级真题")
+
+    def test_teacher_new_exam_paper_page_soft_deletes_published_bank_paper_for_restore(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2024,
+            month=3,
+            source_pdf_id="published_restore_paper",
+            source_file="published.pdf",
+            title="已发布后删除的试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="已发布后删除的试卷",
+            description=f"来源题库试卷\nexam_question_bank_paper_id={bank_paper.id}",
+            status=ExamPaper.STATUS_DRAFT,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("teacher-exam-paper-new"))
+        self.assertContains(response, "已发布后删除的试卷")
+        self.assertContains(response, "这张试卷已经发布过")
+        self.assertNotContains(response, ">硬删除<", html=False)
+
+        delete_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "form_action": "delete_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+            },
+        )
+
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertIn("op=bank_paper_deleted", delete_response["Location"])
+        self.assertIn("mode=soft", delete_response["Location"])
+        self.assertIn("#confirmed-bank-papers", delete_response["Location"])
+        bank_paper.refresh_from_db()
+        self.assertFalse(bank_paper.is_active)
+
+        updated_response = self.client.get(reverse("teacher-exam-paper-new"))
+        self.assertContains(updated_response, "已删除试卷")
+        self.assertContains(updated_response, "已发布后删除的试卷")
+        self.assertContains(updated_response, 'name="form_action" value="restore_bank_paper"', html=False)
+
+        restore_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "form_action": "restore_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+            },
+        )
+
+        self.assertEqual(restore_response.status_code, 302)
+        self.assertIn("op=bank_paper_restored", restore_response["Location"])
+        self.assertIn("#confirmed-bank-papers", restore_response["Location"])
+        bank_paper.refresh_from_db()
+        self.assertTrue(bank_paper.is_active)
+
+    def test_teacher_reupload_deleted_bank_paper_points_to_restore_grid(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_pdf_bytes(page_count=1)
+        source_pdf_id = "2026_3_c_1"
+        source_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2026,
+            month=3,
+            source_pdf_id=source_pdf_id,
+            source_file="2026年3月C++1级试题.pdf",
+            title="已删除的 2026 年 3 月卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=False,
+        )
+        ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="已删除的 2026 年 3 月卷",
+            description=f"来源题库试卷\nexam_question_bank_paper_id={bank_paper.id}",
+            status=ExamPaper.STATUS_DRAFT,
+            is_active=True,
+        )
+        ExamQuestionBankImportJob.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            level_code="GESP1",
+            title="已删除的 2026 年 3 月卷",
+            year=2026,
+            month=3,
+            source_pdf_id=source_pdf_id,
+            source_pdf=SimpleUploadedFile("2026年3月C++1级试题.pdf", pdf_bytes, content_type="application/pdf"),
+            source_filename="2026年3月C++1级试题.pdf",
+            source_sha256=source_sha256,
+            status=ExamQuestionBankImportJob.STATUS_IMPORTED,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "course_id": str(self.cpp_course.id),
+                "level_code": "GESP1",
+                "title": "GESP1 2026年3月C++1级真题",
+                "source_pdf": SimpleUploadedFile(
+                    "2026年3月C++1级试题.pdf",
+                    pdf_bytes,
+                    content_type="application/pdf",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=restore_available", response["Location"])
+        self.assertIn("#deleted-bank-papers", response["Location"])
+        redirected_response = self.client.get(response["Location"])
+        self.assertContains(redirected_response, "已入库但当前处于已删除状态")
+        self.assertContains(redirected_response, "已删除的 2026 年 3 月卷")
+        self.assertContains(redirected_response, 'name="form_action" value="restore_bank_paper"', html=False)
+        bank_paper.refresh_from_db()
+        self.assertFalse(bank_paper.is_active)
 
     def test_teacher_new_exam_paper_page_accepts_markdown_without_date_in_filename(self) -> None:
         self.sign_in(self.teacher)
@@ -546,6 +746,7 @@ class ExamMVPTests(TestCase):
         self.assertEqual(len(questions), 2)
         self.assertEqual(questions[0].question_type, ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE)
         self.assertEqual(questions[0].answer_json["correct_answer"], "B")
+        self.assertEqual(questions[0].analysis_md, "")
         self.assertNotIn("CCF GESP", questions[0].stem_md)
         self.assertNotIn("题号", questions[0].stem_md)
         self.assertIn("第 1 题 下列流程图的输出结果是？", questions[0].stem_md)
@@ -687,6 +888,8 @@ class ExamMVPTests(TestCase):
         self.assertEqual(edit_response.status_code, 200)
         self.assertContains(edit_response, "手动修改试卷内容")
         self.assertContains(edit_response, 'name="question_ids"', html=False)
+        self.assertContains(edit_response, 'data-add-new-question', html=False)
+        self.assertContains(edit_response, f'name="question_{question.id}_option_d"', html=False)
 
         save_response = self.client.post(
             reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
@@ -694,6 +897,7 @@ class ExamMVPTests(TestCase):
                 "paper_title": "修改后的试卷",
                 "paper_level": "GESP2",
                 "question_ids": [str(question.id)],
+                "new_question_keys": ["1"],
                 f"question_{question.id}_type": ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
                 f"question_{question.id}_stem_md": "修改后题干 $N$\n```cpp\nint main() {\n  return 0;\n}\n```",
                 f"question_{question.id}_answer": "B",
@@ -702,6 +906,14 @@ class ExamMVPTests(TestCase):
                 f"question_{question.id}_option_c": "新增 C",
                 f"question_{question.id}_option_d": "",
                 f"question_{question.id}_analysis": "修改解析",
+                "new_question_1_type": ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                "new_question_1_stem_md": "新增题干：下列说法正确的是？",
+                "new_question_1_answer": "C",
+                "new_question_1_option_a": "新增 A",
+                "new_question_1_option_b": "新增 B",
+                "new_question_1_option_c": "新增 C",
+                "new_question_1_option_d": "",
+                "new_question_1_analysis": "",
             },
         )
         self.assertEqual(save_response.status_code, 302)
@@ -709,6 +921,7 @@ class ExamMVPTests(TestCase):
 
         paper.refresh_from_db()
         question.refresh_from_db()
+        added_question = ExamQuestionBankQuestion.objects.get(paper=paper, question_no=2)
         self.assertEqual(paper.title, "修改后的试卷")
         self.assertEqual(paper.level, "GESP2")
         self.assertIn("修改后题干", question.stem_md)
@@ -718,11 +931,61 @@ class ExamMVPTests(TestCase):
             list(question.options.order_by("sort_order").values_list("option_key", "option_text_md")),
             [("A", "修改 A"), ("B", "修改 B"), ("C", "新增 C")],
         )
+        self.assertEqual(added_question.question_type, ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE)
+        self.assertEqual(added_question.answer_json["correct_answer"], "C")
+        self.assertIn("新增题干", added_question.stem_md)
+        self.assertIn("正确答案：C", added_question.analysis_md)
+        self.assertEqual(
+            list(added_question.options.order_by("sort_order").values_list("option_key", "option_text_md")),
+            [("A", "新增 A"), ("B", "新增 B"), ("C", "新增 C")],
+        )
 
         updated_preview_response = self.client.get(reverse("teacher-exam-bank-paper-preview", args=[paper.id]))
         self.assertContains(updated_preview_response, "修改后的试卷")
         self.assertContains(updated_preview_response, "修改后题干 N")
         self.assertContains(updated_preview_response, "修改 B")
+        self.assertContains(updated_preview_response, "新增题干")
+
+    def test_teacher_can_delete_available_bank_paper_from_publish_grid(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2026,
+            month=6,
+            source_pdf_id="deletable_bank_paper",
+            source_file="deletable.pdf",
+            title="待删除可用试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+
+        exam_page_response = self.client.get(reverse("teacher-exams"))
+
+        self.assertEqual(exam_page_response.status_code, 200)
+        self.assertContains(exam_page_response, "待删除可用试卷")
+        self.assertContains(exam_page_response, 'name="form_action" value="delete_bank_paper"', html=False)
+        self.assertContains(exam_page_response, "available-paper-actions")
+        self.assertContains(exam_page_response, "available-paper-delete-button")
+        available_rows = list(exam_page_response.context["available_paper_rows"])
+        bank_paper_row = next(row for row in available_rows if row["id"] == bank_paper.id)
+        self.assertEqual(bank_paper_row["delete_label"], "硬删除")
+        self.assertIn("硬删除题库快照", bank_paper_row["delete_confirm_message"])
+
+        delete_response = self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "delete_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+            },
+        )
+
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertIn("op=bank_paper_deleted", delete_response["Location"])
+        self.assertIn("mode=hard", delete_response["Location"])
+        self.assertIn("#available-exam-papers", delete_response["Location"])
+        self.assertFalse(ExamQuestionBankPaper.objects.filter(id=bank_paper.id).exists())
+        updated_response = self.client.get(reverse("teacher-exams"))
+        self.assertNotContains(updated_response, "待删除可用试卷")
 
     def test_teacher_publish_available_bank_paper_adds_draft_to_exam_management(self) -> None:
         self.sign_in(self.teacher)
@@ -1130,6 +1393,161 @@ class ExamMVPTests(TestCase):
         self.assertContains(edit_response, "日字矩阵")
         self.assertNotContains(edit_response, "CCF GESP")
         self.assertNotContains(edit_response, "| 题号 |")
+
+    def test_ocr_question_split_stops_malformed_choice_code_at_next_section(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 15 |",
+                "| :--- | :--- |",
+                "| 答案 | B |",
+                "第 15 题 N 是一个正整数。如果 N 的所有奇数位的数位和等于所有偶数位的数位和，则称它是一个“双螺旋数”。空白处应该填入的代码是（ ）。",
+                "```cpp",
+                "int i, N, N1=0, N2=0, N0;",
+                "cin >> N;",
+                "while (N){",
+                "    ________________________",
+                "    ________________________",
+                "}",
+                "```",
+                "A.",
+                "```cpp",
+                "N1 += N%10, N /= 10;",
+                "N2 += N%10, N /= 10;",
+                "```",
+                "B.",
+                "```cpp",
+                "N1 += N%10, N %= 10;",
+                "N2 += N%10, N %= 10;",
+                "```",
+                "```",
+                "C.",
+                "```cpp",
+                "```",
+                "D.",
+                "```cpp",
+                "```",
+                "2 判断题（每题 2 分，共 20 分）",
+                "| 题号 | 1 |",
+                "| :--- | :--- |",
+                "| 答案 | √ |",
+                "第 1 题 小明的电话手表中装有一款特定操作系统。",
+                "3 编程题（每题 25 分，共 50 分）",
+                "3.1 编程题 1",
+                "试题名称：交朋友",
+                "3.1.1 题目描述",
+                "Alice 想要和身高最接近她的人交朋友。",
+                "3.1.7 参考程序",
+                "```cpp",
+                "#include <iostream>",
+                "int main() { return 0; }",
+                "```",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        self.assertGreaterEqual(len(parsed_questions), 3)
+        question_15 = next(item for item in parsed_questions if item["question_no"] == 15)
+        true_false = next(item for item in parsed_questions if item["question_no"] == 16)
+        programming = next(item for item in parsed_questions if item["question_no"] == 17)
+        self.assertEqual(question_15["question_type"], ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE)
+        self.assertEqual(question_15["answer_json"]["correct_answer"], "B")
+        self.assertEqual(question_15["analysis_md"], "")
+        self.assertNotIn("2 判断题", question_15["stem_md"])
+        self.assertNotIn("3 编程题", question_15["stem_md"])
+        self.assertIn("N1 += N%10", question_15["options"]["B"])
+        self.assertEqual(true_false["question_type"], ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE)
+        self.assertIn("电话手表", true_false["stem_md"])
+        self.assertEqual(programming["question_type"], ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING)
+        self.assertIn("交朋友", programming["stem_md"])
+        self.assertIn("参考程序", programming["analysis_md"])
+        self.assertIn("#include <iostream>", programming["analysis_md"])
+
+    def test_ocr_question_split_closes_malformed_code_before_next_choice_question(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 10 | 11 | 12 | 13 | 14 | 15 |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+                "| 答案 | A | B | C | D | A | B |",
+                "第 10 题 下面 C++ 代码执行后输出是？（ ）",
+                "A.",
+                "```cpp",
+                "cout << 10;",
+                "B. cout << 11;",
+                "第 11 题 变量命名正确的是？（ ）",
+                "A. 2name",
+                "B. name2",
+                "C. int",
+                "D. return",
+                "第 12 题 下列说法正确的是？（ ）",
+                "A. 错误项",
+                "B. 错误项",
+                "C. 正确项",
+                "D. 错误项",
+                "第 13 题 下列选项是循环语句的是？（ ）",
+                "A. if",
+                "B. else",
+                "C. return",
+                "D. while",
+                "第 14 题 下列哪个是输入语句？（ ）",
+                "A. cin",
+                "B. cout",
+                "C. return",
+                "D. break",
+                "第 15 题 空白处应填入的代码是？（ ）",
+                "A.",
+                "```cpp",
+                "N1 += N%10;",
+                "```",
+                "B.",
+                "```cpp",
+                "N2 += N%10;",
+                "```",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        parsed_by_no = {item["question_no"]: item for item in parsed_questions}
+        self.assertTrue({10, 11, 12, 13, 14, 15}.issubset(parsed_by_no))
+        self.assertIn("cout << 10", parsed_by_no[10]["options"]["A"])
+        self.assertNotIn("第 11 题", parsed_by_no[10]["options"]["A"])
+        self.assertEqual(parsed_by_no[11]["answer_json"]["correct_answer"], "B")
+        self.assertEqual(parsed_by_no[12]["answer_json"]["correct_answer"], "C")
+        self.assertEqual(parsed_by_no[15]["answer_json"]["correct_answer"], "B")
+        self.assertEqual(parsed_by_no[15]["analysis_md"], "")
+
+    def test_ocr_question_split_detects_programming_title_without_section_header(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 15 |",
+                "| 答案 | B |",
+                "第 15 题 空白处应该填入的代码是？（ ）",
+                "A. 代码 A",
+                "B. 代码 B",
+                "3.1 编程题 1",
+                "试题名称：交朋友",
+                "3.1.1 题目描述",
+                "Alice 想要和身高最接近她的人交朋友。",
+                "3.2 编程题 2",
+                "试题名称：数字替换",
+                "3.2.1 题目描述",
+                "把数字 4 替换成 8。",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        self.assertEqual(parsed_questions[0]["question_no"], 15)
+        programming_questions = [
+            item for item in parsed_questions if item["question_type"] == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING
+        ]
+        self.assertEqual(len(programming_questions), 2)
+        self.assertIn("交朋友", programming_questions[0]["stem_md"])
+        self.assertIn("数字替换", programming_questions[1]["stem_md"])
 
     def test_teacher_exam_paper_import_jobs_status_endpoint(self) -> None:
         self.sign_in(self.teacher)
