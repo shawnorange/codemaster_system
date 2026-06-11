@@ -1,0 +1,263 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+    <style>
+        .student-exam-grid-container {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            box-sizing: border-box;
+        }
+
+        .student-exam-grid-container .tabulator {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .student-exam-grid-container .tabulator-row .tabulator-cell {
+            min-width: 0;
+        }
+
+        .student-exam-grid-container .tabulator-tableholder {
+            overflow-x: auto;
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">My Exams</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary homework-list-panel">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Exam Access</p>
+            <h3>输入口令开启考试</h3>
+            <p>输入老师给出的 6 位口令后，系统会创建或打开你自己的考试记录。</p>
+        </div>
+        <form method="post" class="record-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="enter_exam_access_code">
+            <label class="field">
+                <span>考试口令</span>
+                <input type="text" name="exam_access_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6 位数字口令" required>
+            </label>
+            <button type="submit" class="login-button record-form__button">开启考试</button>
+        </form>
+    </section>
+
+    <section class="surface-panel surface-panel--primary homework-list-panel">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Exam Records</p>
+            <h3>考试记录</h3>
+            <p>按试卷聚合展示，进入详情后可查看同一考试的全部作答记录。</p>
+        </div>
+
+        <div class="portal-grid-shell homework-tabulator-shell">
+            <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="student-exam-search">
+                    <span class="portal-filter-label portal-grid-filter-label">考试名称 / 知识点</span>
+                    <input id="student-exam-search" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="按考试名称或知识点搜索">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="student-exam-time-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">考试时间</span>
+                    <input id="student-exam-time-filter" class="portal-filter-control portal-grid-filter-control" type="date">
+                </label>
+            </div>
+
+            <div class="portal-meta-row portal-grid-meta-row homework-tabulator-meta-row">
+                <span class="portal-grid-meta__pill">当前记录<strong>{{ exam_table_rows|length }}</strong></span>
+                <span class="portal-grid-note">点击某一行的“查看记录”进入同一考试的历史记录页。</span>
+            </div>
+
+            {{ exam_table_rows|json_script:"student-exams-data" }}
+
+            <div class="portal-grid-container teacher-tabulator-container student-exam-grid-container">
+                <div id="student-exams-table"></div>
+            </div>
+            <div id="student-exams-fallback">
+                {% if exam_table_rows %}
+                    {% for item in exam_table_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.knowledge_point }} · {{ item.session_type_text }} · {{ item.exam_time_text }} · {{ item.status_text }}</span>
+                            <a class="system-header__link" href="{{ item.detail_href }}">查看记录</a>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">{{ empty_message }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'vendor/tabulator/6.3.1/tabulator.min.js' %}"></script>
+    <script>
+        (function () {
+            const dataElement = document.getElementById("student-exams-data");
+            const tableElement = document.getElementById("student-exams-table");
+            const fallback = document.getElementById("student-exams-fallback");
+            const searchInput = document.getElementById("student-exam-search");
+            const timeFilter = document.getElementById("student-exam-time-filter");
+
+            if (!dataElement || !tableElement || typeof Tabulator === "undefined") {
+                return;
+            }
+
+            function normalizeText(value) {
+                return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+            }
+
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+
+            function buildStatePill(row) {
+                return '<span class="state-pill state-pill--' + escapeHtml(row.status_tone || "trial") + '">' + escapeHtml(row.status_text || "未知") + "</span>";
+            }
+
+            const rows = JSON.parse(dataElement.textContent || "[]").map(function (row) {
+                return {
+                    paper_id: row.paper_id,
+                    title: normalizeText(row.title),
+                    knowledge_point: normalizeText(row.knowledge_point),
+                    level_text: normalizeText(row.level_text),
+                    course_title: normalizeText(row.course_title),
+                    teacher_name: normalizeText(row.teacher_name),
+                    session_type_text: normalizeText(row.session_type_text),
+                    exam_time_text: normalizeText(row.exam_time_text),
+                    exam_time_value: normalizeText(row.exam_time_value),
+                    exam_time_sort_value: normalizeText(row.exam_time_sort_value),
+                    status_text: normalizeText(row.status_text),
+                    status_tone: normalizeText(row.status_tone),
+                    attempt_count: Number(row.attempt_count || 0),
+                    latest_score: normalizeText(row.latest_score),
+                    detail_href: normalizeText(row.detail_href),
+                    search_text: normalizeText(row.search_text).toLowerCase(),
+                };
+            });
+
+            const table = new Tabulator(tableElement, {
+                data: rows,
+                layout: "fitColumns",
+                columnDefaults: {
+                    minWidth: 96,
+                    vertAlign: "middle",
+                    widthGrow: 1,
+                },
+                placeholder: "{{ empty_message|escapejs }}",
+                pagination: true,
+                paginationMode: "local",
+                paginationSize: 10,
+                initialSort: [{column: "exam_time_sort_value", dir: "desc"}],
+                columns: [
+                    { title: "排序", field: "exam_time_sort_value", visible: false },
+                    {
+                        title: "考试名称",
+                        field: "title",
+                        formatter: function (cell) {
+                            const row = cell.getRow().getData();
+                            return '<div class="homework-topic-cell"><strong class="homework-topic-cell__title">' + escapeHtml(row.title) + '</strong><span class="homework-topic-cell__subtitle">' + escapeHtml(row.course_title + " / " + row.level_text) + "</span></div>";
+                        },
+                    },
+                    { title: "知识点", field: "knowledge_point" },
+                    { title: "场次", field: "session_type_text", hozAlign: "center" },
+                    { title: "考试时间", field: "exam_time_text" },
+                    { title: "老师", field: "teacher_name" },
+                    { title: "记录数", field: "attempt_count", hozAlign: "center" },
+                    { title: "最新得分", field: "latest_score", hozAlign: "center" },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        hozAlign: "center",
+                        formatter: function (cell) {
+                            return buildStatePill(cell.getRow().getData());
+                        },
+                    },
+                    {
+                        title: "操作",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: function (cell) {
+                            return '<a class="cm-tabulator-btn" href="' + escapeHtml(cell.getValue()) + '">查看记录</a>';
+                        },
+                    },
+                ],
+            });
+
+            function applyFilters() {
+                const query = normalizeText(searchInput ? searchInput.value : "").toLowerCase();
+                const dateValue = normalizeText(timeFilter ? timeFilter.value : "");
+                table.setFilter(function (row) {
+                    if (query && !row.search_text.includes(query)) {
+                        return false;
+                    }
+                    if (dateValue && row.exam_time_value !== dateValue) {
+                        return false;
+                    }
+                    return true;
+                });
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener("input", applyFilters);
+            }
+            if (timeFilter) {
+                timeFilter.addEventListener("change", applyFilters);
+            }
+            if (fallback) {
+                fallback.hidden = true;
+            }
+            applyFilters();
+        })();
+    </script>
+{% endblock %}

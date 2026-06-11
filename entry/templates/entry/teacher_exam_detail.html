@@ -1,0 +1,390 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/teacher_homework_stats.css' %}">
+    <style>
+        .teacher-exam-leaderboard,
+        .teacher-exam-practice-records,
+        .teacher-exam-question-stats {
+            margin-top: 24px;
+        }
+
+        .teacher-exam-practice-grid-container {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            box-sizing: border-box;
+        }
+
+        .teacher-exam-practice-grid-container .tabulator {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .teacher-exam-question-card {
+            width: 100%;
+        }
+
+        .teacher-exam-question-card .record-form {
+            width: 100%;
+        }
+
+        .teacher-exam-question-option {
+            grid-template-columns: minmax(0, 1fr);
+            width: 100%;
+            cursor: default;
+        }
+
+        .teacher-exam-question-option .topic-access-option__content,
+        .teacher-exam-question-option .topic-access-option__header {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .teacher-exam-question-option .topic-access-option__header > div {
+            min-width: 0;
+            flex: 1 1 240px;
+        }
+
+        .teacher-exam-question-option .topic-access-option__header h4 {
+            line-height: 1.65;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        .teacher-exam-important {
+            position: relative;
+        }
+
+        .teacher-exam-important__summary {
+            border: 0;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .teacher-exam-important__summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .teacher-exam-important__panel {
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(15, 103, 184, 0.16);
+            border-radius: 8px;
+            box-shadow: 0 14px 32px rgba(15, 61, 107, 0.12);
+            display: grid;
+            gap: 10px;
+            min-width: min(320px, 82vw);
+            padding: 12px;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            z-index: 3;
+        }
+
+        .teacher-exam-important__panel textarea {
+            border: 1px solid rgba(15, 103, 184, 0.16);
+            border-radius: 8px;
+            box-sizing: border-box;
+            color: var(--text-main);
+            font: inherit;
+            min-height: 82px;
+            padding: 10px 12px;
+            resize: vertical;
+            width: 100%;
+        }
+
+        .teacher-exam-important__actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .exam-important-note {
+            background: #fff8e8;
+            border: 1px solid rgba(190, 126, 0, 0.18);
+            border-radius: 8px;
+            color: #664100;
+            display: grid;
+            gap: 6px;
+            line-height: 1.6;
+            margin: 12px 0;
+            padding: 10px 12px;
+        }
+
+        .exam-important-note strong {
+            color: #8a5700;
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Detail</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary teacher-exam-leaderboard">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Leaderboard</p>
+            <h3>分数排行榜 Top10</h3>
+            <p>按自动判分后的得分从高到低展示。</p>
+        </div>
+        <div class="content-access-list">
+            {% for item in leaderboard_rows %}
+                <article class="content-access-card content-access-card--open">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>#{{ item.rank }} {{ item.student_name }}</h5>
+                            <p>{{ item.submitted_at_text }} · 切屏 {{ item.switch_count }} 次</p>
+                        </div>
+                        <span class="state-pill state-pill--open">{{ item.earned_score }} / {{ item.total_score }}</span>
+                    </div>
+                    <div class="topic-work-card__meta">
+                        <article class="topic-work-card__meta-item"><span>正确</span><strong>{{ item.correct_count }}</strong><p>自动判分</p></article>
+                        <article class="topic-work-card__meta-item"><span>错误</span><strong>{{ item.wrong_count }}</strong><p>可用于错题统计</p></article>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="entry-hint-bar">{{ empty_leaderboard_message }}</div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary teacher-exam-practice-records">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Practice Records</p>
+            <h3>独立练习情况</h3>
+            <p>这里只展示学生在本场考试后的整卷练习和错题练习，不参与上方排行榜和下方逐题统计。</p>
+        </div>
+
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                    <label for="teacher-exam-practice-search">搜索学生 / 提交类型 / 得分</label>
+                    <input id="teacher-exam-practice-search" class="portal-grid-search teacher-tabulator-search" type="search" placeholder="输入关键词">
+                </div>
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <span class="portal-grid-note teacher-tabulator-note">练习记录不进入正式考试统计。</span>
+                </div>
+            </div>
+
+            {{ practice_session_rows|json_script:"teacher-exam-practice-data" }}
+
+            <div class="portal-grid-container teacher-tabulator-container teacher-exam-practice-grid-container">
+                <div id="teacher-exam-practice-table"></div>
+            </div>
+            <div id="teacher-exam-practice-fallback">
+                {% if practice_session_rows %}
+                    {% for item in practice_session_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.student_name }}</strong>
+                            <span>{{ item.submitted_at_text }} · {{ item.session_type_text }} · {{ item.score_summary }}</span>
+                            <a class="system-header__link" href="{{ item.detail_href }}">查看详情</a>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">{{ empty_practice_message }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary teacher-exam-question-stats">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Paper Content</p>
+            <h3>试卷内容与逐题统计</h3>
+            <p>按错误率从高到低展示；错误率相同时，按题号自然升序展示。</p>
+        </div>
+        <div class="content-access-list">
+            {% for question in question_rows %}
+                <article class="content-access-card content-access-card--trial teacher-exam-question-card" id="exam-question-{{ question.id }}" data-question-no="{{ question.question_no }}" data-wrong-rate="{{ question.wrong_rate_value }}">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>第 {{ question.question_no }} 题</h5>
+                            <p>{{ question.question_type_text }} · {{ question.score }} 分 · 错误率 {{ question.wrong_rate_text }} · {{ question.wrong_point_label }}</p>
+                        </div>
+                        <div class="portal-action-row portal-action-row--leading">
+                            <span class="state-pill state-pill--open">对 {{ question.correct_count }}</span>
+                            <span class="state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</span>
+                            <details class="teacher-exam-important">
+                                <summary class="teacher-exam-important__summary state-pill state-pill--future">
+                                    {% if question.is_important %}已标重点{% else %}标记重点{% endif %}
+                                </summary>
+                                <form class="teacher-exam-important__panel" method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="mark_exam_question_important">
+                                    <input type="hidden" name="question_id" value="{{ question.id }}">
+                                    <label>
+                                        <span class="section-heading__eyebrow">重点说明（可选）</span>
+                                        <textarea name="important_note" placeholder="可以留空直接提交。">{{ question.important_note }}</textarea>
+                                    </label>
+                                    <div class="teacher-exam-important__actions">
+                                        <button type="submit" class="login-button">提交</button>
+                                    </div>
+                                </form>
+                            </details>
+                        </div>
+                    </div>
+                    {% if question.is_important %}
+                        <div class="exam-important-note">
+                            <strong>老师标记重点</strong>
+                            {% if question.important_note_html %}
+                                <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                            {% else %}
+                                <span>这道题已被老师标记为重点题。</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                    {% if question.image_path %}
+                        <img src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                    {% endif %}
+                    <div class="record-form">
+                        {% for option in question.option_items %}
+                            <div class="topic-access-option teacher-exam-question-option">
+                                <div class="topic-access-option__content">
+                                    <div class="topic-access-option__header">
+                                        <div>
+                                            <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                            <h4>{{ option.display_text }}</h4>
+                                        </div>
+                                        {% if option.is_correct_answer %}
+                                            <span class="state-pill state-pill--open">正确答案</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <div class="record-inline-feedback">
+                        <strong>答案解析</strong>
+                        <div class="exam-markdown-body">
+                            <p class="exam-markdown-body__paragraph">正确答案：{{ question.correct_answer }}。</p>
+                            {{ question.analysis_html }}
+                        </div>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="entry-hint-bar">当前试卷还没有题目。</div>
+            {% endfor %}
+        </div>
+        <div class="topic-access-modal__footer topic-access-modal__footer--course">
+            <a class="teacher-anchor-link" href="{{ back_href }}">返回考试管理</a>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'vendor/tabulator/6.3.1/tabulator.min.js' %}"></script>
+    <script>
+        (function () {
+            const dataElement = document.getElementById("teacher-exam-practice-data");
+            const tableElement = document.getElementById("teacher-exam-practice-table");
+            const fallback = document.getElementById("teacher-exam-practice-fallback");
+            const searchInput = document.getElementById("teacher-exam-practice-search");
+            if (!dataElement || !tableElement || typeof Tabulator === "undefined") {
+                return;
+            }
+            function normalizeText(value) {
+                return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+            }
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+            const rows = JSON.parse(dataElement.textContent || "[]").map(function (row) {
+                return {
+                    id: row.id,
+                    student_name: normalizeText(row.student_name),
+                    submitted_at_text: normalizeText(row.submitted_at_text),
+                    submitted_at_value: normalizeText(row.submitted_at_value),
+                    session_type_text: normalizeText(row.session_type_text),
+                    score_summary: normalizeText(row.score_summary),
+                    detail_href: normalizeText(row.detail_href),
+                    search_text: normalizeText(row.search_text).toLowerCase(),
+                };
+            });
+            const table = new Tabulator(tableElement, {
+                data: rows,
+                layout: "fitColumns",
+                columnDefaults: {
+                    minWidth: 120,
+                    vertAlign: "middle",
+                    widthGrow: 1,
+                },
+                placeholder: "{{ empty_practice_message|escapejs }}",
+                pagination: true,
+                paginationMode: "local",
+                paginationSize: 10,
+                initialSort: [{column: "submitted_at_value", dir: "desc"}],
+                columns: [
+                    { title: "学生姓名", field: "student_name" },
+                    { title: "提交时间", field: "submitted_at_text" },
+                    { title: "提交类型", field: "session_type_text", hozAlign: "center" },
+                    { title: "得分情况", field: "score_summary", hozAlign: "center" },
+                    {
+                        title: "练习详情",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: function (cell) {
+                            return '<a class="cm-tabulator-btn" href="' + escapeHtml(cell.getValue()) + '">查看详情</a>';
+                        },
+                    },
+                ],
+            });
+            function applyFilter() {
+                const query = normalizeText(searchInput ? searchInput.value : "").toLowerCase();
+                table.setFilter(function (row) {
+                    return !query || row.search_text.includes(query);
+                });
+            }
+            if (searchInput) {
+                searchInput.addEventListener("input", applyFilter);
+            }
+            if (fallback) {
+                fallback.hidden = true;
+            }
+            applyFilter();
+        })();
+    </script>
+{% endblock %}

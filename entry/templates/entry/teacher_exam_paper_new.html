@@ -1,0 +1,613 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <style>
+        .exam-paper-import-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .exam-paper-import-check .context-list__item strong {
+            overflow-wrap: anywhere;
+        }
+
+        .exam-paper-import-meta {
+            margin-top: 12px;
+        }
+
+        .exam-paper-import-job-grid {
+            min-height: 280px;
+        }
+
+        .exam-paper-import-job-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .exam-paper-import-job-actions form {
+            margin: 0;
+        }
+
+        .exam-paper-import-delete-button {
+            border-color: rgba(180, 46, 46, 0.35);
+            color: #9d2b2b;
+        }
+
+        .exam-paper-import-delete-button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 780px) {
+            .exam-paper-import-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Paper Import</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+    </section>
+
+    <div class="system-content-grid">
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Upload Exam File</p>
+                <h3>上传试卷文件并处理</h3>
+                <p>PDF 和图片会进入 Qwen OCR；txt / md / json / html / docx 会直接转换为 Markdown。</p>
+            </div>
+
+            {% if upload_error_message %}
+                <div class="entry-hint-bar">
+                    <strong>当前状态</strong>
+                    <span>{{ upload_error_message }}</span>
+                    {% if uploaded_pdf_name %}
+                        <span>{{ uploaded_pdf_name }}{% if uploaded_pdf_size %} · {{ uploaded_pdf_size }} bytes{% endif %}</span>
+                    {% endif %}
+                </div>
+            {% endif %}
+            {% if upload_success_message %}
+                <div class="entry-hint-bar">
+                    <strong>任务已创建</strong>
+                    <span>{{ upload_success_message }}</span>
+                    {% if uploaded_pdf_name %}
+                        <span>{{ uploaded_pdf_name }}{% if uploaded_pdf_size %} · {{ uploaded_pdf_size }} bytes{% endif %}</span>
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            <section class="record-panel record-panel--composer">
+                <form method="post" enctype="multipart/form-data" class="record-form">
+                    {% csrf_token %}
+                    <div class="record-form__row" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                        <select name="course_id" id="exam-paper-course" required>
+                            <option value="">选择所属学科</option>
+                            {% for item in course_options %}
+                                <option value="{{ item.id }}" {% if item.id == selected_course_id %}selected{% endif %}>{{ item.title }}</option>
+                            {% endfor %}
+                        </select>
+                        <select name="level_code" id="exam-paper-level" data-selected-level="{{ selected_level_code }}" required disabled>
+                            <option value="">先选择所属学科</option>
+                        </select>
+                    </div>
+                    <input type="hidden" name="year" data-auto-year-input value="{{ uploaded_pdf_metadata.year }}">
+                    <input type="hidden" name="month" data-auto-month-input value="{{ uploaded_pdf_metadata.month }}">
+                    <input type="hidden" name="source_pdf_id" data-auto-source-pdf-id-input value="{{ uploaded_pdf_metadata.source_pdf_id }}">
+                    <div class="context-list exam-paper-import-meta" aria-live="polite">
+                        <div class="context-list__item">
+                            <span>年份</span>
+                            <strong data-auto-year>{{ uploaded_pdf_metadata.year|default:"上传文件后自动生成" }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>月份</span>
+                            <strong data-auto-month>{{ uploaded_pdf_metadata.month|default:"上传文件后自动生成" }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>source_pdf_id</span>
+                            <strong data-auto-source-pdf-id>{{ uploaded_pdf_metadata.source_pdf_id|default:"上传文件后自动生成" }}</strong>
+                        </div>
+                    </div>
+                    <div class="record-form__row">
+                        <input type="text" name="title" maxlength="255" placeholder="试卷名称会根据文件名自动带出，也可以手动修改" data-title-input value="{{ uploaded_pdf_metadata.title }}" required>
+                    </div>
+                    <div class="record-form__row">
+                        <input type="file" name="source_pdf" accept="{{ exam_import_accept }}" data-source-pdf-input required>
+                    </div>
+                    <button type="submit" class="login-button record-form__button">上传并处理</button>
+                </form>
+            </section>
+        </section>
+
+        <aside class="surface-panel exam-paper-import-check">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">OCR Readiness</p>
+                <h3>识别链路检查</h3>
+            </div>
+            <div class="context-list">
+                {% for item in qwen_check_items %}
+                    <div class="context-list__item">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.value }}</strong>
+                    </div>
+                {% endfor %}
+            </div>
+        </aside>
+    </div>
+
+    <section class="surface-panel surface-panel--primary" id="recent-import-jobs">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Recent Jobs</p>
+            <h3>最近识别任务</h3>
+        </div>
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                    <label for="exam-paper-import-job-search">任务检索</label>
+                    <input id="exam-paper-import-job-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按试卷名称 / source_pdf_id / 状态搜索">
+                </div>
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <button type="button" id="exam-paper-import-job-bulk-delete" class="cm-tabulator-btn exam-paper-import-delete-button" disabled>一键删除</button>
+                    <div class="portal-grid-meta teacher-tabulator-meta">
+                        <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">最近任务<strong>{{ recent_import_job_rows|length }}</strong></span>
+                        <span class="portal-grid-meta__pill teacher-tabulator-meta__pill">已选<strong id="exam-paper-import-job-selected-count">0</strong></span>
+                    </div>
+                </div>
+            </div>
+            <form id="exam-paper-import-job-bulk-delete-form" method="post" hidden>
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="bulk_delete_import_jobs">
+                <div id="exam-paper-import-job-bulk-delete-inputs"></div>
+            </form>
+            <div id="exam-paper-import-job-table" class="portal-grid-container teacher-tabulator-container exam-paper-import-job-grid"></div>
+        </div>
+        <div class="content-access-list" id="exam-paper-import-job-fallback">
+            {% if recent_import_job_rows %}
+                {% for item in recent_import_job_rows %}
+                    <article class="content-access-card">
+                        <div class="content-access-card__top">
+                            <div>
+                                <h5>#{{ item.id }} {{ item.title }}</h5>
+                                <p>{{ item.course_title }} / {{ item.level_code }} / {{ item.source_pdf_id }} · {{ item.created_at }}</p>
+                            </div>
+                            <span class="state-pill state-pill--trial">{{ item.status_text }}</span>
+                        </div>
+                        <p class="content-access-card__description content-access-card__description--multiline">
+                            {{ item.status_notes|default:"暂无状态备注" }}
+                            {% if item.error_message %}&#10;{{ item.error_message }}{% endif %}
+                        </p>
+                        <div class="content-access-card__footer">
+                            <span>截图 {{ item.rendered_page_count }}/{{ item.page_count }} 页</span>
+                            <span>OCR {{ item.ocr_page_count }}/{{ item.page_count }} 页</span>
+                            {% if item.workspace_relative_path %}
+                                <span>workspace: {{ item.workspace_relative_path }}</span>
+                            {% endif %}
+                            <a class="cm-tabulator-btn" href="{{ item.preview_href }}">预览识别结果</a>
+                            <form method="post" class="exam-paper-import-job-delete-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="delete_import_job">
+                                <input type="hidden" name="import_job_id" value="{{ item.id }}">
+                                <button type="submit" class="cm-tabulator-btn exam-paper-import-delete-button">删除</button>
+                            </form>
+                            <form method="post" class="exam-paper-import-job-confirm-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="confirm_import_job">
+                                <input type="hidden" name="import_job_id" value="{{ item.id }}">
+                                <button type="submit" class="cm-tabulator-btn" {% if not item.can_confirm %}disabled title="{{ item.confirm_disabled_reason }}"{% endif %}>{{ item.confirm_label }}</button>
+                            </form>
+                        </div>
+                    </article>
+                {% endfor %}
+            {% else %}
+                <div class="entry-hint-bar">当前还没有考试文件识别任务。</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Implementation Notes</p>
+            <h3>后续还需要补齐</h3>
+        </div>
+        <div class="content-access-list">
+            {% for item in implementation_items %}
+                <article class="content-access-card">
+                    <p class="content-access-card__description">{{ item }}</p>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ level_options_by_course_id|json_script:"exam-paper-level-options-by-course" }}
+    {{ recent_import_job_rows|json_script:"exam-paper-import-job-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            const importJobStatusUrl = "{{ import_job_status_url|escapejs }}";
+            const fileInput = document.querySelector("[data-source-pdf-input]");
+            const levelSelect = document.getElementById("exam-paper-level");
+            const courseSelect = document.getElementById("exam-paper-course");
+            const titleInput = document.querySelector("[data-title-input]");
+            const yearInput = document.querySelector("[data-auto-year-input]");
+            const monthInput = document.querySelector("[data-auto-month-input]");
+            const sourcePdfIdInput = document.querySelector("[data-auto-source-pdf-id-input]");
+            const yearDisplay = document.querySelector("[data-auto-year]");
+            const monthDisplay = document.querySelector("[data-auto-month]");
+            const sourcePdfIdDisplay = document.querySelector("[data-auto-source-pdf-id]");
+            const emptyText = "上传文件后自动生成";
+            const readJsonScript = (id, fallback) => {
+                const node = document.getElementById(id);
+                if (!node) {
+                    return fallback;
+                }
+                try {
+                    return JSON.parse(node.textContent || "");
+                } catch (error) {
+                    return fallback;
+                }
+            };
+            const normalizeText = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+            const escapeHtml = (value) => String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+            const levelOptionsByCourse = readJsonScript("exam-paper-level-options-by-course", {});
+            let pendingLevelValue = levelSelect ? levelSelect.dataset.selectedLevel || "" : "";
+
+            const selectedText = (select) => {
+                if (!select || select.selectedIndex < 0) {
+                    return "";
+                }
+                return select.options[select.selectedIndex].textContent || "";
+            };
+            const inferMetadata = (fileName) => {
+                const stem = String(fileName || "").replace(/\.[^.]+$/, "").trim();
+                const compactStem = stem.replace(/\s+/g, "");
+                const yearMatch = stem.match(/(20\d{2})\s*年/) || stem.match(/(20\d{2})/);
+                const monthMatch = compactStem.match(/年\s*(1[0-2]|0?[1-9])\s*月/) || compactStem.match(/20\d{2}[_\-.年]*(1[0-2]|0?[1-9])/);
+                const year = yearMatch ? yearMatch[1] : "";
+                const month = monthMatch ? String(Number(monthMatch[1])) : "";
+                const level = String(levelSelect ? levelSelect.value : "").trim().toUpperCase();
+                const course = selectedText(courseSelect).trim().toLowerCase();
+                const lowerStem = compactStem.toLowerCase();
+                let token = "";
+                if (lowerStem.includes("csp-j") || lowerStem.includes("cspj") || level === "CSP-J") {
+                    token = "csp_j";
+                } else if (lowerStem.includes("csp-s") || lowerStem.includes("csps") || level === "CSP-S") {
+                    token = "csp_s";
+                } else {
+                    const chineseLevelMatch = compactStem.match(/(\d+)\s*级/);
+                    const gespMatch = level.match(/^GESP\s*(\d+)$/);
+                    if ((lowerStem.includes("c++") || lowerStem.includes("cpp") || course === "c++") && (chineseLevelMatch || gespMatch)) {
+                        token = "c_" + (chineseLevelMatch || gespMatch)[1];
+                    } else if (gespMatch) {
+                        token = "gesp_" + gespMatch[1];
+                    }
+                }
+                if (!token) {
+                    token = lowerStem.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+                }
+                return {
+                    title: stem,
+                    year,
+                    month,
+                    sourcePdfId: [year, month, token].filter(Boolean).join("_"),
+                };
+            };
+            const renderLevelOptions = () => {
+                if (!levelSelect) {
+                    return;
+                }
+                const courseId = courseSelect ? courseSelect.value : "";
+                const options = courseId ? levelOptionsByCourse[courseId] || [] : [];
+                const selectedValue = pendingLevelValue || levelSelect.value || "";
+                levelSelect.innerHTML = "";
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent = courseId ? "选择所属级别/类别" : "先选择所属学科";
+                levelSelect.appendChild(placeholder);
+                options.forEach((item) => {
+                    const option = document.createElement("option");
+                    option.value = item.value || "";
+                    option.textContent = item.label || item.value || "";
+                    if (selectedValue && String(option.value).toUpperCase() === String(selectedValue).toUpperCase()) {
+                        option.selected = true;
+                    }
+                    levelSelect.appendChild(option);
+                });
+                levelSelect.disabled = !courseId || options.length === 0;
+                if (courseId && options.length === 0) {
+                    placeholder.textContent = "当前学科暂无可选类别";
+                }
+                pendingLevelValue = "";
+            };
+            const syncMetadata = () => {
+                const file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+                const metadata = inferMetadata(file ? file.name : "");
+                if (yearInput) {
+                    yearInput.value = metadata.year;
+                }
+                if (monthInput) {
+                    monthInput.value = metadata.month;
+                }
+                if (sourcePdfIdInput) {
+                    sourcePdfIdInput.value = metadata.sourcePdfId;
+                }
+                if (yearDisplay) {
+                    yearDisplay.textContent = metadata.year || emptyText;
+                }
+                if (monthDisplay) {
+                    monthDisplay.textContent = metadata.month || emptyText;
+                }
+                if (sourcePdfIdDisplay) {
+                    sourcePdfIdDisplay.textContent = metadata.sourcePdfId || emptyText;
+                }
+                if (titleInput && metadata.title && !titleInput.value.trim()) {
+                    titleInput.value = metadata.title;
+                }
+            };
+
+            if (fileInput) {
+                fileInput.addEventListener("change", syncMetadata);
+            }
+            if (levelSelect) {
+                levelSelect.addEventListener("change", syncMetadata);
+            }
+            if (courseSelect) {
+                courseSelect.addEventListener("change", () => {
+                    pendingLevelValue = "";
+                    renderLevelOptions();
+                    syncMetadata();
+                });
+            }
+            renderLevelOptions();
+            syncMetadata();
+
+            const tableElement = document.getElementById("exam-paper-import-job-table");
+            const fallbackElement = document.getElementById("exam-paper-import-job-fallback");
+            const searchInput = document.getElementById("exam-paper-import-job-search");
+            const csrfTokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+            const csrfToken = csrfTokenInput ? csrfTokenInput.value : "";
+            const bulkDeleteButton = document.getElementById("exam-paper-import-job-bulk-delete");
+            const bulkDeleteForm = document.getElementById("exam-paper-import-job-bulk-delete-form");
+            const bulkDeleteInputs = document.getElementById("exam-paper-import-job-bulk-delete-inputs");
+            const selectedCountDisplay = document.getElementById("exam-paper-import-job-selected-count");
+            const importJobRows = readJsonScript("exam-paper-import-job-data", []).map((row) => ({
+                id: row.id,
+                title: normalizeText(row.title),
+                course_title: normalizeText(row.course_title),
+                level_code: normalizeText(row.level_code),
+                source_pdf_id: normalizeText(row.source_pdf_id),
+                status_text: normalizeText(row.status_text),
+                status_tone: normalizeText(row.status_tone || "trial"),
+                status_notes: normalizeText(row.status_notes),
+                error_message: normalizeText(row.error_message),
+                page_count: Number(row.page_count || 0),
+                rendered_page_count: Number(row.rendered_page_count || 0),
+                ocr_page_count: Number(row.ocr_page_count || 0),
+                created_at: normalizeText(row.created_at),
+                updated_at: normalizeText(row.updated_at),
+                preview_href: normalizeText(row.preview_href),
+                can_confirm: Boolean(row.can_confirm),
+                confirm_label: normalizeText(row.confirm_label || "确认"),
+                confirm_disabled_reason: normalizeText(row.confirm_disabled_reason),
+                search_text: [
+                    row.title,
+                    row.course_title,
+                    row.level_code,
+                    row.source_pdf_id,
+                    row.status_text,
+                    row.status_notes,
+                    row.error_message,
+                ].map(normalizeText).join(" ").toLowerCase(),
+            }));
+            if (tableElement && typeof Tabulator !== "undefined") {
+                const table = new Tabulator(tableElement, {
+                    data: importJobRows,
+                    layout: "fitColumns",
+                    placeholder: "当前还没有考试文件识别任务。",
+                    index: "id",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    selectableRows: true,
+                    selectableRowsPersistence: true,
+                    columns: [
+                        {formatter: "rowSelection", titleFormatter: "rowSelection", hozAlign: "center", headerSort: false, width: 52},
+                        {
+                            title: "任务",
+                            field: "title",
+                            minWidth: 260,
+                            widthGrow: 2,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return '<div class="homework-topic-cell"><strong class="homework-topic-cell__title">#' + escapeHtml(row.id) + " " + escapeHtml(row.title) + '</strong><span class="homework-topic-cell__subtitle">' + escapeHtml(row.source_pdf_id) + "</span></div>";
+                            },
+                        },
+                        {title: "所属学科", field: "course_title", minWidth: 110},
+                        {title: "所属级别", field: "level_code", minWidth: 110},
+                        {title: "创建时间", field: "created_at", minWidth: 150},
+                        {
+                            title: "进度",
+                            field: "ocr_page_count",
+                            minWidth: 180,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                const total = row.page_count || "-";
+                                return "截图 " + escapeHtml(row.rendered_page_count) + "/" + escapeHtml(total) + " 页 · OCR " + escapeHtml(row.ocr_page_count) + "/" + escapeHtml(total) + " 页";
+                            },
+                        },
+                        {
+                            title: "状态",
+                            field: "status_text",
+                            hozAlign: "center",
+                            minWidth: 120,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                return '<span class="state-pill state-pill--' + escapeHtml(row.status_tone || "trial") + '">' + escapeHtml(row.status_text || "未知") + "</span>";
+                            },
+                        },
+                        {
+                            title: "操作",
+                            field: "preview_href",
+                            hozAlign: "center",
+                            headerSort: false,
+                            minWidth: 180,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                const confirmDisabled = row.can_confirm ? "" : " disabled";
+                                const confirmTitle = row.confirm_disabled_reason ? ' title="' + escapeHtml(row.confirm_disabled_reason) + '"' : "";
+                                return [
+                                    '<div class="exam-paper-import-job-actions">',
+                                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href) + '">预览</a>',
+                                    '<form method="post" class="exam-paper-import-job-delete-form">',
+                                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                                    '<input type="hidden" name="form_action" value="delete_import_job">',
+                                    '<input type="hidden" name="import_job_id" value="' + escapeHtml(row.id) + '">',
+                                    '<button type="submit" class="cm-tabulator-btn exam-paper-import-delete-button">删除</button>',
+                                    '</form>',
+                                    '<form method="post" class="exam-paper-import-job-confirm-form">',
+                                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                                    '<input type="hidden" name="form_action" value="confirm_import_job">',
+                                    '<input type="hidden" name="import_job_id" value="' + escapeHtml(row.id) + '">',
+                                    '<button type="submit" class="cm-tabulator-btn"' + confirmDisabled + confirmTitle + '>' + escapeHtml(row.confirm_label || "确认") + '</button>',
+                                    '</form>',
+                                    '</div>',
+                                ].join("");
+                            },
+                        },
+                    ],
+                });
+                if (fallbackElement) {
+                    fallbackElement.style.display = "none";
+                }
+                const updateBulkDeleteState = () => {
+                    const selectedRows = table.getSelectedData();
+                    const selectedCount = selectedRows.length;
+                    if (selectedCountDisplay) {
+                        selectedCountDisplay.textContent = String(selectedCount);
+                    }
+                    if (bulkDeleteButton) {
+                        bulkDeleteButton.disabled = selectedCount === 0;
+                    }
+                };
+                table.on("rowSelectionChanged", updateBulkDeleteState);
+                updateBulkDeleteState();
+                if (bulkDeleteButton && bulkDeleteForm && bulkDeleteInputs) {
+                    bulkDeleteButton.addEventListener("click", () => {
+                        const selectedIds = table.getSelectedData()
+                            .map((row) => Number(row.id || 0))
+                            .filter((id) => id > 0);
+                        if (!selectedIds.length) {
+                            return;
+                        }
+                        const confirmed = window.confirm("是否确定删除选中的 " + selectedIds.length + " 条识别任务？");
+                        if (!confirmed) {
+                            return;
+                        }
+                        bulkDeleteInputs.innerHTML = "";
+                        selectedIds.forEach((id) => {
+                            const input = document.createElement("input");
+                            input.type = "hidden";
+                            input.name = "import_job_ids";
+                            input.value = String(id);
+                            bulkDeleteInputs.appendChild(input);
+                        });
+                        bulkDeleteForm.submit();
+                    });
+                }
+                if (searchInput) {
+                    searchInput.addEventListener("input", () => {
+                        const query = normalizeText(searchInput.value).toLowerCase();
+                        table.setFilter((row) => !query || row.search_text.includes(query));
+                    });
+                }
+                const normalizeImportJobRows = (rows) => rows.map((row) => ({
+                    id: row.id,
+                    title: normalizeText(row.title),
+                    course_title: normalizeText(row.course_title),
+                    level_code: normalizeText(row.level_code),
+                    source_pdf_id: normalizeText(row.source_pdf_id),
+                    status_text: normalizeText(row.status_text),
+                    status_tone: normalizeText(row.status_tone || "trial"),
+                    status_notes: normalizeText(row.status_notes),
+                    error_message: normalizeText(row.error_message),
+                    page_count: Number(row.page_count || 0),
+                    rendered_page_count: Number(row.rendered_page_count || 0),
+                    ocr_page_count: Number(row.ocr_page_count || 0),
+                    created_at: normalizeText(row.created_at),
+                    updated_at: normalizeText(row.updated_at),
+                    preview_href: normalizeText(row.preview_href),
+                    can_confirm: Boolean(row.can_confirm),
+                    confirm_label: normalizeText(row.confirm_label || "确认"),
+                    confirm_disabled_reason: normalizeText(row.confirm_disabled_reason),
+                    search_text: [
+                        row.title,
+                        row.course_title,
+                        row.level_code,
+                        row.source_pdf_id,
+                        row.status_text,
+                        row.status_notes,
+                        row.error_message,
+                    ].map(normalizeText).join(" ").toLowerCase(),
+                }));
+                const refreshImportJobs = async () => {
+                    if (!importJobStatusUrl) {
+                        return;
+                    }
+                    try {
+                        const response = await fetch(importJobStatusUrl, {
+                            headers: {"Accept": "application/json"},
+                            credentials: "same-origin",
+                        });
+                        if (!response.ok) {
+                            return;
+                        }
+                        const payload = await response.json();
+                        const rows = normalizeImportJobRows(Array.isArray(payload.jobs) ? payload.jobs : []);
+                        table.replaceData(rows).then(updateBulkDeleteState);
+                    } catch (error) {
+                        return;
+                    }
+                };
+                window.setInterval(refreshImportJobs, 3000);
+            }
+            document.addEventListener("submit", (event) => {
+                if (event.target.matches(".exam-paper-import-job-delete-form")) {
+                    const confirmed = window.confirm("是否确定删除这条识别任务？");
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
+            });
+        })();
+    </script>
+{% endblock %}

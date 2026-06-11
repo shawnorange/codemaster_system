@@ -1,0 +1,116 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .exam-bank-paper-question {
+            display: grid;
+            gap: 14px;
+        }
+
+        .exam-bank-paper-question__asset {
+            display: block;
+            max-width: 100%;
+            max-height: 640px;
+            object-fit: contain;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .exam-bank-paper-options {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        @media (max-width: 760px) {
+            .exam-bank-paper-options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Paper Preview</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ paper.title }}</h2>
+            <p class="role-description">{{ paper.level }} / {{ paper.source_pdf_id }} / {{ paper.source_file }}</p>
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Preview</p>
+            <h3>试卷内容预览</h3>
+            <p>发布前检查题面、题图、选项、答案和解析。</p>
+        </div>
+        <div class="content-access-list">
+            {% for question in question_rows %}
+                <article class="content-access-card content-access-card--trial exam-bank-paper-question">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>第 {{ question.question_no }} 题</h5>
+                            <p>{{ question.question_type_text }}</p>
+                        </div>
+                        {% if question.answer_text %}
+                            <span class="state-pill state-pill--open">答案 {{ question.answer_text }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                    {% for asset in question.assets %}
+                        {% if asset.url %}
+                            <img class="exam-bank-paper-question__asset" src="{{ asset.url }}" alt="{{ asset.alt }}">
+                            <p class="content-access-card__description content-access-card__description--multiline">{{ asset.relative_path }}</p>
+                        {% endif %}
+                    {% endfor %}
+                    {% if question.options %}
+                        <div class="exam-bank-paper-options">
+                            {% for option in question.options %}
+                                {% if option.text %}
+                                    <div class="topic-access-option__content">
+                                        <div class="topic-access-option__header">
+                                            <div>
+                                                <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                <h4>{{ option.text }}</h4>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <div class="record-inline-feedback">
+                        <strong>解析</strong>
+                        <span>{{ question.analysis_md|default:"当前没有解析。" }}</span>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="entry-hint-bar">当前试卷还没有题目。</div>
+            {% endfor %}
+        </div>
+        <div class="topic-access-modal__footer topic-access-modal__footer--course">
+            <a class="teacher-anchor-link" href="{{ back_href }}">返回发布考试</a>
+            <a class="login-button" href="{{ edit_href }}">编辑试卷</a>
+        </div>
+    </section>
+{% endblock %}

@@ -168,22 +168,21 @@ Before switching DNS, test from Alibaba Cloud ECS:
 
 The ECharts CDN should be vendored locally before relying on mainland production traffic.
 
-## 10. Homework Import Timeout and Recovery
+## 10. Homework Import Worker
 
-Homework import parsing currently runs synchronously inside the Django request. A slow Qwen/DashScope or Volcengine Ark request can therefore occupy a Gunicorn worker until the Python `requests` timeout fires. Production must keep these timeouts ordered so Django can catch the exception, write `HomeworkImportJob.parse_notes`, and fall back when configured:
+Homework uploads return after creating a `HomeworkImportJob`. OCR and Qwen/DashScope parsing run in the separate `homework-import-worker` service:
 
-```text
-nginx proxy_read_timeout > gunicorn timeout > external API read/request timeout
+```bash
+python manage.py process_homework_import_jobs --poll-interval 2
 ```
 
-Current defaults:
+This keeps slow external model calls out of the HTTP request path, so nginx/Gunicorn timeouts do not freeze the upload page. A queued job moves from `uploaded` to `parsing`, then to `parsed` or `failed`.
 
-- `GUNICORN_TIMEOUT=120`
-- Nginx `proxy_read_timeout 130s`
-- `HOMEWORK_LLM_TIMEOUT_SECONDS=40`
-- `VOLC_VISION_READ_TIMEOUT_SECONDS=60`
+Operational checks:
 
-If a worker is killed before Django can finish exception handling, an import job may remain stuck in `parsing` and block future imports for the same knowledge point. Long term, move import parsing to a background worker so slow external model calls no longer block HTTP workers.
+- Ensure `homework-import-worker` is running after deploy.
+- Ensure the worker shares the same `media` volume as `web`, because source files are uploaded by `web` and parsed by the worker.
+- If a process dies while a job is `parsing`, stale jobs are automatically marked `failed` after `HOMEWORK_IMPORT_STALE_MINUTES`.
 
 ## 11. Do Not Delete Volumes
 

@@ -1,0 +1,218 @@
+{% extends "entry/system_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+    <style>
+        .student-exam-grid-container {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            box-sizing: border-box;
+        }
+
+        .student-exam-grid-container .tabulator {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+
+        .student-exam-grid-container .tabulator-row .tabulator-cell {
+            min-width: 0;
+        }
+
+        .student-exam-grid-container .tabulator-tableholder {
+            overflow-x: auto;
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Attempts</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary homework-list-panel">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Attempt Records</p>
+            <h3>本场考试记录</h3>
+            <p>同一考试下的所有作答记录都会在这里展示。</p>
+        </div>
+
+        <div class="portal-grid-shell homework-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                    <label for="student-exam-attempt-search">搜索记录 / 状态 / 分数</label>
+                    <input id="student-exam-attempt-search" class="portal-grid-search teacher-tabulator-search" type="search" placeholder="输入关键词">
+                </div>
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <a class="system-header__link" href="{{ back_list_href }}">返回我的考试</a>
+                </div>
+            </div>
+
+            {{ session_rows|json_script:"student-exam-attempts-data" }}
+
+            <div class="portal-grid-container teacher-tabulator-container student-exam-grid-container">
+                <div id="student-exam-attempts-table"></div>
+            </div>
+            <div id="student-exam-attempts-fallback">
+                {% if session_rows %}
+                    {% for item in session_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.attempt_label }}</strong>
+                            <span>{{ item.session_type_text }} · {{ item.status_text }} · {{ item.earned_score }} / {{ item.total_score }} · {{ item.submitted_at_text }}</span>
+                            <a class="system-header__link" href="{{ item.detail_href }}">{{ item.action_label }}</a>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">{{ empty_message }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script src="{% static 'vendor/tabulator/6.3.1/tabulator.min.js' %}"></script>
+    <script>
+        (function () {
+            const dataElement = document.getElementById("student-exam-attempts-data");
+            const tableElement = document.getElementById("student-exam-attempts-table");
+            const fallback = document.getElementById("student-exam-attempts-fallback");
+            const searchInput = document.getElementById("student-exam-attempt-search");
+            if (!dataElement || !tableElement || typeof Tabulator === "undefined") {
+                return;
+            }
+            function normalizeText(value) {
+                return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+            }
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+            function buildStatePill(row) {
+                return '<span class="state-pill state-pill--' + escapeHtml(row.status_tone || "trial") + '">' + escapeHtml(row.status_text || "未知") + "</span>";
+            }
+            const rows = JSON.parse(dataElement.textContent || "[]").map(function (row) {
+                const searchText = [
+                    row.attempt_label,
+                    row.session_type_text,
+                    row.status_text,
+                    row.earned_score,
+                    row.total_score,
+                    row.started_at_text,
+                    row.submitted_at_text,
+                ].join(" ").toLowerCase();
+                return {
+                    id: row.id,
+                    attempt_no: row.attempt_no,
+                    attempt_label: normalizeText(row.attempt_label),
+                    session_type_text: normalizeText(row.session_type_text),
+                    status_text: normalizeText(row.status_text),
+                    status_tone: normalizeText(row.status_tone),
+                    earned_score: normalizeText(row.earned_score),
+                    total_score: normalizeText(row.total_score),
+                    correct_count: Number(row.correct_count || 0),
+                    wrong_count: Number(row.wrong_count || 0),
+                    switch_count: Number(row.switch_count || 0),
+                    started_at_text: normalizeText(row.started_at_text),
+                    submitted_at_text: normalizeText(row.submitted_at_text),
+                    detail_href: normalizeText(row.detail_href),
+                    action_label: normalizeText(row.action_label),
+                    search_text: searchText,
+                };
+            });
+            const table = new Tabulator(tableElement, {
+                data: rows,
+                layout: "fitColumns",
+                columnDefaults: {
+                    minWidth: 92,
+                    vertAlign: "middle",
+                    widthGrow: 1,
+                },
+                placeholder: "{{ empty_message|escapejs }}",
+                pagination: true,
+                paginationMode: "local",
+                paginationSize: 10,
+                initialSort: [{column: "attempt_no", dir: "desc"}],
+                columns: [
+                    { title: "记录", field: "attempt_label" },
+                    { title: "场次", field: "session_type_text", hozAlign: "center" },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        hozAlign: "center",
+                        formatter: function (cell) {
+                            return buildStatePill(cell.getRow().getData());
+                        },
+                    },
+                    { title: "得分", field: "earned_score", hozAlign: "center" },
+                    { title: "总分", field: "total_score", hozAlign: "center" },
+                    { title: "正确", field: "correct_count", hozAlign: "center" },
+                    { title: "错误", field: "wrong_count", hozAlign: "center" },
+                    { title: "切屏", field: "switch_count", hozAlign: "center" },
+                    { title: "开始时间", field: "started_at_text" },
+                    { title: "提交时间", field: "submitted_at_text" },
+                    {
+                        title: "操作",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: function (cell) {
+                            const row = cell.getRow().getData();
+                            return '<a class="cm-tabulator-btn" href="' + escapeHtml(cell.getValue()) + '">' + escapeHtml(row.action_label || "查看") + "</a>";
+                        },
+                    },
+                ],
+            });
+            function applyFilter() {
+                const query = normalizeText(searchInput ? searchInput.value : "").toLowerCase();
+                table.setFilter(function (row) {
+                    return !query || row.search_text.includes(query);
+                });
+            }
+            if (searchInput) {
+                searchInput.addEventListener("input", applyFilter);
+            }
+            if (fallback) {
+                fallback.hidden = true;
+            }
+            applyFilter();
+        })();
+    </script>
+{% endblock %}

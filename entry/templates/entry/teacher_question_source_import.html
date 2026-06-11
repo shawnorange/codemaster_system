@@ -201,9 +201,10 @@
                             {% csrf_token %}
                             <input type="hidden" name="form_action" value="confirm_import_job">
                             <input type="hidden" name="import_job_id" value="{{ latest_import_job.id }}">
-                            <input type="hidden" name="candidate_count" value="{{ latest_import_job.candidate_count }}">
+                            <input type="hidden" name="candidate_count" value="{{ latest_import_job.total_candidate_input_count }}">
+                            <input type="hidden" name="recognized_candidate_count" value="{{ latest_import_job.candidate_count }}">
 
-                            <div class="content-access-list">
+                            <div class="content-access-list" data-candidate-list data-next-candidate-index="{{ latest_import_job.manual_candidate_start_index }}" data-manual-target="公共题池">
                                 {% for item in latest_import_job.candidate_rows %}
                                     <article class="content-access-card">
                                         <div class="content-access-card__top">
@@ -237,8 +238,43 @@
                                         </div>
                                     </article>
                                 {% endfor %}
+
                             </div>
 
+                            <button type="button" class="teacher-anchor-link manual-candidate-add" data-add-manual-candidate aria-label="添加手动补题">＋ 添加手动补题</button>
+                            <template data-manual-candidate-template>
+                                <article class="content-access-card">
+                                    <div class="content-access-card__top">
+                                        <div>
+                                            <h5>手动补题 __DISPLAY__</h5>
+                                            <p>用于补充文件中未识别成功的题目；勾选后会写入公共题池。</p>
+                                        </div>
+                                        <span class="state-pill state-pill--trial">手动</span>
+                                    </div>
+
+                                    <input type="hidden" name="candidate___INDEX___included" value="0">
+                                    <input type="hidden" name="candidate___INDEX___notes" value="老师手动补充">
+                                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                                        <input type="checkbox" name="candidate___INDEX___included" value="1" checked>
+                                        <strong>保留这道手动补题并写入公共题池</strong>
+                                    </label>
+
+                                    <div class="record-form">
+                                        <textarea name="candidate___INDEX___stem" rows="4" placeholder="题干"></textarea>
+                                        <input type="text" name="candidate___INDEX___option_A" value="" placeholder="A 选项">
+                                        <input type="text" name="candidate___INDEX___option_B" value="" placeholder="B 选项">
+                                        <input type="text" name="candidate___INDEX___option_C" value="" placeholder="C 选项">
+                                        <input type="text" name="candidate___INDEX___option_D" value="" placeholder="D 选项">
+                                        <select name="candidate___INDEX___correct_answer">
+                                            <option value="">选择正确答案</option>
+                                            {% for key in "ABCD" %}
+                                                <option value="{{ key }}">{{ key }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <textarea name="candidate___INDEX___analysis" rows="3" placeholder="解析"></textarea>
+                                    </div>
+                                </article>
+                            </template>
                             <button type="submit" class="login-button record-form__button">确认导入公共题池</button>
                         </form>
                     {% elif latest_import_job.parse_status == "parsed" and latest_import_job.confirm_disabled_reason %}
@@ -326,11 +362,11 @@
 
                 <div class="record-list">
                     {% for item in import_jobs %}
-                        <article class="record-list-item">
+                        <a class="record-list-item" href="{{ item.detail_href }}" {% if item.is_selected %}aria-current="true"{% endif %}>
                             <strong>{{ item.source_filename }}</strong>
                             <span>{{ item.content_title|default:"未绑定知识点" }} · {{ item.parse_status_text }} · {{ item.candidate_count }} 题</span>
                             <span>{{ item.created_at_text }}</span>
-                        </article>
+                        </a>
                     {% empty %}
                         <article class="record-list-item">
                             <strong>还没有公共导入任务</strong>
@@ -366,6 +402,45 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {% if latest_import_job.parse_status == "uploaded" or latest_import_job.parse_status == "parsing" %}
+        <script>
+            window.setTimeout(function () {
+                window.location.reload();
+            }, 5000);
+        </script>
+    {% endif %}
+    <script>
+        (function () {
+            var addButton = document.querySelector("[data-add-manual-candidate]");
+            var candidateList = document.querySelector("[data-candidate-list]");
+            var template = document.querySelector("[data-manual-candidate-template]");
+            var candidateCountInput = document.querySelector('input[name="candidate_count"]');
+            if (!addButton || !candidateList || !template || !candidateCountInput) {
+                return;
+            }
+
+            addButton.addEventListener("click", function () {
+                var index = Number(candidateList.getAttribute("data-next-candidate-index") || candidateCountInput.value || "0");
+                var display = index + 1;
+                var markup = template.innerHTML
+                    .replace(/__INDEX__/g, String(index))
+                    .replace(/__DISPLAY__/g, String(display));
+                var wrapper = document.createElement("div");
+                wrapper.innerHTML = markup.trim();
+                var card = wrapper.firstElementChild;
+                if (!card) {
+                    return;
+                }
+                candidateList.appendChild(card);
+                candidateList.setAttribute("data-next-candidate-index", String(index + 1));
+                candidateCountInput.value = String(index + 1);
+                var stemInput = card.querySelector("textarea");
+                if (stemInput) {
+                    stemInput.focus();
+                }
+            });
+        })();
+    </script>
     <script>
         (function () {
             var uploadForm = document.querySelector("[data-upload-form]");

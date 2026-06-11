@@ -1,0 +1,1078 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <style>
+        .teacher-exam-actions {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .teacher-exam-row-action {
+            display: inline-flex;
+            margin: 0;
+        }
+
+        .teacher-exam-toolbar--aligned {
+            align-items: flex-end;
+            justify-content: flex-end;
+        }
+
+        .teacher-exam-create-button {
+            box-sizing: border-box;
+            justify-content: center;
+            text-align: center;
+            text-decoration: none;
+            width: 240px;
+        }
+
+        .teacher-exam-create-button:hover {
+            text-decoration: none;
+        }
+
+        .teacher-exam-schedule-options {
+            display: grid;
+            gap: 10px;
+            margin: 14px 0;
+        }
+
+        .teacher-exam-schedule-option {
+            align-items: flex-start;
+            border: 1px solid rgba(30, 94, 150, 0.16);
+            border-radius: 8px;
+            display: flex;
+            gap: 10px;
+            padding: 12px;
+        }
+
+        .teacher-exam-schedule-option input {
+            margin-top: 4px;
+        }
+
+        .teacher-exam-schedule-option strong {
+            color: #0f4f8a;
+            display: block;
+            font-size: 0.95rem;
+        }
+
+        .teacher-exam-schedule-option span {
+            color: #4c719c;
+            display: block;
+            font-size: 0.85rem;
+            line-height: 1.45;
+            margin-top: 4px;
+        }
+
+        .teacher-exam-schedule-grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 12px;
+        }
+
+        .teacher-exam-schedule-panel[hidden] {
+            display: none;
+        }
+
+        @media (max-width: 720px) {
+            .teacher-exam-schedule-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Console</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary" id="available-exam-papers">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Publish Exam</p>
+            <h3>发布考试</h3>
+        </div>
+
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="available-paper-subject-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">所属学科</span>
+                    <select id="available-paper-subject-filter" class="portal-filter-control portal-grid-filter-control">
+                        <option value="">全部</option>
+                        {% for subject in subject_filter_options %}
+                            <option value="{{ subject }}">{{ subject }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="available-paper-level-free-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">所属级别</span>
+                    <input id="available-paper-level-free-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="未选学科，可直接输入">
+                    <select id="available-paper-level-select-filter" class="portal-filter-control portal-grid-filter-control" hidden disabled>
+                        <option value="">全部</option>
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="available-paper-created-date-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">创建日期</span>
+                    <input id="available-paper-created-date-filter" class="portal-filter-control portal-grid-filter-control" type="date">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="available-paper-publisher-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">创建人</span>
+                    <input id="available-paper-publisher-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入创建人">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="available-paper-keyword-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">搜索试卷名称</span>
+                    <input id="available-paper-keyword-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入试卷名称">
+                </label>
+            </div>
+
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar teacher-exam-toolbar--aligned">
+                <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                    <a class="login-button teacher-exam-create-button" id="open-new-exam-paper" href="{% url 'teacher-exam-paper-new' %}">新增试卷</a>
+                </div>
+            </div>
+
+            <div class="portal-meta-row portal-grid-meta-row">
+                <span class="portal-grid-meta__pill">可用试卷<strong>{{ available_paper_rows|length }}</strong></span>
+            </div>
+
+            <div id="available-exam-paper-grid" class="portal-grid-container teacher-tabulator-container"></div>
+            <div id="available-exam-paper-fallback">
+                {% if available_paper_rows %}
+                    {% for item in available_paper_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.subject_title }} / {{ item.level_text }} / {{ item.publisher_name }}</span>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">当前还没有可用试卷。</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary" id="teacher-exam-management">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Exam Datagrid</p>
+            <h3>考试管理列表</h3>
+            <p>按学科、级别、三级分类知识、考试类型和状态统一管理试卷。</p>
+        </div>
+
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-subject-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">所属学科</span>
+                    <select id="teacher-exam-subject-filter" class="portal-filter-control portal-grid-filter-control">
+                        <option value="">全部</option>
+                        {% for subject in subject_filter_options %}
+                            <option value="{{ subject }}">{{ subject }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-level-free-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">所属级别</span>
+                    <input id="teacher-exam-level-free-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="未选学科，可直接输入">
+                    <select id="teacher-exam-level-select-filter" class="portal-filter-control portal-grid-filter-control" hidden disabled>
+                        <option value="">全部</option>
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-created-start-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">创建开始</span>
+                    <input id="teacher-exam-created-start-filter" class="portal-filter-control portal-grid-filter-control" type="date">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-created-end-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">创建结束</span>
+                    <input id="teacher-exam-created-end-filter" class="portal-filter-control portal-grid-filter-control" type="date">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-creator-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">创建人</span>
+                    <select id="teacher-exam-creator-filter" class="portal-filter-control portal-grid-filter-control">
+                        <option value="">全部</option>
+                        {% for teacher in teacher_filter_options %}
+                            <option value="{{ teacher.label }}">{{ teacher.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-keyword-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">搜索考试名称</span>
+                    <input id="teacher-exam-keyword-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入考试名称或状态">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="teacher-exam-knowledge-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">分类知识</span>
+                    <input id="teacher-exam-knowledge-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入知识点">
+                </label>
+            </div>
+
+            <div class="portal-meta-row portal-grid-meta-row">
+                <span class="portal-grid-meta__pill">当前记录<strong>{{ exam_table_rows|length }}</strong></span>
+                <span class="portal-grid-note">第七列操作包含开始考试；第九列进入考试详情。</span>
+            </div>
+
+            <div id="teacher-exam-management-grid" class="portal-grid-container teacher-tabulator-container"></div>
+            <div id="teacher-exam-management-fallback">
+                {% if exam_items %}
+                    {% for item in exam_items %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.subject_title }} / {{ item.level_text }} / {{ item.knowledge_text }} / {{ item.status_text }}</span>
+                            {% if item.access_code %}
+                                <div>口令：{{ item.access_code }}</div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">{{ empty_message }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <dialog class="topic-access-modal" id="available-paper-publish-dialog">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_exam_from_bank_paper">
+            <input type="hidden" name="bank_paper_id" id="available-paper-publish-id">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Publish Settings</p>
+                    <h3 id="available-paper-publish-title">发布考试</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-available-paper-publish-dialog" aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="teacher-exam-schedule-options">
+                <label class="teacher-exam-schedule-option">
+                    <input type="radio" name="exam_schedule_mode" value="scheduled" checked>
+                    <span>
+                        <strong>设置开始时间和结束时间</strong>
+                        <span>适用于随堂考试、模拟考试；时间精确到分钟。</span>
+                    </span>
+                </label>
+                <label class="teacher-exam-schedule-option">
+                    <input type="radio" name="exam_schedule_mode" value="countdown">
+                    <span>
+                        <strong>立即开始，按分钟结束</strong>
+                        <span>点击发布后立刻开始，并生成 6 位考试口令。</span>
+                    </span>
+                </label>
+            </div>
+            <div class="teacher-exam-schedule-panel" data-exam-schedule-panel="scheduled">
+                <div class="teacher-exam-schedule-grid">
+                    <label class="portal-filter-unit">
+                        <span class="portal-filter-label">开始时间</span>
+                        <input class="portal-filter-control" id="available-paper-publish-start-at" name="exam_schedule_start_at" type="datetime-local" step="60" data-required-active="true">
+                    </label>
+                    <label class="portal-filter-unit">
+                        <span class="portal-filter-label">结束时间</span>
+                        <input class="portal-filter-control" id="available-paper-publish-end-at" name="exam_schedule_end_at" type="datetime-local" step="60" data-required-active="true">
+                    </label>
+                </div>
+            </div>
+            <div class="teacher-exam-schedule-panel" data-exam-schedule-panel="countdown" hidden>
+                <label class="portal-filter-unit">
+                    <span class="portal-filter-label">几分钟以后结束</span>
+                    <input class="portal-filter-control" id="available-paper-publish-duration" name="exam_schedule_duration_minutes" type="number" min="1" step="1" value="45" data-required-active="true" disabled>
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-available-paper-publish-dialog">取消</button>
+                <button type="submit" class="login-button">发布</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="topic-access-modal" id="teacher-exam-schedule-dialog">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="update_exam_schedule">
+            <input type="hidden" name="paper_id" id="teacher-exam-schedule-paper-id">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Exam Time</p>
+                    <h3 id="teacher-exam-schedule-title">编辑考试时间</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-teacher-exam-schedule-dialog" aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="teacher-exam-schedule-options">
+                <label class="teacher-exam-schedule-option">
+                    <input type="radio" name="exam_schedule_mode" value="scheduled" checked>
+                    <span>
+                        <strong>设置开始时间和结束时间</strong>
+                        <span>修改固定考试窗口。</span>
+                    </span>
+                </label>
+                <label class="teacher-exam-schedule-option">
+                    <input type="radio" name="exam_schedule_mode" value="countdown">
+                    <span>
+                        <strong>立即开始，按分钟结束</strong>
+                        <span>保存后按当前时间重新计算结束时间。</span>
+                    </span>
+                </label>
+            </div>
+            <div class="teacher-exam-schedule-panel" data-exam-schedule-panel="scheduled">
+                <div class="teacher-exam-schedule-grid">
+                    <label class="portal-filter-unit">
+                        <span class="portal-filter-label">开始时间</span>
+                        <input class="portal-filter-control" id="teacher-exam-schedule-start-at" name="exam_schedule_start_at" type="datetime-local" step="60" data-required-active="true">
+                    </label>
+                    <label class="portal-filter-unit">
+                        <span class="portal-filter-label">结束时间</span>
+                        <input class="portal-filter-control" id="teacher-exam-schedule-end-at" name="exam_schedule_end_at" type="datetime-local" step="60" data-required-active="true">
+                    </label>
+                </div>
+            </div>
+            <div class="teacher-exam-schedule-panel" data-exam-schedule-panel="countdown" hidden>
+                <label class="portal-filter-unit">
+                    <span class="portal-filter-label">几分钟以后结束</span>
+                    <input class="portal-filter-control" id="teacher-exam-schedule-duration" name="exam_schedule_duration_minutes" type="number" min="1" step="1" value="45" data-required-active="true" disabled>
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-teacher-exam-schedule-dialog">取消</button>
+                <button type="submit" class="login-button">保存时间</button>
+            </div>
+        </form>
+    </dialog>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ question_bank_rows|json_script:"exam-question-bank-data" }}
+    {{ selected_question_ids|json_script:"selected-exam-question-ids" }}
+    {{ available_paper_rows|json_script:"available-exam-paper-data" }}
+    {{ exam_table_rows|json_script:"teacher-exam-management-data" }}
+    {{ level_filter_options_by_subject|json_script:"teacher-exam-level-options-by-subject" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            const courseSelect = document.getElementById("teacher-exam-course");
+            const studentOptions = Array.from(document.querySelectorAll(".teacher-exam-student-option"));
+            const selectVisibleButton = document.getElementById("teacher-exam-select-visible");
+            const modeInputs = Array.from(document.querySelectorAll("input[name='exam_mode']"));
+            const timedFields = Array.from(document.querySelectorAll(".teacher-exam-timed-field"));
+            const deadlineFields = Array.from(document.querySelectorAll(".teacher-exam-deadline-field"));
+            const examForm = document.getElementById("teacher-exam-form");
+            const questionBankDialog = document.getElementById("exam-question-bank-modal");
+            const questionBankOpenButton = document.getElementById("open-exam-question-bank-modal");
+            const questionBankCloseButton = document.getElementById("close-exam-question-bank-modal");
+            const questionBankCancelButton = document.getElementById("cancel-exam-question-bank-modal");
+            const questionBankConfirmButton = document.getElementById("confirm-exam-question-bank-modal");
+            const questionBankSearch = document.getElementById("exam-question-bank-search");
+            const selectedQuestionInputs = document.getElementById("selected-exam-question-inputs");
+            const selectedQuestionCount = document.getElementById("selected-exam-question-count");
+            const availablePaperGrid = document.getElementById("available-exam-paper-grid");
+            const availablePaperFallback = document.getElementById("available-exam-paper-fallback");
+            const availablePaperSubjectFilter = document.getElementById("available-paper-subject-filter");
+            const availablePaperLevelFreeFilter = document.getElementById("available-paper-level-free-filter");
+            const availablePaperLevelSelectFilter = document.getElementById("available-paper-level-select-filter");
+            const availablePaperCreatedDateFilter = document.getElementById("available-paper-created-date-filter");
+            const availablePaperPublisherFilter = document.getElementById("available-paper-publisher-filter");
+            const availablePaperKeywordFilter = document.getElementById("available-paper-keyword-filter");
+            const availablePaperPublishDialog = document.getElementById("available-paper-publish-dialog");
+            const availablePaperPublishId = document.getElementById("available-paper-publish-id");
+            const availablePaperPublishTitle = document.getElementById("available-paper-publish-title");
+            const availablePaperPublishStartAt = document.getElementById("available-paper-publish-start-at");
+            const availablePaperPublishEndAt = document.getElementById("available-paper-publish-end-at");
+            const availablePaperPublishDuration = document.getElementById("available-paper-publish-duration");
+            const closeAvailablePaperPublishDialog = document.getElementById("close-available-paper-publish-dialog");
+            const cancelAvailablePaperPublishDialog = document.getElementById("cancel-available-paper-publish-dialog");
+            const examManagementDataScript = document.getElementById("teacher-exam-management-data");
+            const examManagementGrid = document.getElementById("teacher-exam-management-grid");
+            const examManagementFallback = document.getElementById("teacher-exam-management-fallback");
+            const examSubjectFilter = document.getElementById("teacher-exam-subject-filter");
+            const examCreatorFilter = document.getElementById("teacher-exam-creator-filter");
+            const examCreatedStartFilter = document.getElementById("teacher-exam-created-start-filter");
+            const examCreatedEndFilter = document.getElementById("teacher-exam-created-end-filter");
+            const examLevelFreeFilter = document.getElementById("teacher-exam-level-free-filter");
+            const examLevelSelectFilter = document.getElementById("teacher-exam-level-select-filter");
+            const examKnowledgeFilter = document.getElementById("teacher-exam-knowledge-filter");
+            const examKeywordFilter = document.getElementById("teacher-exam-keyword-filter");
+            const teacherExamScheduleDialog = document.getElementById("teacher-exam-schedule-dialog");
+            const teacherExamSchedulePaperId = document.getElementById("teacher-exam-schedule-paper-id");
+            const teacherExamScheduleTitle = document.getElementById("teacher-exam-schedule-title");
+            const teacherExamScheduleStartAt = document.getElementById("teacher-exam-schedule-start-at");
+            const teacherExamScheduleEndAt = document.getElementById("teacher-exam-schedule-end-at");
+            const teacherExamScheduleDuration = document.getElementById("teacher-exam-schedule-duration");
+            const closeTeacherExamScheduleDialog = document.getElementById("close-teacher-exam-schedule-dialog");
+            const cancelTeacherExamScheduleDialog = document.getElementById("cancel-teacher-exam-schedule-dialog");
+            const csrfToken = "{{ csrf_token }}";
+            const readJsonScript = (id, fallback) => {
+                const node = document.getElementById(id);
+                if (!node) {
+                    return fallback;
+                }
+                try {
+                    return JSON.parse(node.textContent || "");
+                } catch (error) {
+                    return fallback;
+                }
+            };
+            const escapeHtml = (value) => String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+            const questionBankRows = readJsonScript("exam-question-bank-data", []);
+            const availablePaperRows = readJsonScript("available-exam-paper-data", []);
+            const examManagementRows = readJsonScript("teacher-exam-management-data", []);
+            const levelOptionsBySubject = readJsonScript("teacher-exam-level-options-by-subject", {});
+            const questionBankById = new Map(questionBankRows.map((row) => [Number(row.id), row]));
+            let selectedQuestionIds = readJsonScript("selected-exam-question-ids", [])
+                .map((value) => Number(value))
+                .filter((value, index, values) => value > 0 && values.indexOf(value) === index);
+            let questionBankTable = null;
+            let selectedQuestionTable = null;
+            let availablePaperTable = null;
+            let examManagementTable = null;
+
+            const syncStudents = () => {
+                const courseId = courseSelect ? courseSelect.value : "";
+                studentOptions.forEach((option) => {
+                    const visible = !courseId || option.dataset.courseId === courseId;
+                    option.style.display = visible ? "" : "none";
+                    const checkbox = option.querySelector("input[type='checkbox']");
+                    if (checkbox && !visible) {
+                        checkbox.checked = false;
+                    }
+                });
+            };
+            const syncMode = () => {
+                const checked = modeInputs.find((input) => input.checked);
+                const mode = checked ? checked.value : "timed";
+                timedFields.forEach((field) => field.style.display = mode === "timed" ? "" : "none");
+                deadlineFields.forEach((field) => field.style.display = mode === "deadline" ? "" : "none");
+            };
+            const getCurrentCourseId = () => Number(courseSelect ? courseSelect.value : 0);
+            const getSelectedQuestionRows = () => selectedQuestionIds
+                .map((id) => questionBankById.get(Number(id)))
+                .filter(Boolean);
+            const renderSelectedQuestionInputs = () => {
+                if (!selectedQuestionInputs) {
+                    return;
+                }
+                selectedQuestionInputs.innerHTML = selectedQuestionIds
+                    .map((id) => '<input type="hidden" name="question_bank_item_ids" value="' + escapeHtml(id) + '">')
+                    .join("");
+            };
+            const renderSelectedQuestions = () => {
+                const selectedRows = getSelectedQuestionRows();
+                if (selectedQuestionCount) {
+                    selectedQuestionCount.textContent = selectedRows.length + " 题";
+                }
+                renderSelectedQuestionInputs();
+                if (selectedQuestionTable) {
+                    selectedQuestionTable.replaceData(selectedRows);
+                }
+            };
+            const applyQuestionBankFilter = () => {
+                if (!questionBankTable) {
+                    return;
+                }
+                const courseId = getCurrentCourseId();
+                const query = String(questionBankSearch ? questionBankSearch.value : "").trim().toLowerCase();
+                questionBankTable.setFilter((row) => {
+                    if (courseId && Number(row.course_id) !== courseId) {
+                        return false;
+                    }
+                    if (!query) {
+                        return true;
+                    }
+                    return String(row.search_text || "").toLowerCase().includes(query);
+                });
+            };
+            const syncQuestionBankSelection = () => {
+                if (!questionBankTable) {
+                    return;
+                }
+                questionBankTable.deselectRow();
+                selectedQuestionIds.forEach((id) => {
+                    const row = questionBankTable.getRow(Number(id));
+                    if (row) {
+                        row.select();
+                    }
+                });
+            };
+            const clearSelectedQuestionsForCourseChange = () => {
+                selectedQuestionIds = [];
+                renderSelectedQuestions();
+                applyQuestionBankFilter();
+                syncQuestionBankSelection();
+            };
+            const showDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+            };
+            const hideDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            };
+            const padNumber = (value) => String(value).padStart(2, "0");
+            const formatDateTimeLocal = (date) => {
+                const value = new Date(date.getTime());
+                value.setSeconds(0, 0);
+                return [
+                    value.getFullYear(),
+                    "-",
+                    padNumber(value.getMonth() + 1),
+                    "-",
+                    padNumber(value.getDate()),
+                    "T",
+                    padNumber(value.getHours()),
+                    ":",
+                    padNumber(value.getMinutes()),
+                ].join("");
+            };
+            const addMinutes = (date, minutes) => new Date(date.getTime() + Number(minutes || 0) * 60000);
+            const getDefaultScheduleWindow = () => {
+                const now = new Date();
+                now.setSeconds(0, 0);
+                const startAt = addMinutes(now, 10);
+                return {
+                    startAt: formatDateTimeLocal(startAt),
+                    endAt: formatDateTimeLocal(addMinutes(startAt, 45)),
+                    durationMinutes: 45,
+                };
+            };
+            const syncScheduleMode = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                const checked = dialog.querySelector("input[name='exam_schedule_mode']:checked");
+                const activeMode = checked ? checked.value : "scheduled";
+                dialog.querySelectorAll("[data-exam-schedule-panel]").forEach((panel) => {
+                    const active = panel.dataset.examSchedulePanel === activeMode;
+                    panel.hidden = !active;
+                    panel.querySelectorAll("input, select, textarea").forEach((input) => {
+                        input.disabled = !active;
+                        if (input.dataset.requiredActive === "true") {
+                            input.required = active;
+                        }
+                    });
+                });
+            };
+            const setScheduleMode = (dialog, mode) => {
+                if (!dialog) {
+                    return;
+                }
+                const normalizedMode = mode === "countdown" ? "countdown" : "scheduled";
+                const target = dialog.querySelector("input[name='exam_schedule_mode'][value='" + normalizedMode + "']");
+                if (target) {
+                    target.checked = true;
+                }
+                syncScheduleMode(dialog);
+            };
+            const openAvailablePaperPublishDialog = (row) => {
+                if (!availablePaperPublishDialog || !row) {
+                    return;
+                }
+                const defaults = getDefaultScheduleWindow();
+                availablePaperPublishId.value = row.id || "";
+                availablePaperPublishTitle.textContent = (row.title || "发布考试") + " 的发布设置";
+                availablePaperPublishStartAt.value = defaults.startAt;
+                availablePaperPublishEndAt.value = defaults.endAt;
+                availablePaperPublishDuration.value = defaults.durationMinutes;
+                setScheduleMode(availablePaperPublishDialog, "scheduled");
+                showDialog(availablePaperPublishDialog);
+            };
+            const openTeacherExamScheduleDialog = (row) => {
+                if (!teacherExamScheduleDialog || !row) {
+                    return;
+                }
+                const defaults = getDefaultScheduleWindow();
+                teacherExamSchedulePaperId.value = row.id || "";
+                teacherExamScheduleTitle.textContent = (row.title || "考试") + " 的时间设置";
+                teacherExamScheduleStartAt.value = row.start_at_input || defaults.startAt;
+                teacherExamScheduleEndAt.value = row.end_at_input || defaults.endAt;
+                teacherExamScheduleDuration.value = row.duration_minutes || defaults.durationMinutes;
+                setScheduleMode(teacherExamScheduleDialog, row.schedule_mode || "scheduled");
+                showDialog(teacherExamScheduleDialog);
+            };
+            const redrawTable = (table) => {
+                if (!table || typeof table.redraw !== "function") {
+                    return;
+                }
+                window.requestAnimationFrame(() => table.redraw(true));
+            };
+            const buildQuestionTables = () => {
+                if (typeof Tabulator === "undefined") {
+                    return;
+                }
+                questionBankTable = new Tabulator("#exam-question-bank-grid", {
+                    data: questionBankRows,
+                    index: "id",
+                    layout: "fitColumns",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    selectableRows: true,
+                    columns: [
+                        { formatter: "rowSelection", titleFormatter: "rowSelection", hozAlign: "center", headerSort: false, width: 52 },
+                        { title: "来源", field: "source_label", minWidth: 150 },
+                        { title: "等级", field: "level_code", width: 100, hozAlign: "center" },
+                        { title: "知识点", field: "knowledge_point", minWidth: 160 },
+                        { title: "题面", field: "stem_preview", minWidth: 260 },
+                        { title: "选项", field: "options_text", minWidth: 260 },
+                        { title: "答案", field: "correct_answer", width: 80, hozAlign: "center" },
+                        { title: "解析", field: "analysis_preview", minWidth: 220 },
+                    ],
+                });
+                selectedQuestionTable = new Tabulator("#selected-exam-question-grid", {
+                    data: getSelectedQuestionRows(),
+                    index: "id",
+                    layout: "fitColumns",
+                    placeholder: "尚未选择题目",
+                    columns: [
+                        { title: "#", formatter: "rownum", width: 64, hozAlign: "center", headerSort: false },
+                        { title: "来源", field: "source_label", minWidth: 150 },
+                        { title: "等级", field: "level_code", width: 100, hozAlign: "center" },
+                        { title: "知识点", field: "knowledge_point", minWidth: 160 },
+                        { title: "题面", field: "stem_preview", minWidth: 280 },
+                        { title: "答案", field: "correct_answer", width: 80, hozAlign: "center" },
+                        {
+                            title: "操作",
+                            field: "id",
+                            width: 90,
+                            hozAlign: "center",
+                            headerSort: false,
+                            formatter: () => '<button type="button" class="cm-tabulator-btn">移除</button>',
+                            cellClick: (event, cell) => {
+                                const rowId = Number(cell.getRow().getData().id);
+                                selectedQuestionIds = selectedQuestionIds.filter((id) => Number(id) !== rowId);
+                                renderSelectedQuestions();
+                                syncQuestionBankSelection();
+                            },
+                        },
+                    ],
+                });
+                questionBankTable.on("tableBuilt", () => {
+                    applyQuestionBankFilter();
+                    syncQuestionBankSelection();
+                });
+            };
+            const buildStatePill = (text, tone) => '<span class="state-pill state-pill--' + escapeHtml(tone || "trial") + '">' + escapeHtml(text || "未知") + '</span>';
+            const getLevelOptionsForSubject = (subjectValue) => {
+                const normalizedSubject = String(subjectValue || "").trim().toLowerCase();
+                if (!normalizedSubject) {
+                    return [];
+                }
+                const matchedKey = Object.keys(levelOptionsBySubject || {}).find(
+                    (key) => String(key || "").trim().toLowerCase() === normalizedSubject
+                );
+                return matchedKey && Array.isArray(levelOptionsBySubject[matchedKey])
+                    ? levelOptionsBySubject[matchedKey]
+                    : [];
+            };
+            const getActiveLevelFilterValue = (freeFilter, selectFilter) => {
+                const activeFilter = selectFilter && !selectFilter.hidden ? selectFilter : freeFilter;
+                return activeFilter ? activeFilter.value : "";
+            };
+            const syncLevelFilter = (subjectFilter, freeFilter, selectFilter) => {
+                if (!freeFilter || !selectFilter) {
+                    return;
+                }
+                const subjectValue = String(subjectFilter ? subjectFilter.value : "").trim();
+                const currentValue = String(getActiveLevelFilterValue(freeFilter, selectFilter) || "").trim();
+                if (!subjectValue) {
+                    selectFilter.hidden = true;
+                    selectFilter.disabled = true;
+                    selectFilter.innerHTML = '<option value="">全部</option>';
+                    selectFilter.value = "";
+                    freeFilter.hidden = false;
+                    freeFilter.disabled = false;
+                    freeFilter.placeholder = "未选学科，可直接输入";
+                    return;
+                }
+                const levels = getLevelOptionsForSubject(subjectValue);
+                if (levels.length) {
+                    selectFilter.innerHTML = '<option value="">全部</option>' + levels
+                        .map((level) => '<option value="' + escapeHtml(level) + '">' + escapeHtml(level) + '</option>')
+                        .join("");
+                } else {
+                    selectFilter.innerHTML = '<option value="">暂无可选级别</option>';
+                }
+                const matchedLevel = levels.find((level) => String(level || "").toLowerCase() === currentValue.toLowerCase());
+                selectFilter.value = matchedLevel || "";
+                selectFilter.disabled = levels.length === 0;
+                selectFilter.hidden = false;
+                freeFilter.hidden = true;
+                freeFilter.disabled = true;
+                freeFilter.value = "";
+            };
+            const syncExamLevelOptions = () => {
+                syncLevelFilter(examSubjectFilter, examLevelFreeFilter, examLevelSelectFilter);
+            };
+            const syncAvailablePaperLevelOptions = () => {
+                syncLevelFilter(availablePaperSubjectFilter, availablePaperLevelFreeFilter, availablePaperLevelSelectFilter);
+            };
+            const buildExamActions = (row) => {
+                const startDisabled = row.can_start_exam ? "" : " disabled";
+                const startTitle = row.start_disabled_reason ? ' title="' + escapeHtml(row.start_disabled_reason) + '"' : "";
+                return [
+                    '<div class="teacher-exam-actions">',
+                    '<form method="post" class="teacher-exam-row-action">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="start_exam">',
+                    '<input type="hidden" name="paper_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn"' + startDisabled + startTitle + '>开始考试</button>',
+                    '</form>',
+                    '<button type="button" class="cm-tabulator-btn teacher-exam-edit-schedule" data-paper-id="' + escapeHtml(row.id) + '">编辑</button>',
+                    '<form method="post" class="teacher-exam-row-action teacher-exam-delete-form">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="delete_exam">',
+                    '<input type="hidden" name="paper_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn">删除</button>',
+                    '</form>',
+                    '</div>',
+                ].join("");
+            };
+            const buildAvailablePaperActions = (row) => {
+                return [
+                    '<div class="teacher-exam-actions">',
+                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href || "#") + '">预览</a>',
+                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
+                    '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '">发布</button>',
+                    '</div>',
+                ].join("");
+            };
+            const applyAvailablePaperFilter = () => {
+                if (!availablePaperTable) {
+                    return;
+                }
+                const subject = String(availablePaperSubjectFilter ? availablePaperSubjectFilter.value : "").trim().toLowerCase();
+                const level = String(getActiveLevelFilterValue(availablePaperLevelFreeFilter, availablePaperLevelSelectFilter)).trim().toLowerCase();
+                const createdDate = String(availablePaperCreatedDateFilter ? availablePaperCreatedDateFilter.value : "").trim();
+                const publisher = String(availablePaperPublisherFilter ? availablePaperPublisherFilter.value : "").trim().toLowerCase();
+                const keyword = String(availablePaperKeywordFilter ? availablePaperKeywordFilter.value : "").trim().toLowerCase();
+                availablePaperTable.setFilter((row) => {
+                    if (subject && String(row.subject_title || "").toLowerCase() !== subject) {
+                        return false;
+                    }
+                    if (level && !String(row.level_text || "").toLowerCase().includes(level)) {
+                        return false;
+                    }
+                    if (createdDate && String(row.created_at_value || "") !== createdDate) {
+                        return false;
+                    }
+                    if (publisher && !String(row.publisher_name || "").toLowerCase().includes(publisher)) {
+                        return false;
+                    }
+                    if (keyword && !String(row.search_text || "").toLowerCase().includes(keyword)) {
+                        return false;
+                    }
+                    return true;
+                });
+            };
+            const buildAvailablePaperTable = () => {
+                if (!availablePaperGrid || typeof Tabulator === "undefined") {
+                    return;
+                }
+                availablePaperTable = new Tabulator(availablePaperGrid, {
+                    data: availablePaperRows,
+                    index: "id",
+                    layout: "fitColumns",
+                    placeholder: "当前还没有可用试卷。",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        { title: "试卷名称", field: "title", minWidth: 260, widthGrow: 2.5 },
+                        { title: "所属学科", field: "subject_title", minWidth: 120 },
+                        { title: "所属级别", field: "level_text", minWidth: 120 },
+                        { title: "发布人", field: "publisher_name", minWidth: 140 },
+                        {
+                            title: "操作",
+                            field: "id",
+                            minWidth: 210,
+                            hozAlign: "center",
+                            headerSort: false,
+                            formatter: (cell) => buildAvailablePaperActions(cell.getRow().getData()),
+                        },
+                    ],
+                });
+                if (availablePaperFallback) {
+                    availablePaperFallback.hidden = true;
+                }
+            };
+            const applyExamManagementFilter = () => {
+                if (!examManagementTable) {
+                    return;
+                }
+                const subject = String(examSubjectFilter ? examSubjectFilter.value : "").trim().toLowerCase();
+                const creator = String(examCreatorFilter ? examCreatorFilter.value : "").trim().toLowerCase();
+                const createdStart = String(examCreatedStartFilter ? examCreatedStartFilter.value : "").trim();
+                const createdEnd = String(examCreatedEndFilter ? examCreatedEndFilter.value : "").trim();
+                const level = String(getActiveLevelFilterValue(examLevelFreeFilter, examLevelSelectFilter)).trim().toLowerCase();
+                const knowledge = String(examKnowledgeFilter ? examKnowledgeFilter.value : "").trim().toLowerCase();
+                const keyword = String(examKeywordFilter ? examKeywordFilter.value : "").trim().toLowerCase();
+                examManagementTable.setFilter((row) => {
+                    if (subject && String(row.subject_title || "").toLowerCase() !== subject) {
+                        return false;
+                    }
+                    if (creator && String(row.creator_name || "").toLowerCase() !== creator) {
+                        return false;
+                    }
+                    if (createdStart && String(row.created_at_value || "") < createdStart) {
+                        return false;
+                    }
+                    if (createdEnd && String(row.created_at_value || "") > createdEnd) {
+                        return false;
+                    }
+                    if (level && !String(row.level_text || "").toLowerCase().includes(level)) {
+                        return false;
+                    }
+                    if (knowledge && !String(row.knowledge_text || "").toLowerCase().includes(knowledge)) {
+                        return false;
+                    }
+                    if (keyword && !String(row.search_text || "").toLowerCase().includes(keyword)) {
+                        return false;
+                    }
+                    return true;
+                });
+            };
+            const buildExamManagementTable = () => {
+                if (!examManagementGrid || typeof Tabulator === "undefined") {
+                    return;
+                }
+                examManagementTable = new Tabulator(examManagementGrid, {
+                    data: examManagementRows,
+                    index: "id",
+                    layout: "fitColumns",
+                    placeholder: "{{ empty_message|escapejs }}",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        { title: "所属学科", field: "subject_title", minWidth: 120 },
+                        { title: "所属级别", field: "level_text", minWidth: 120 },
+                        { title: "三级分类知识", field: "knowledge_text", minWidth: 180 },
+                        { title: "考试类型", field: "exam_type_text", minWidth: 120 },
+                        { title: "创建人", field: "creator_name", minWidth: 120 },
+                        { title: "创建时间", field: "created_at_text", minWidth: 150 },
+                        {
+                            title: "操作",
+                            field: "id",
+                            minWidth: 260,
+                            headerSort: false,
+                            formatter: (cell) => buildExamActions(cell.getRow().getData()),
+                        },
+                        {
+                            title: "考试状态",
+                            field: "status_text",
+                            minWidth: 130,
+                            hozAlign: "center",
+                            formatter: (cell) => buildStatePill(cell.getValue(), cell.getRow().getData().status_tone),
+                        },
+                        {
+                            title: "考试详情",
+                            field: "detail_href",
+                            minWidth: 120,
+                            hozAlign: "center",
+                            headerSort: false,
+                            formatter: (cell) => '<a class="cm-tabulator-btn" href="' + escapeHtml(cell.getValue()) + '">显示详情</a>',
+                        },
+                    ],
+                });
+                if (examManagementFallback) {
+                    examManagementFallback.hidden = true;
+                }
+            };
+
+            if (courseSelect) {
+                courseSelect.addEventListener("change", () => {
+                    syncStudents();
+                    clearSelectedQuestionsForCourseChange();
+                });
+            }
+            if (selectVisibleButton) {
+                selectVisibleButton.addEventListener("click", () => {
+                    studentOptions.forEach((option) => {
+                        if (option.style.display === "none") {
+                            return;
+                        }
+                        const checkbox = option.querySelector("input[type='checkbox']");
+                        if (checkbox) {
+                            checkbox.checked = true;
+                        }
+                    });
+                });
+            }
+            modeInputs.forEach((input) => input.addEventListener("change", syncMode));
+            if (questionBankOpenButton) {
+                questionBankOpenButton.addEventListener("click", () => {
+                    applyQuestionBankFilter();
+                    syncQuestionBankSelection();
+                    showDialog(questionBankDialog);
+                    redrawTable(questionBankTable);
+                });
+            }
+            if (questionBankCloseButton) {
+                questionBankCloseButton.addEventListener("click", () => hideDialog(questionBankDialog));
+            }
+            if (questionBankCancelButton) {
+                questionBankCancelButton.addEventListener("click", () => {
+                    syncQuestionBankSelection();
+                    hideDialog(questionBankDialog);
+                });
+            }
+            if (questionBankConfirmButton) {
+                questionBankConfirmButton.addEventListener("click", () => {
+                    selectedQuestionIds = questionBankTable
+                        ? questionBankTable.getSelectedData().map((row) => Number(row.id)).filter((id) => id > 0)
+                        : selectedQuestionIds;
+                    renderSelectedQuestions();
+                    hideDialog(questionBankDialog);
+                });
+            }
+            if (questionBankSearch) {
+                questionBankSearch.addEventListener("input", applyQuestionBankFilter);
+            }
+            if (questionBankDialog) {
+                questionBankDialog.addEventListener("click", (event) => {
+                    if (event.target === questionBankDialog) {
+                        syncQuestionBankSelection();
+                        hideDialog(questionBankDialog);
+                    }
+                });
+            }
+            if (examForm) {
+                examForm.addEventListener("submit", (event) => {
+                    if (!selectedQuestionIds.length) {
+                        event.preventDefault();
+                        alert("请先点击“选择题库”，至少选择一道题目。");
+                    }
+                });
+            }
+            [availablePaperPublishDialog, teacherExamScheduleDialog].forEach((dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                dialog.querySelectorAll("input[name='exam_schedule_mode']").forEach((input) => {
+                    input.addEventListener("change", () => syncScheduleMode(dialog));
+                });
+                dialog.addEventListener("click", (event) => {
+                    if (event.target === dialog) {
+                        hideDialog(dialog);
+                    }
+                });
+            });
+            if (closeAvailablePaperPublishDialog) {
+                closeAvailablePaperPublishDialog.addEventListener("click", () => hideDialog(availablePaperPublishDialog));
+            }
+            if (cancelAvailablePaperPublishDialog) {
+                cancelAvailablePaperPublishDialog.addEventListener("click", () => hideDialog(availablePaperPublishDialog));
+            }
+            if (closeTeacherExamScheduleDialog) {
+                closeTeacherExamScheduleDialog.addEventListener("click", () => hideDialog(teacherExamScheduleDialog));
+            }
+            if (cancelTeacherExamScheduleDialog) {
+                cancelTeacherExamScheduleDialog.addEventListener("click", () => hideDialog(teacherExamScheduleDialog));
+            }
+            [
+                examCreatorFilter,
+                examCreatedStartFilter,
+                examCreatedEndFilter,
+                examLevelFreeFilter,
+                examLevelSelectFilter,
+                examKnowledgeFilter,
+                examKeywordFilter,
+            ].forEach((input) => {
+                if (input) {
+                    input.addEventListener("input", applyExamManagementFilter);
+                    input.addEventListener("change", applyExamManagementFilter);
+                }
+            });
+            [
+                availablePaperLevelFreeFilter,
+                availablePaperLevelSelectFilter,
+                availablePaperCreatedDateFilter,
+                availablePaperPublisherFilter,
+                availablePaperKeywordFilter,
+            ].forEach((input) => {
+                if (input) {
+                    input.addEventListener("input", applyAvailablePaperFilter);
+                    input.addEventListener("change", applyAvailablePaperFilter);
+                }
+            });
+            if (availablePaperSubjectFilter) {
+                availablePaperSubjectFilter.addEventListener("change", () => {
+                    syncAvailablePaperLevelOptions();
+                    applyAvailablePaperFilter();
+                });
+            }
+            if (examSubjectFilter) {
+                examSubjectFilter.addEventListener("change", () => {
+                    syncExamLevelOptions();
+                    applyExamManagementFilter();
+                });
+            }
+            document.addEventListener("click", (event) => {
+                const publishButton = event.target.closest(".available-paper-publish-button");
+                if (publishButton) {
+                    const paperId = Number(publishButton.dataset.paperId || 0);
+                    const row = availablePaperRows.find((item) => Number(item.id) === paperId);
+                    openAvailablePaperPublishDialog(row);
+                    return;
+                }
+                const editButton = event.target.closest(".teacher-exam-edit-schedule");
+                if (editButton) {
+                    const paperId = Number(editButton.dataset.paperId || 0);
+                    const row = examManagementRows.find((item) => Number(item.id) === paperId);
+                    openTeacherExamScheduleDialog(row);
+                }
+            });
+            document.addEventListener("submit", (event) => {
+                if (event.target.matches(".teacher-exam-delete-form")) {
+                    const confirmed = window.confirm("是否确定删除？");
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
+            });
+            buildAvailablePaperTable();
+            buildExamManagementTable();
+            syncAvailablePaperLevelOptions();
+            syncExamLevelOptions();
+            syncScheduleMode(availablePaperPublishDialog);
+            syncScheduleMode(teacherExamScheduleDialog);
+            applyAvailablePaperFilter();
+            applyExamManagementFilter();
+        })();
+    </script>
+{% endblock %}

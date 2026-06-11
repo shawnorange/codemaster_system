@@ -1,0 +1,170 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .exam-bank-edit-list {
+            display: grid;
+            gap: 18px;
+        }
+
+        .exam-bank-edit-question {
+            display: grid;
+            gap: 12px;
+            padding: 16px;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .exam-bank-edit-question__header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            color: #16508c;
+            font-weight: 700;
+        }
+
+        .exam-bank-edit-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .exam-bank-edit-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .exam-bank-edit-field span {
+            color: #496987;
+            font-size: 0.86rem;
+            font-weight: 700;
+        }
+
+        .exam-bank-edit-field input,
+        .exam-bank-edit-field select,
+        .exam-bank-edit-field textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .exam-bank-edit-asset {
+            max-width: 100%;
+            max-height: 420px;
+            object-fit: contain;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        @media (max-width: 760px) {
+            .exam-bank-edit-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Edit Exam Paper</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ paper.title }}</h2>
+            <p class="role-description">{{ paper.level }} / {{ paper.source_pdf_id }} / {{ paper.source_file }}</p>
+        </div>
+    </section>
+
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Edit</p>
+            <h3>手动修改试卷内容</h3>
+            <p>保存后会更新发布考试 datagrid 中的这张可用试卷。</p>
+        </div>
+        <form method="post" class="record-form">
+            {% csrf_token %}
+            <div class="exam-bank-edit-grid">
+                <label class="exam-bank-edit-field">
+                    <span>试卷名称</span>
+                    <input type="text" name="paper_title" value="{{ paper.title }}" maxlength="255" required>
+                </label>
+                <label class="exam-bank-edit-field">
+                    <span>所属级别</span>
+                    <input type="text" name="paper_level" value="{{ paper.level }}" maxlength="32" required>
+                </label>
+            </div>
+
+            <div class="exam-bank-edit-list">
+                {% for question in question_rows %}
+                    <article class="exam-bank-edit-question">
+                        <input type="hidden" name="question_ids" value="{{ question.id }}">
+                        <div class="exam-bank-edit-question__header">
+                            <span>第 {{ question.question_no }} 题</span>
+                            <span>{{ question.question_uid }}</span>
+                        </div>
+                        {% for asset in question.assets %}
+                            {% if asset.url %}
+                                <img class="exam-bank-edit-asset" src="{{ asset.url }}" alt="{{ asset.alt }}">
+                                <p class="content-access-card__description content-access-card__description--multiline">{{ asset.relative_path }}</p>
+                            {% endif %}
+                        {% endfor %}
+                        <label class="exam-bank-edit-field">
+                            <span>题干 Markdown</span>
+                            <textarea name="question_{{ question.id }}_stem_md" rows="8" required>{{ question.stem_md }}</textarea>
+                        </label>
+                        <div class="exam-bank-edit-grid">
+                            <label class="exam-bank-edit-field">
+                                <span>题型</span>
+                                <select name="question_{{ question.id }}_type">
+                                    {% for value,label in question_type_choices %}
+                                        <option value="{{ value }}" {% if value == question.question_type %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label class="exam-bank-edit-field">
+                                <span>答案</span>
+                                <input type="text" name="question_{{ question.id }}_answer" value="{{ question.answer_text }}" maxlength="255">
+                            </label>
+                        </div>
+                        <div class="exam-bank-edit-grid">
+                            {% for option in question.options %}
+                                <label class="exam-bank-edit-field">
+                                    <span>选项 {{ option.key }}</span>
+                                    <input type="text" name="question_{{ question.id }}_option_{{ option.key|lower }}" value="{{ option.text }}" maxlength="500">
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <label class="exam-bank-edit-field">
+                            <span>解析</span>
+                            <textarea name="question_{{ question.id }}_analysis" rows="4">{{ question.analysis_md }}</textarea>
+                        </label>
+                    </article>
+                {% empty %}
+                    <div class="entry-hint-bar">当前试卷还没有题目。</div>
+                {% endfor %}
+            </div>
+
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <a class="teacher-anchor-link" href="{{ preview_href }}">取消并返回预览</a>
+                <button type="submit" class="login-button">保存修改</button>
+            </div>
+        </form>
+    </section>
+{% endblock %}

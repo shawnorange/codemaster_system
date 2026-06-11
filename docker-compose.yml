@@ -50,6 +50,32 @@ services:
       - media:/app/media
     command: sh -c "python manage.py collectstatic --noinput && gunicorn codemaster_system.wsgi:application --bind 0.0.0.0:8000 --workers 2 --threads 2 --timeout $${GUNICORN_TIMEOUT:-120}"
 
+  homework-import-worker:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - media:/app/media
+    command: python manage.py process_homework_import_jobs --poll-interval 2
+
+  exam-paper-import-worker:
+    build:
+      context: .
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - media:/app/media
+    command: python manage.py process_exam_paper_import_jobs --poll-interval 2
+
   realtime:
     build:
       context: .

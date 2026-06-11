@@ -1,0 +1,286 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .exam-import-preview-summary {
+            margin-top: 12px;
+        }
+
+        .exam-import-preview-list {
+            display: grid;
+            gap: 16px;
+        }
+
+        .exam-import-preview-page {
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .exam-import-preview-page__header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(45, 95, 140, 0.12);
+            color: #16508c;
+            font-weight: 700;
+        }
+
+        .exam-import-preview-page__body {
+            display: grid;
+            grid-template-columns: minmax(260px, 0.95fr) minmax(320px, 1.05fr);
+            gap: 0;
+        }
+
+        .exam-import-preview-image,
+        .exam-import-preview-markdown {
+            min-width: 0;
+            padding: 16px;
+        }
+
+        .exam-import-preview-image {
+            border-right: 1px solid rgba(45, 95, 140, 0.12);
+            background: #f8fbff;
+        }
+
+        .exam-import-preview-image img {
+            display: block;
+            width: 100%;
+            max-height: 720px;
+            object-fit: contain;
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.12);
+            border-radius: 6px;
+        }
+
+        .exam-import-preview-markdown pre {
+            min-height: 360px;
+            max-height: 720px;
+            margin: 0;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #21364f;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        }
+
+        .exam-import-choice-review {
+            display: grid;
+            gap: 14px;
+            margin: 16px 0;
+        }
+
+        .exam-import-choice-review__item {
+            padding: 14px;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            background: #f8fbff;
+        }
+
+        .exam-import-choice-review__header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            color: #16508c;
+            font-weight: 700;
+        }
+
+        .exam-import-choice-review__grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .exam-import-choice-review__grid label,
+        .exam-import-choice-review__field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .exam-import-choice-review__grid span,
+        .exam-import-choice-review__field span {
+            color: #496987;
+            font-size: 0.86rem;
+            font-weight: 700;
+        }
+
+        .exam-import-choice-review__grid input,
+        .exam-import-choice-review__field select,
+        .exam-import-choice-review__field textarea {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 920px) {
+            .exam-import-preview-page__body {
+                grid-template-columns: 1fr;
+            }
+
+            .exam-import-preview-image {
+                border-right: 0;
+                border-bottom: 1px solid rgba(45, 95, 140, 0.12);
+            }
+
+            .exam-import-choice-review__grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">OCR Preview</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Import Job</p>
+            <h3>{{ import_job.title }}</h3>
+        </div>
+        <div class="context-list exam-import-preview-summary">
+            <div class="context-list__item">
+                <span>所属学科</span>
+                <strong>{{ course_title }}</strong>
+            </div>
+            <div class="context-list__item">
+                <span>所属级别</span>
+                <strong>{{ import_job.level_code }}</strong>
+            </div>
+            <div class="context-list__item">
+                <span>source_pdf_id</span>
+                <strong>{{ import_job.source_pdf_id }}</strong>
+            </div>
+            <div class="context-list__item">
+                <span>状态</span>
+                <strong>{{ status_text }}</strong>
+            </div>
+            <div class="context-list__item">
+                <span>进度</span>
+                <strong>截图 {{ import_job.rendered_page_count }}/{{ import_job.page_count }} 页 · OCR {{ import_job.ocr_page_count }}/{{ import_job.page_count }} 页</strong>
+            </div>
+            <div class="context-list__item">
+                <span>更新时间</span>
+                <strong>{{ updated_at_text }}</strong>
+            </div>
+        </div>
+        {% if import_job.status_notes %}
+            <div class="entry-hint-bar">{{ import_job.status_notes }}</div>
+        {% endif %}
+        {% if import_job.error_message %}
+            <div class="entry-hint-bar">{{ import_job.error_message }}</div>
+        {% endif %}
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Raw OCR</p>
+            <h3>逐页识别预览</h3>
+        </div>
+        {% if preview_rows %}
+            <div class="exam-import-preview-list">
+                {% for row in preview_rows %}
+                    <article class="exam-import-preview-page">
+                        <div class="exam-import-preview-page__header">
+                            <span>第 {{ row.page_no }} 页</span>
+                            <span>{{ row.char_count }} 字符{% if row.image_size_text %} · {{ row.image_size_text }}{% endif %}</span>
+                        </div>
+                        <div class="exam-import-preview-page__body">
+                            <div class="exam-import-preview-image">
+                                {% if row.image_url %}
+                                    <img src="{{ row.image_url }}" alt="第 {{ row.page_no }} 页截图">
+                                {% else %}
+                                    <div class="entry-hint-bar">当前页还没有截图。</div>
+                                {% endif %}
+                            </div>
+                            <div class="exam-import-preview-markdown">
+                                {% if row.markdown_text %}
+                                    <pre>{{ row.markdown_text }}</pre>
+                                {% else %}
+                                    <div class="entry-hint-bar">当前页还没有 OCR Markdown。</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="entry-hint-bar">当前任务还没有可预览的页面。</div>
+        {% endif %}
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Confirm</p>
+            <h3>确认入库</h3>
+            <p>确认后会把当前 OCR Markdown 转存为考试题库快照，并出现在考试管理的可用试卷 datagrid 中。</p>
+        </div>
+        {% if confirm_disabled_reason %}
+            <div class="entry-hint-bar">{{ confirm_disabled_reason }}</div>
+        {% endif %}
+        <form method="post" action="{{ confirm_action }}" class="record-form">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="confirm_import_job">
+            <input type="hidden" name="import_job_id" value="{{ import_job.id }}">
+            {% if manual_choice_review_enabled and preview_rows %}
+                <div class="entry-hint-bar">图片题会按每一页生成一条单选题。请补充四个选项、正确答案和解析；题面图片会保存为服务器相对路径。</div>
+                <div class="exam-import-choice-review">
+                    {% for row in preview_rows %}
+                        <article class="exam-import-choice-review__item">
+                            <input type="hidden" name="manual_choice_page_no" value="{{ row.page_no }}">
+                            <div class="exam-import-choice-review__header">
+                                <span>第 {{ row.page_no }} 页图片题</span>
+                                {% if row.image_relative_path %}<span>{{ row.image_relative_path }}</span>{% endif %}
+                            </div>
+                            <div class="exam-import-choice-review__grid">
+                                {% for key in manual_choice_keys %}
+                                    <label>
+                                        <span>选项 {{ key }}</span>
+                                        <input type="text" name="manual_choice_option_{{ row.page_no }}_{{ key|lower }}" value="选项 {{ key }}（见题图）" maxlength="500">
+                                    </label>
+                                {% endfor %}
+                            </div>
+                            <label class="exam-import-choice-review__field">
+                                <span>正确答案</span>
+                                <select name="manual_choice_correct_answer_{{ row.page_no }}" required>
+                                    <option value="">请选择</option>
+                                    {% for key in manual_choice_keys %}
+                                        <option value="{{ key }}">{{ key }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label class="exam-import-choice-review__field">
+                                <span>解析（可选）</span>
+                                <textarea name="manual_choice_analysis_{{ row.page_no }}" rows="3" placeholder="可以先留空，后续编辑试卷时再补。"></textarea>
+                            </label>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% endif %}
+            <button type="submit" class="login-button record-form__button" {% if not can_confirm %}disabled{% endif %}>{{ confirm_button_label }}</button>
+        </form>
+    </section>
+{% endblock %}

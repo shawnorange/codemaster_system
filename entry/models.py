@@ -686,6 +686,654 @@ class HomeworkSubmissionAnswer(models.Model):
         return f"{self.submission} - 第{self.homework_question.question_no}题"
 
 
+class ExamPaper(models.Model):
+    STATUS_DRAFT = "draft"
+    STATUS_PUBLISHED = "published"
+    STATUS_ARCHIVED = "archived"
+    MODE_TIMED = "timed"
+    MODE_DEADLINE = "deadline"
+
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "草稿"),
+        (STATUS_PUBLISHED, "已发布"),
+        (STATUS_ARCHIVED, "已归档"),
+    ]
+    MODE_CHOICES = [
+        (MODE_TIMED, "定时考试"),
+        (MODE_DEADLINE, "DL考试"),
+    ]
+
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.CASCADE,
+        related_name="exam_papers",
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="exam_papers",
+    )
+    title = models.CharField("考试标题", max_length=255)
+    description = models.TextField("考试说明", blank=True)
+    mode = models.CharField("考试模式", max_length=16, choices=MODE_CHOICES, default=MODE_DEADLINE)
+    duration_minutes = models.PositiveIntegerField("考试时长（分钟）", default=60)
+    start_at = models.DateTimeField("允许开始时间", null=True, blank=True)
+    end_at = models.DateTimeField("截止时间", null=True, blank=True)
+    proctoring_enabled = models.BooleanField("是否开启监考记录", default=False)
+    access_code = models.CharField("考试入口口令", max_length=6, blank=True)
+    access_code_generated_at = models.DateTimeField("口令生成时间", null=True, blank=True)
+    status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "考试试卷"
+        verbose_name_plural = "考试试卷"
+        indexes = [
+            models.Index(fields=["teacher", "status", "is_active"], name="exam_paper_teacher_status_idx"),
+            models.Index(fields=["course", "status", "is_active"], name="exam_paper_course_status_idx"),
+            models.Index(fields=["access_code", "is_active"], name="exam_paper_access_code_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+    def publish(self) -> bool:
+        if not self.is_active or self.status == self.STATUS_PUBLISHED:
+            return False
+        self.status = self.STATUS_PUBLISHED
+        return True
+
+
+class ExamQuestion(models.Model):
+    QUESTION_TYPE_SINGLE_CHOICE = "single_choice"
+    QUESTION_TYPE_TRUE_FALSE = "true_false"
+    QUESTION_TYPE_PROGRAMMING = "programming"
+
+    QUESTION_TYPE_CHOICES = [
+        (QUESTION_TYPE_SINGLE_CHOICE, "单选题"),
+        (QUESTION_TYPE_TRUE_FALSE, "判断题"),
+        (QUESTION_TYPE_PROGRAMMING, "编程题"),
+    ]
+
+    paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE, related_name="questions")
+    question_no = models.PositiveIntegerField("题号")
+    question_type = models.CharField("题型", max_length=32, choices=QUESTION_TYPE_CHOICES, default=QUESTION_TYPE_SINGLE_CHOICE)
+    stem = models.TextField("题干")
+    options_json = models.JSONField("选项", default=dict, blank=True)
+    correct_answer = models.CharField("正确答案", max_length=1)
+    analysis = models.TextField("解析", blank=True)
+    score = models.DecimalField("分值", max_digits=6, decimal_places=2, default=1)
+    wrong_point_label = models.CharField("错点标签", max_length=128, blank=True)
+    image_path = models.CharField("题目图片相对路径", max_length=500, blank=True)
+    source_snapshot_json = models.JSONField("来源快照", default=dict, blank=True)
+    is_important = models.BooleanField("是否标记重点", default=False)
+    important_note = models.TextField("重点说明", blank=True)
+    important_marked_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="important_exam_questions",
+    )
+    important_marked_at = models.DateTimeField("重点标记时间", null=True, blank=True)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["question_no", "id"]
+        verbose_name = "考试题目"
+        verbose_name_plural = "考试题目"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["paper", "question_no"],
+                condition=models.Q(is_active=True),
+                name="exam_q_paper_no_active_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["paper", "is_active", "question_no"], name="exam_question_paper_idx"),
+            models.Index(fields=["wrong_point_label", "is_active"], name="exam_question_wrong_point_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.paper.title} - 第{self.question_no}题"
+
+
+class ExamQuestionBankItem(models.Model):
+    QUESTION_TYPE_SINGLE_CHOICE = "single_choice"
+    SOURCE_MANUAL = "manual"
+    SOURCE_IMPORT = "import"
+    SOURCE_SCRAPE = "scrape"
+
+    QUESTION_TYPE_CHOICES = [
+        (QUESTION_TYPE_SINGLE_CHOICE, "单选题"),
+    ]
+    SOURCE_CHOICES = [
+        (SOURCE_MANUAL, "手动录入"),
+        (SOURCE_IMPORT, "文件导入"),
+        (SOURCE_SCRAPE, "统一爬取"),
+    ]
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="exam_question_bank_items",
+    )
+    content = models.ForeignKey(
+        CourseContent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="exam_question_bank_items",
+    )
+    level_code = models.CharField("等级", max_length=32, blank=True)
+    knowledge_point = models.CharField("知识点", max_length=128)
+    source = models.CharField("来源", max_length=32, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
+    source_label = models.CharField("来源说明", max_length=255, blank=True)
+    source_url = models.CharField("来源链接", max_length=500, blank=True)
+    question_type = models.CharField("题型", max_length=32, choices=QUESTION_TYPE_CHOICES, default=QUESTION_TYPE_SINGLE_CHOICE)
+    stem = models.TextField("题面")
+    options_json = models.JSONField("选项", default=dict, blank=True)
+    correct_answer = models.CharField("答案", max_length=1)
+    analysis = models.TextField("解析", blank=True)
+    score = models.DecimalField("默认分值", max_digits=6, decimal_places=2, default=1)
+    image_path = models.CharField("题目图片相对路径", max_length=500, blank=True)
+    source_snapshot_json = models.JSONField("来源快照", default=dict, blank=True)
+    created_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_exam_question_bank_items",
+    )
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["course_id", "level_code", "knowledge_point", "id"]
+        verbose_name = "考试题库题目"
+        verbose_name_plural = "考试题库题目"
+        indexes = [
+            models.Index(fields=["course", "is_active", "level_code"], name="exam_bank_course_lvl_idx"),
+            models.Index(fields=["knowledge_point", "is_active"], name="exam_bank_kp_idx"),
+            models.Index(fields=["source", "is_active"], name="exam_bank_source_idx"),
+            models.Index(fields=["created_by", "is_active"], name="exam_bank_creator_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.knowledge_point} - {self.stem[:32]}"
+
+
+class ExamQuestionBankImportJob(models.Model):
+    STATUS_UPLOADED = "uploaded"
+    STATUS_RENDERING = "rendering"
+    STATUS_OCR_RUNNING = "ocr_running"
+    STATUS_OCR_DONE = "ocr_done"
+    STATUS_FAILED = "failed"
+    STATUS_IMPORTED = "imported"
+    STATUS_CANCELLED = "cancelled"
+
+    STATUS_CHOICES = [
+        (STATUS_UPLOADED, "已上传"),
+        (STATUS_RENDERING, "页面截图中"),
+        (STATUS_OCR_RUNNING, "Qwen OCR 中"),
+        (STATUS_OCR_DONE, "OCR 已完成"),
+        (STATUS_FAILED, "识别失败"),
+        (STATUS_IMPORTED, "已入题库"),
+        (STATUS_CANCELLED, "已取消"),
+    ]
+
+    teacher = models.ForeignKey(
+        PortalUser,
+        on_delete=models.CASCADE,
+        related_name="exam_question_bank_import_jobs",
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="exam_question_bank_import_jobs",
+    )
+    level_code = models.CharField("级别/类别", max_length=32)
+    title = models.CharField("试卷标题", max_length=255)
+    year = models.PositiveSmallIntegerField("年份", null=True, blank=True)
+    month = models.PositiveSmallIntegerField("月份", null=True, blank=True)
+    source_pdf_id = models.CharField("来源 PDF ID", max_length=128)
+    source_pdf = models.FileField("源 PDF", upload_to="exam_paper_imports/%Y/%m/%d")
+    source_filename = models.CharField("原始文件名", max_length=255)
+    source_sha256 = models.CharField("源文件内容哈希", max_length=64, blank=True, default="")
+    status = models.CharField("状态", max_length=32, choices=STATUS_CHOICES, default=STATUS_UPLOADED)
+    status_notes = models.TextField("状态备注", blank=True)
+    error_message = models.TextField("错误信息", blank=True)
+    workspace_relative_path = models.CharField("中间产物相对路径", max_length=500, blank=True)
+    rendered_pages_json = models.JSONField("页面截图", default=list, blank=True)
+    raw_ocr_json = models.JSONField("逐页 OCR 结果", default=list, blank=True)
+    qwen_model = models.CharField("Qwen OCR 模型", max_length=128, blank=True)
+    qwen_base_url = models.CharField("Qwen Base URL", max_length=500, blank=True)
+    page_count = models.PositiveIntegerField("PDF 页数", default=0)
+    rendered_page_count = models.PositiveIntegerField("已截图页数", default=0)
+    ocr_page_count = models.PositiveIntegerField("已 OCR 页数", default=0)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "考试题库 PDF 导入任务"
+        verbose_name_plural = "考试题库 PDF 导入任务"
+        indexes = [
+            models.Index(fields=["teacher", "status", "is_active"], name="exam_qb_imp_teacher_idx"),
+            models.Index(fields=["course", "level_code", "status"], name="exam_qb_imp_course_idx"),
+            models.Index(fields=["source_pdf_id", "status"], name="exam_qb_imp_pdf_idx"),
+            models.Index(fields=["source_sha256", "created_at"], name="exam_qb_imp_sha_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(month__isnull=True) | (models.Q(month__gte=1) & models.Q(month__lte=12)),
+                name="exam_qb_imp_month_ck",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} - {self.get_status_display()}"
+
+
+class ExamQuestionBankPaper(models.Model):
+    SOURCE_HERMES = "hermes"
+    SOURCE_LOCAL_OCR = "local_ocr"
+
+    SOURCE_CHOICES = [
+        (SOURCE_HERMES, "Hermes 题库"),
+        (SOURCE_LOCAL_OCR, "本地 OCR 导入"),
+    ]
+
+    level = models.CharField("级别", max_length=32)
+    year = models.PositiveSmallIntegerField("年份")
+    month = models.PositiveSmallIntegerField("月份")
+    source_pdf_id = models.CharField("来源 PDF ID", max_length=128)
+    source_file = models.CharField("来源文件", max_length=255, blank=True)
+    title = models.CharField("试卷标题", max_length=255)
+    import_batch_uid = models.CharField("导入批次 UID", max_length=128, blank=True)
+    source = models.CharField("来源", max_length=32, choices=SOURCE_CHOICES, default=SOURCE_HERMES)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-year", "-month", "level", "source_pdf_id"]
+        verbose_name = "考试题库试卷快照"
+        verbose_name_plural = "考试题库试卷快照"
+        constraints = [
+            models.UniqueConstraint(fields=["source", "source_pdf_id"], name="exam_bank_paper_src_uniq"),
+            models.CheckConstraint(
+                check=models.Q(month__gte=1, month__lte=12),
+                name="exam_bank_paper_month_ck",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["level", "year", "month", "is_active"], name="exam_bank_paper_lookup_idx"),
+            models.Index(fields=["source", "source_pdf_id"], name="exam_bank_paper_src_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class ExamQuestionBankQuestion(models.Model):
+    QUESTION_TYPE_SINGLE_CHOICE = "single_choice"
+    QUESTION_TYPE_TRUE_FALSE = "true_false"
+    QUESTION_TYPE_PROGRAMMING = "programming"
+    QUESTION_TYPE_RAW_MARKDOWN = "raw_markdown"
+
+    QUESTION_TYPE_CHOICES = [
+        (QUESTION_TYPE_SINGLE_CHOICE, "单选题"),
+        (QUESTION_TYPE_TRUE_FALSE, "判断题"),
+        (QUESTION_TYPE_PROGRAMMING, "编程题"),
+        (QUESTION_TYPE_RAW_MARKDOWN, "OCR Markdown 页"),
+    ]
+
+    paper = models.ForeignKey(ExamQuestionBankPaper, on_delete=models.CASCADE, related_name="questions")
+    question_uid = models.CharField("外部题目 UID", max_length=128, db_index=True)
+    question_no = models.PositiveIntegerField("题号")
+    question_type = models.CharField("题型", max_length=32, choices=QUESTION_TYPE_CHOICES)
+    stem_md = models.TextField("题干 Markdown")
+    answer_json = models.JSONField("标准答案", default=dict, blank=True)
+    analysis_md = models.TextField("解析 Markdown", blank=True)
+    programming_json = models.JSONField("编程题结构", default=dict, blank=True)
+    full_json = models.JSONField("Hermes 原始结构", default=dict, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["paper_id", "question_no", "id"]
+        verbose_name = "考试题库题目快照"
+        verbose_name_plural = "考试题库题目快照"
+        constraints = [
+            models.UniqueConstraint(fields=["paper", "question_uid"], name="exam_bank_q_uid_uniq"),
+            models.UniqueConstraint(fields=["paper", "question_no"], name="exam_bank_q_no_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["paper", "question_no"], name="exam_bank_q_paper_no_idx"),
+            models.Index(fields=["question_type"], name="exam_bank_q_type_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.paper.title} - 第{self.question_no}题"
+
+
+class ExamQuestionBankOption(models.Model):
+    question = models.ForeignKey(ExamQuestionBankQuestion, on_delete=models.CASCADE, related_name="options")
+    option_key = models.CharField("选项", max_length=16)
+    option_text_md = models.TextField("选项 Markdown", blank=True)
+    sort_order = models.PositiveIntegerField("排序", default=0)
+
+    class Meta:
+        ordering = ["question_id", "sort_order", "option_key"]
+        verbose_name = "考试题库选项快照"
+        verbose_name_plural = "考试题库选项快照"
+        constraints = [
+            models.UniqueConstraint(fields=["question", "option_key"], name="exam_bank_opt_key_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["question", "sort_order"], name="exam_bank_opt_order_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.question_id} / {self.option_key}"
+
+
+class ExamQuestionBankAsset(models.Model):
+    question = models.ForeignKey(ExamQuestionBankQuestion, on_delete=models.CASCADE, related_name="assets")
+    asset_uid = models.CharField("外部资源 UID", max_length=128, blank=True, default="")
+    asset_role = models.CharField("资源角色", max_length=32)
+    asset_type = models.CharField("资源类型", max_length=32, blank=True)
+    relative_path = models.CharField("相对路径", max_length=500, blank=True)
+    public_url = models.CharField("公开 URL", max_length=500, blank=True)
+    alt = models.CharField("替代文本", max_length=255, blank=True)
+    width = models.PositiveIntegerField("宽度", null=True, blank=True)
+    height = models.PositiveIntegerField("高度", null=True, blank=True)
+
+    class Meta:
+        ordering = ["question_id", "id"]
+        verbose_name = "考试题库图片资源快照"
+        verbose_name_plural = "考试题库图片资源快照"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["question", "asset_uid"],
+                condition=~models.Q(asset_uid=""),
+                name="exam_bank_asset_uid_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["question", "asset_role", "relative_path"],
+                condition=~models.Q(relative_path=""),
+                name="exam_bank_asset_path_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["question", "asset_role"], name="exam_bank_asset_role_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.question_id} / {self.asset_role} / {self.relative_path or self.asset_uid}"
+
+
+class PublishedExam(models.Model):
+    MODE_TIMED = "timed"
+    MODE_DEADLINE = "deadline"
+    STATUS_DRAFT = "draft"
+    STATUS_SCHEDULED = "scheduled"
+    STATUS_ACTIVE = "active"
+    STATUS_CLOSED = "closed"
+    STATUS_ARCHIVED = "archived"
+
+    MODE_CHOICES = [
+        (MODE_TIMED, "定时考试"),
+        (MODE_DEADLINE, "DL考试"),
+    ]
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "草稿"),
+        (STATUS_SCHEDULED, "已定时"),
+        (STATUS_ACTIVE, "进行中"),
+        (STATUS_CLOSED, "已结束"),
+        (STATUS_ARCHIVED, "已归档"),
+    ]
+
+    paper = models.ForeignKey(ExamQuestionBankPaper, on_delete=models.PROTECT, related_name="published_exams")
+    title = models.CharField("考试标题", max_length=255)
+    level = models.CharField("级别", max_length=32)
+    mode = models.CharField("考试模式", max_length=16, choices=MODE_CHOICES, default=MODE_DEADLINE)
+    duration_minutes = models.PositiveIntegerField("考试时长（分钟）", default=60)
+    starts_at = models.DateTimeField("开始时间", null=True, blank=True)
+    ends_at = models.DateTimeField("结束/截止时间", null=True, blank=True)
+    status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    created_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_published_exams",
+    )
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "发布考试"
+        verbose_name_plural = "发布考试"
+        indexes = [
+            models.Index(fields=["level", "status"], name="pub_exam_level_status_idx"),
+            models.Index(fields=["status", "starts_at"], name="pub_exam_status_start_idx"),
+            models.Index(fields=["paper", "status"], name="pub_exam_paper_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class PublishedExamSession(models.Model):
+    STATUS_NOT_STARTED = "not_started"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_GRADED = "graded"
+
+    STATUS_CHOICES = [
+        (STATUS_NOT_STARTED, "未开始"),
+        (STATUS_IN_PROGRESS, "考试中"),
+        (STATUS_SUBMITTED, "已提交"),
+        (STATUS_GRADED, "已判分"),
+    ]
+
+    published_exam = models.ForeignKey(PublishedExam, on_delete=models.CASCADE, related_name="sessions")
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="published_exam_sessions")
+    status = models.CharField("状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_NOT_STARTED)
+    started_at = models.DateTimeField("开始时间", null=True, blank=True)
+    submitted_at = models.DateTimeField("提交时间", null=True, blank=True)
+    score = models.DecimalField("得分", max_digits=7, decimal_places=2, default=0)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "发布考试学生场次"
+        verbose_name_plural = "发布考试学生场次"
+        constraints = [
+            models.UniqueConstraint(fields=["published_exam", "student"], name="pub_exam_sess_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["student", "status"], name="pub_exam_sess_student_idx"),
+            models.Index(fields=["published_exam", "status"], name="pub_exam_sess_exam_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.published_exam.title}"
+
+
+class PublishedExamAnswer(models.Model):
+    session = models.ForeignKey(PublishedExamSession, on_delete=models.CASCADE, related_name="answers")
+    question = models.ForeignKey(ExamQuestionBankQuestion, on_delete=models.PROTECT, related_name="published_answers")
+    answer_json = models.JSONField("学生答案", default=dict, blank=True)
+    is_correct = models.BooleanField("是否正确", default=False)
+    score = models.DecimalField("得分", max_digits=7, decimal_places=2, default=0)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["question_id", "id"]
+        verbose_name = "发布考试作答"
+        verbose_name_plural = "发布考试作答"
+        constraints = [
+            models.UniqueConstraint(fields=["session", "question"], name="pub_exam_answer_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["session", "is_correct"], name="pub_exam_ans_correct_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} - 第{self.question.question_no}题"
+
+
+class ExamSession(models.Model):
+    SESSION_TYPE_EXAM = "exam"
+    SESSION_TYPE_FULL_PRACTICE = "full_practice"
+    SESSION_TYPE_WRONG_PRACTICE = "wrong_practice"
+
+    STATUS_ASSIGNED = "assigned"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_AUTO_CHECKED = "auto_checked"
+    STATUS_EXPIRED = "expired"
+    STATUS_INVALIDATED = "invalidated"
+
+    STATUS_CHOICES = [
+        (STATUS_ASSIGNED, "待开始"),
+        (STATUS_IN_PROGRESS, "考试中"),
+        (STATUS_SUBMITTED, "已交卷"),
+        (STATUS_AUTO_CHECKED, "已判分"),
+        (STATUS_EXPIRED, "已过期"),
+        (STATUS_INVALIDATED, "已作废"),
+    ]
+    SESSION_TYPE_CHOICES = [
+        (SESSION_TYPE_EXAM, "正式考试"),
+        (SESSION_TYPE_FULL_PRACTICE, "整卷练习"),
+        (SESSION_TYPE_WRONG_PRACTICE, "错题练习"),
+    ]
+
+    paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE, related_name="sessions")
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="exam_sessions")
+    assigned_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_exam_sessions",
+    )
+    attempt_no = models.PositiveIntegerField("考试次数", default=1)
+    session_type = models.CharField("场次类型", max_length=32, choices=SESSION_TYPE_CHOICES, default=SESSION_TYPE_EXAM)
+    question_scope_json = models.JSONField("练习题目范围", default=dict, blank=True)
+    status = models.CharField("考试状态", max_length=16, choices=STATUS_CHOICES, default=STATUS_ASSIGNED)
+    total_count = models.PositiveIntegerField("总题数", default=0)
+    correct_count = models.PositiveIntegerField("正确数", default=0)
+    wrong_count = models.PositiveIntegerField("错误数", default=0)
+    total_score = models.DecimalField("总分", max_digits=7, decimal_places=2, default=0)
+    earned_score = models.DecimalField("得分", max_digits=7, decimal_places=2, default=0)
+    switch_count = models.PositiveIntegerField("切屏次数", default=0)
+    started_at = models.DateTimeField("开始时间", null=True, blank=True)
+    submitted_at = models.DateTimeField("提交时间", null=True, blank=True)
+    checked_at = models.DateTimeField("判分时间", null=True, blank=True)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "考试场次"
+        verbose_name_plural = "考试场次"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["paper", "student", "attempt_no"],
+                condition=models.Q(is_active=True),
+                name="exam_sess_student_attempt_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["student", "status", "is_active"], name="exam_sess_student_status_idx"),
+            models.Index(fields=["paper", "status", "is_active"], name="exam_sess_paper_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.paper.title}"
+
+
+class ExamSubmissionAnswer(models.Model):
+    session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name="answers")
+    question = models.ForeignKey(ExamQuestion, on_delete=models.CASCADE, related_name="submission_answers")
+    selected_answer = models.CharField("学生答案", max_length=1, blank=True)
+    explanation_text = models.TextField("学生解析", blank=True)
+    is_correct = models.BooleanField("是否正确", default=False)
+    score = models.DecimalField("得分", max_digits=6, decimal_places=2, default=0)
+    correct_answer_snapshot = models.CharField("正确答案快照", max_length=1)
+    analysis_snapshot = models.TextField("解析快照", blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["question_id", "id"]
+        verbose_name = "考试作答明细"
+        verbose_name_plural = "考试作答明细"
+        constraints = [
+            models.UniqueConstraint(fields=["session", "question"], name="exam_answer_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["session", "is_correct"], name="exam_ans_session_correct_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session} - 第{self.question.question_no}题"
+
+
+class ExamProctorEvent(models.Model):
+    EVENT_VISIBILITY_HIDDEN = "visibility_hidden"
+    EVENT_BLUR = "blur"
+    EVENT_FOCUS = "focus"
+    EVENT_SCREEN_SHARE_STOPPED = "screen_share_stopped"
+    EVENT_PASTE = "paste"
+
+    EVENT_CHOICES = [
+        (EVENT_VISIBILITY_HIDDEN, "页面隐藏"),
+        (EVENT_BLUR, "窗口失焦"),
+        (EVENT_FOCUS, "窗口聚焦"),
+        (EVENT_SCREEN_SHARE_STOPPED, "停止共享屏幕"),
+        (EVENT_PASTE, "粘贴"),
+    ]
+
+    session = models.ForeignKey(ExamSession, on_delete=models.CASCADE, related_name="proctor_events")
+    event_type = models.CharField("事件类型", max_length=32, choices=EVENT_CHOICES)
+    occurred_at = models.DateTimeField("发生时间", default=timezone.now)
+    metadata_json = models.JSONField("事件元数据", default=dict, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+        verbose_name = "考试监考事件"
+        verbose_name_plural = "考试监考事件"
+        indexes = [
+            models.Index(fields=["session", "event_type", "occurred_at"], name="exam_proc_session_event_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} / {self.event_type}"
+
+
 class HomeworkCompletionStat(models.Model):
     PERIOD_WEEK = "week"
     PERIOD_MONTH = "month"

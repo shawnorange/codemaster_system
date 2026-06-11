@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from xml.etree import ElementTree
 
 import requests
@@ -154,6 +154,7 @@ class HomeworkImportTrace:
     qwen_block_attempt_count: int = 0
     qwen_block_success_count: int = 0
     qwen_block_failure_count: int = 0
+    qwen_block_results: list[str] = field(default_factory=list)
     fallback_attempted: bool = False
     fallback_used: bool = False
     fallback_reason: str = ""
@@ -161,6 +162,9 @@ class HomeworkImportTrace:
     failure_step: str = ""
     failure_reason: str = ""
     model_notes: list[str] = field(default_factory=list)
+    progress_started_at: float = 0.0
+    progress_step: str = ""
+    progress_detail: str = ""
 
 
 @dataclass(slots=True)
@@ -595,6 +599,24 @@ def get_homework_ssl_verify() -> bool | str:
     return configured_bundle or certifi.where()
 
 
+def get_homework_llm_model_name() -> str:
+    return normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_MODEL", ""))
+
+
+def get_homework_llm_model_label() -> str:
+    return get_homework_llm_model_name() or "qwen"
+
+
+def get_homework_llm_chat_completions_url() -> str:
+    configured_url = normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_API_URL", ""))
+    if not configured_url:
+        return ""
+    normalized_url = configured_url.rstrip("/")
+    if normalized_url.endswith("/chat/completions"):
+        return normalized_url
+    return f"{normalized_url}/chat/completions"
+
+
 def call_external_json_api(
     *,
     provider_label: str,
@@ -632,11 +654,13 @@ def call_external_json_api(
                 verify=verify,
             )
     except requests.exceptions.SSLError as exc:
+        message = str(exc)
+        certificate_failed = "CERTIFICATE_VERIFY_FAILED" in message
         raise HomeworkImportParseError(
             f"SSL 握手失败：{exc}",
             error_code="ssl_handshake_failed",
             failure_type="SSL 握手失败",
-            retryable=False,
+            retryable=not certificate_failed,
         ) from exc
     except requests.exceptions.ConnectTimeout as exc:
         raise HomeworkImportParseError(
@@ -659,16 +683,16 @@ def call_external_json_api(
             failure_type="timeout",
             retryable=True,
         ) from exc
-    except OSError as exc:
-        raise HomeworkImportParseError(
-            f"请求配置错误：{exc}",
-            error_code="request_config_error",
-            failure_type="请求配置错误",
-            retryable=False,
-        ) from exc
     except requests.exceptions.ConnectionError as exc:
         raise HomeworkImportParseError(
             f"连接失败：{exc}",
+            error_code="connection_error",
+            failure_type="连接失败",
+            retryable=True,
+        ) from exc
+    except OSError as exc:
+        raise HomeworkImportParseError(
+            f"请求连接错误：{exc}",
             error_code="connection_error",
             failure_type="连接失败",
             retryable=True,
@@ -1279,6 +1303,64 @@ def split_vision_ocr_text_into_blocks(source_text: str) -> list[str]:
     return [block for block in merged_blocks if block]
 
 
+def split_qwen_text_into_blocks(source_text: str, *, max_chars: int | None = None) -> list[str]:
+    normalized_text = normalize_homework_text(source_text)
+    if not normalized_text:
+        return []
+
+    limit = max(int(max_chars or getattr(settings, "HOMEWORK_LLM_TEXT_BLOCK_MAX_CHARS", 500)), 500)
+    if len(normalized_text) <= limit:
+        return [normalized_text]
+
+    preserved_lines = normalize_preserved_text(source_text).splitlines()
+    raw_blocks: list[str] = []
+    current_lines: list[str] = []
+    for raw_line in preserved_lines:
+        line = raw_line.rstrip()
+        if _is_visual_block_boundary(line) and any(item.strip() for item in current_lines):
+            raw_blocks.append(normalize_homework_text("\n".join(current_lines)))
+            current_lines = [line]
+            continue
+        current_lines.append(line)
+    if current_lines:
+        raw_blocks.append(normalize_homework_text("\n".join(current_lines)))
+    question_blocks = [block for block in raw_blocks if block]
+
+    if len(question_blocks) <= 1:
+        lines = normalized_text.splitlines()
+        chunks: list[str] = []
+        current_lines: list[str] = []
+        current_length = 0
+        for line in lines:
+            projected_length = current_length + len(line) + 1
+            if current_lines and projected_length > limit:
+                chunks.append(normalize_homework_text("\n".join(current_lines)))
+                current_lines = [line]
+                current_length = len(line)
+                continue
+            current_lines.append(line)
+            current_length = projected_length
+        if current_lines:
+            chunks.append(normalize_homework_text("\n".join(current_lines)))
+        return [chunk for chunk in chunks if chunk]
+
+    chunks: list[str] = []
+    current_blocks: list[str] = []
+    current_length = 0
+    for block in question_blocks:
+        projected_length = current_length + len(block) + 2
+        if current_blocks and projected_length > limit:
+            chunks.append(normalize_homework_text("\n\n".join(current_blocks)))
+            current_blocks = [block]
+            current_length = len(block)
+            continue
+        current_blocks.append(block)
+        current_length = projected_length
+    if current_blocks:
+        chunks.append(normalize_homework_text("\n\n".join(current_blocks)))
+    return [chunk for chunk in chunks if chunk]
+
+
 def parse_candidates_with_qwen(
     source_text: str,
     *,
@@ -1286,29 +1368,31 @@ def parse_candidates_with_qwen(
     source_origin: str,
     strict_visual_block: bool = False,
     block_label: str = "",
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict], str]:
     provider = normalize_candidate_text(getattr(settings, "HOMEWORK_PARSE_PROVIDER_TEXT", "")).lower()
     if provider != "qwen":
         raise HomeworkImportParseError(
             f"文本结构化 provider 配置为 {provider or '未设置'}，当前仅支持 qwen。"
         )
+    model = get_homework_llm_model_name()
+    api_url = get_homework_llm_chat_completions_url()
+    if not model or not api_url:
+        model_label = model or "qwen"
+        raise HomeworkImportParseError(
+            f"{model_label} provider 缺少 HOMEWORK_LLM_MODEL 或 HOMEWORK_LLM_API_URL。",
+            error_code="missing_qwen_config",
+            failure_type="配置缺失",
+            user_message=f"{model_label} 模型或接口地址配置缺失，无法结构化题目。",
+        )
+
     api_key = normalize_candidate_text(getattr(settings, "DASHSCOPE_API_KEY", ""))
     if not api_key:
         raise HomeworkImportParseError(
-            "qwen-plus provider 未配置 DASHSCOPE_API_KEY。",
+            f"{model} provider 未配置 DASHSCOPE_API_KEY。",
             error_code="missing_dashscope_api_key",
             failure_type="配置缺失",
-            user_message="DASHSCOPE_API_KEY 未配置，无法调用 qwen-plus 结构化题目。",
-        )
-
-    model = normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_MODEL", ""))
-    api_url = normalize_candidate_text(getattr(settings, "HOMEWORK_LLM_API_URL", ""))
-    if not model or not api_url:
-        raise HomeworkImportParseError(
-            "qwen-plus provider 缺少 HOMEWORK_LLM_MODEL 或 HOMEWORK_LLM_API_URL。",
-            error_code="missing_qwen_config",
-            failure_type="配置缺失",
-            user_message="qwen-plus 模型或接口地址配置缺失，无法结构化题目。",
+            user_message=f"DASHSCOPE_API_KEY 未配置，无法调用 {model} 结构化题目。",
         )
 
     if strict_visual_block:
@@ -1369,13 +1453,31 @@ def parse_candidates_with_qwen(
             {"role": "user", "content": user_prompt},
         ],
     }
-    raw_response, request_note = call_external_json_api(
-        provider_label="qwen-plus",
-        url=api_url,
-        headers={"Authorization": f"Bearer {api_key}"},
-        payload=payload,
-        timeout_seconds=int(getattr(settings, "HOMEWORK_LLM_TIMEOUT_SECONDS", 40)),
-    )
+    max_retries = max(int(getattr(settings, "HOMEWORK_LLM_MAX_RETRIES", 2)), 0)
+    retry_backoff_seconds = max(float(getattr(settings, "HOMEWORK_LLM_RETRY_BACKOFF_SECONDS", 1.0)), 0.0)
+    raw_response: dict[str, Any] | None = None
+    request_note = ""
+    max_attempts = max_retries + 1
+    for attempt_index in range(max_retries + 1):
+        try:
+            if progress_callback is not None:
+                progress_callback(attempt_index + 1, max_attempts)
+            raw_response, request_note = call_external_json_api(
+                provider_label=model,
+                url=api_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                payload=payload,
+                timeout_seconds=int(getattr(settings, "HOMEWORK_LLM_TIMEOUT_SECONDS", 40)),
+            )
+            if attempt_index:
+                request_note = f"{request_note}；第 {attempt_index + 1} 次尝试成功"
+            break
+        except HomeworkImportParseError as exc:
+            if attempt_index >= max_retries or not is_retryable_import_error(exc):
+                raise
+            time.sleep(retry_backoff_seconds * (attempt_index + 1))
+    if raw_response is None:
+        raise HomeworkImportParseError(f"{model} 请求失败。")
 
     content = (
         raw_response.get("choices", [{}])[0]
@@ -1384,12 +1486,12 @@ def parse_candidates_with_qwen(
     )
     parsed_payload = _try_parse_llm_json_payload(content)
     if not parsed_payload:
-        raise HomeworkImportParseError("qwen-plus 返回内容无法解析为 JSON。")
+        raise HomeworkImportParseError(f"{model} 返回内容无法解析为 JSON。")
     raw_questions = parsed_payload.get("questions")
     if not isinstance(raw_questions, list):
-        raise HomeworkImportParseError("qwen-plus 返回缺少 questions 数组。")
+        raise HomeworkImportParseError(f"{model} 返回缺少 questions 数组。")
     candidates = [sanitize_candidate(item, index=index) for index, item in enumerate(raw_questions, start=1)]
-    notes = normalize_candidate_text(parsed_payload.get("notes")) or "qwen-plus 已完成候选题结构化。"
+    notes = normalize_candidate_text(parsed_payload.get("notes")) or f"{model} 已完成候选题结构化。"
     notes = f"{request_note}；{notes}"
     return candidates, notes
 
@@ -1398,11 +1500,267 @@ def parse_candidates_with_llm(source_text: str, *, source_type: str) -> tuple[li
     return parse_candidates_with_qwen(source_text, source_type=source_type, source_origin="legacy")
 
 
+def candidate_needs_answer_analysis_supplement(candidate: dict) -> bool:
+    return (
+        normalize_candidate_text(candidate.get("correct_answer")) not in {"A", "B", "C", "D"}
+        or not normalize_candidate_text(candidate.get("analysis"))
+    )
+
+
+def supplement_candidate_answers_with_qwen(
+    candidates: list[dict],
+    *,
+    source_text: str,
+    source_type: str,
+    source_origin: str,
+    progress_callback: Callable[[str, str], None] | None = None,
+) -> tuple[list[dict], str]:
+    missing_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate_needs_answer_analysis_supplement(candidate)
+    ]
+    if not missing_candidates:
+        return candidates, ""
+
+    provider = normalize_candidate_text(getattr(settings, "HOMEWORK_PARSE_PROVIDER_TEXT", "")).lower()
+    if provider != "qwen":
+        raise HomeworkImportParseError(
+            f"答案解析补全 provider 配置为 {provider or '未设置'}，当前仅支持 qwen。"
+        )
+    model = get_homework_llm_model_name()
+    api_url = get_homework_llm_chat_completions_url()
+    api_key = normalize_candidate_text(getattr(settings, "DASHSCOPE_API_KEY", ""))
+    if not model or not api_url or not api_key:
+        raise HomeworkImportParseError(f"{model or 'qwen'} 答案解析补全配置缺失。")
+
+    compact_candidates = [
+        {
+            "index": candidate.get("index") or index,
+            "stem": candidate.get("stem", ""),
+            "options": candidate.get("options", {}),
+            "known_correct_answer": candidate.get("correct_answer", ""),
+            "known_analysis": candidate.get("analysis", ""),
+        }
+        for index, candidate in enumerate(missing_candidates, start=1)
+    ]
+    system_prompt = (
+        "你是教学系统的单选题答案和解析补全助手。"
+        "只根据题干、选项和源文件文本判断正确答案与解析。"
+        "输出 JSON 对象，格式必须为 "
+        '{"questions":[{"index":1,"correct_answer":"A","analysis":""}],"notes":""}。'
+        "correct_answer 只能是 A/B/C/D。"
+        "如果已有正确答案或解析，不要改写，只补缺失字段。"
+        "如果无法可靠判断某题答案，请不要返回该题。"
+    )
+    user_prompt = (
+        f"源文件类型：{source_type}\n"
+        f"文本来源：{source_origin}\n"
+        "需要补全的候选题 JSON：\n"
+        f"{json.dumps(compact_candidates, ensure_ascii=False)}\n\n"
+        "源文件文本节选：\n"
+        f"{build_trace_preview(source_text, limit=5000)}"
+    )
+    payload = {
+        "model": model,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    max_retries = max(int(getattr(settings, "HOMEWORK_LLM_MAX_RETRIES", 0)), 0)
+    retry_backoff_seconds = max(float(getattr(settings, "HOMEWORK_LLM_RETRY_BACKOFF_SECONDS", 1.0)), 0.0)
+    raw_response: dict[str, Any] | None = None
+    request_note = ""
+    for attempt_index in range(max_retries + 1):
+        try:
+            if progress_callback is not None:
+                progress_callback(
+                    "补全答案和解析",
+                    (
+                        f"正在调用 {model} 判断 {len(missing_candidates)} 道候选题的缺失答案/解析；"
+                        f"第 {attempt_index + 1}/{max_retries + 1} 次请求，单次请求超时 "
+                        f"{int(getattr(settings, 'HOMEWORK_LLM_TIMEOUT_SECONDS', 40))} 秒。"
+                    ),
+                )
+            raw_response, request_note = call_external_json_api(
+                provider_label=model,
+                url=api_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                payload=payload,
+                timeout_seconds=int(getattr(settings, "HOMEWORK_LLM_TIMEOUT_SECONDS", 40)),
+            )
+            break
+        except HomeworkImportParseError as exc:
+            if attempt_index >= max_retries or not is_retryable_import_error(exc):
+                raise
+            time.sleep(retry_backoff_seconds * (attempt_index + 1))
+    if raw_response is None:
+        raise HomeworkImportParseError(f"{model} 答案解析补全请求失败。")
+
+    content = (
+        raw_response.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+    )
+    parsed_payload = _try_parse_llm_json_payload(content)
+    if not parsed_payload or not isinstance(parsed_payload.get("questions"), list):
+        raise HomeworkImportParseError(f"{model} 答案解析补全返回内容无法解析。")
+
+    supplements_by_index: dict[int, dict] = {}
+    for item in parsed_payload["questions"]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            candidate_index = int(str(item.get("index", "")).strip())
+        except (TypeError, ValueError):
+            continue
+        supplements_by_index[candidate_index] = item
+
+    supplemented_count = 0
+    supplemented_candidates = [dict(candidate) for candidate in candidates]
+    for candidate in supplemented_candidates:
+        candidate_index = int(candidate.get("index") or 0)
+        supplement = supplements_by_index.get(candidate_index)
+        if not supplement:
+            continue
+        options = candidate.get("options") if isinstance(candidate.get("options"), dict) else {}
+        changed = False
+        if normalize_candidate_text(candidate.get("correct_answer")) not in {"A", "B", "C", "D"}:
+            resolved_answer = resolve_candidate_correct_answer(supplement.get("correct_answer"), options)
+            if resolved_answer in {"A", "B", "C", "D"}:
+                candidate["correct_answer"] = resolved_answer
+                changed = True
+        if not normalize_candidate_text(candidate.get("analysis")):
+            analysis = normalize_candidate_text(supplement.get("analysis"))
+            if analysis:
+                candidate["analysis"] = analysis
+                changed = True
+        if changed:
+            supplemented_count += 1
+
+    notes = normalize_candidate_text(parsed_payload.get("notes")) or "答案和解析补全完成。"
+    return supplemented_candidates, f"{request_note}；{model} 补全 {supplemented_count}/{len(missing_candidates)} 道候选题；{notes}"
+
+
+def parse_text_blocks_with_qwen(
+    source_text: str,
+    *,
+    source_type: str,
+    source_origin: str,
+    trace: HomeworkImportTrace,
+    progress_callback: Callable[[str, str], None] | None = None,
+) -> tuple[list[dict], str]:
+    blocks = split_qwen_text_into_blocks(source_text)
+    if not blocks:
+        return [], ""
+
+    if len(blocks) == 1:
+        trace.qwen_attempted = True
+        if progress_callback is not None:
+            progress_callback(
+                "调用 Qwen 结构化文本",
+                f"文本未分块，正在调用 {get_homework_llm_model_label()}；单次最长可能等待 {int(getattr(settings, 'HOMEWORK_LLM_TIMEOUT_SECONDS', 40))} 秒。",
+            )
+        candidates, qwen_notes = parse_candidates_with_qwen(
+            blocks[0],
+            source_type=source_type,
+            source_origin=source_origin,
+            progress_callback=(
+                (lambda attempt, max_attempts: progress_callback(
+                    "调用 Qwen 结构化文本",
+                    (
+                        f"文本未分块，正在调用 {get_homework_llm_model_label()}；"
+                        f"第 {attempt}/{max_attempts} 次请求，单次请求超时 "
+                        f"{int(getattr(settings, 'HOMEWORK_LLM_TIMEOUT_SECONDS', 40))} 秒。"
+                    ),
+                ))
+                if progress_callback is not None
+                else None
+            ),
+        )
+        trace.qwen_success = True
+        return candidates, qwen_notes
+
+    model_label = get_homework_llm_model_label()
+    merged_candidates: list[dict] = []
+    failure_summaries: list[str] = []
+    trace.qwen_attempted = True
+    trace.qwen_block_attempt_count = len(blocks)
+    for index, block_text in enumerate(blocks, start=1):
+        block_label = f"text_block{index}"
+        block_length = len(block_text)
+        try:
+            if progress_callback is not None:
+                timeout_seconds = int(getattr(settings, "HOMEWORK_LLM_TIMEOUT_SECONDS", 40))
+                max_attempts = max(int(getattr(settings, "HOMEWORK_LLM_MAX_RETRIES", 2)), 0) + 1
+                remaining_blocks = len(blocks) - index + 1
+                progress_callback(
+                    "调用 Qwen 分块结构化",
+                    (
+                        f"正在处理第 {index}/{len(blocks)} 块，长度 {block_length}；"
+                        f"单次请求超时 {timeout_seconds} 秒，最多尝试 {max_attempts} 次，当前剩余 {remaining_blocks} 块。"
+                    ),
+                )
+            block_candidates, _block_notes = parse_candidates_with_qwen(
+                block_text,
+                source_type=source_type,
+                source_origin=f"{source_origin}_{block_label}",
+                progress_callback=(
+                    (lambda attempt, max_attempts, *, index=index, block_length=block_length: progress_callback(
+                        "调用 Qwen 分块结构化",
+                        (
+                            f"正在处理第 {index}/{len(blocks)} 块，长度 {block_length}；"
+                            f"第 {attempt}/{max_attempts} 次请求，单次请求超时 "
+                            f"{int(getattr(settings, 'HOMEWORK_LLM_TIMEOUT_SECONDS', 40))} 秒，"
+                            f"当前剩余 {len(blocks) - index + 1} 块。"
+                        ),
+                    ))
+                    if progress_callback is not None
+                    else None
+                ),
+            )
+            merged_candidates.extend(block_candidates)
+            trace.qwen_block_success_count += 1
+            trace.qwen_block_results.append(
+                f"{block_label}: 长度 {block_length}，{model_label} 成功，提取 {len(block_candidates)} 题"
+            )
+        except HomeworkImportParseError as exc:
+            error_summary = build_trace_preview(str(exc), limit=120)
+            failure_summaries.append(error_summary)
+            trace.qwen_block_failure_count += 1
+            trace.qwen_block_results.append(
+                f"{block_label}: 长度 {block_length}，{model_label} 失败：{error_summary}"
+            )
+
+    if trace.qwen_block_failure_count:
+        trace.qwen_error = (
+            f"分块结构化失败：{trace.qwen_block_failure_count}/{trace.qwen_block_attempt_count} 个 block 调用失败；"
+            f"{failure_summaries[0] if failure_summaries else '未知错误'}"
+        )
+        if merged_candidates:
+            trace.qwen_success = True
+            return (
+                merged_candidates,
+                (
+                    f"{model_label} 分块结构化部分完成，成功 {trace.qwen_block_success_count}/{trace.qwen_block_attempt_count} 个 block，"
+                    f"失败 {trace.qwen_block_failure_count} 个 block；已保留成功识别的 {len(merged_candidates)} 道候选题。"
+                ),
+            )
+        raise HomeworkImportParseError(trace.qwen_error)
+
+    trace.qwen_success = True
+    return merged_candidates, f"{model_label} 分块结构化完成，成功 {trace.qwen_block_success_count}/{trace.qwen_block_attempt_count} 个 block。"
+
+
 def parse_visual_blocks_with_qwen(
     source_text: str,
     *,
     source_type: str,
     trace: HomeworkImportTrace,
+    progress_callback: Callable[[str, str], None] | None = None,
 ) -> list[dict]:
     blocks = split_vision_ocr_text_into_blocks(source_text)
     if not blocks:
@@ -1411,6 +1769,7 @@ def parse_visual_blocks_with_qwen(
     trace.vision_block_count = len(blocks)
     trace.vision_block_split_applied = len(blocks) >= 2
     trace.vision_text_preview = build_trace_preview(source_text)
+    model_label = get_homework_llm_model_label()
 
     merged_candidates: list[dict] = []
     failure_summaries: list[str] = []
@@ -1419,30 +1778,54 @@ def parse_visual_blocks_with_qwen(
         block_length = len(block_text)
         trace.qwen_block_attempt_count += 1
         try:
+            if progress_callback is not None:
+                timeout_seconds = int(getattr(settings, "HOMEWORK_LLM_TIMEOUT_SECONDS", 40))
+                max_attempts = max(int(getattr(settings, "HOMEWORK_LLM_MAX_RETRIES", 2)), 0) + 1
+                remaining_blocks = len(blocks) - index + 1
+                progress_callback(
+                    "调用 Qwen 结构化 OCR 文本",
+                    (
+                        f"正在处理 OCR 第 {index}/{len(blocks)} 块，长度 {block_length}；"
+                        f"单次请求超时 {timeout_seconds} 秒，最多尝试 {max_attempts} 次，当前剩余 {remaining_blocks} 块。"
+                    ),
+                )
             block_candidates, _ = parse_candidates_with_qwen(
                 block_text,
                 source_type=source_type,
                 source_origin=f"vision_block_{index}",
                 strict_visual_block=True,
                 block_label=f"{block_label}/{len(blocks)}",
+                progress_callback=(
+                    (lambda attempt, max_attempts, *, index=index, block_length=block_length: progress_callback(
+                        "调用 Qwen 结构化 OCR 文本",
+                        (
+                            f"正在处理 OCR 第 {index}/{len(blocks)} 块，长度 {block_length}；"
+                            f"第 {attempt}/{max_attempts} 次请求，单次请求超时 "
+                            f"{int(getattr(settings, 'HOMEWORK_LLM_TIMEOUT_SECONDS', 40))} 秒，"
+                            f"当前剩余 {len(blocks) - index + 1} 块。"
+                        ),
+                    ))
+                    if progress_callback is not None
+                    else None
+                ),
             )
             merged_candidates.extend(block_candidates)
             trace.qwen_block_success_count += 1
             trace.vision_block_results.append(
-                f"{block_label}: 长度 {block_length}，qwen 成功，提取 {len(block_candidates)} 题"
+                f"{block_label}: 长度 {block_length}，{model_label} 成功，提取 {len(block_candidates)} 题"
             )
         except HomeworkImportParseError as exc:
             error_summary = build_trace_preview(str(exc), limit=120)
             failure_summaries.append(error_summary)
             trace.qwen_block_failure_count += 1
             trace.vision_block_results.append(
-                f"{block_label}: 长度 {block_length}，qwen 失败：{error_summary}"
+                f"{block_label}: 长度 {block_length}，{model_label} 失败：{error_summary}"
             )
 
     trace.qwen_attempted = True
     if trace.qwen_block_failure_count:
         trace.vision_qwen_failure_stop = True
-        trace.vision_qwen_failure_reason = "视觉链路下 qwen 失败，已停止 heuristic 自动产题。"
+        trace.vision_qwen_failure_reason = f"视觉链路下 {model_label} 失败，已停止 heuristic 自动产题。"
         trace.vision_manual_review_message = "已完成 OCR，但结构化失败，请人工确认。"
         if trace.qwen_block_success_count:
             trace.qwen_success = True
@@ -1563,43 +1946,43 @@ def determine_import_route(
     if not bool(getattr(settings, "HOMEWORK_IMPORT_ROUTER_ENABLED", False)):
         if source_type == HomeworkImportJob.SOURCE_TYPE_IMAGE:
             return HomeworkImportRoute(
-                name="router_disabled_image_to_volc_vision",
+                name="router_disabled_image_to_volc_vision_to_qwen",
                 source_type=source_type,
                 selected_text_source="volc_vision",
                 use_local_text=False,
                 use_vision=True,
                 use_qwen=True,
-                reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false，但图片仍需进入火山视觉。",
+                reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false；图片先抽取文本，再交给 Qwen 结构化。",
             )
         if source_type == HomeworkImportJob.SOURCE_TYPE_TEXT:
             return HomeworkImportRoute(
-                name="router_disabled_text_local_heuristic",
+                name="router_disabled_text_local_text_to_qwen",
                 source_type=source_type,
                 selected_text_source="local_text",
                 use_local_text=True,
                 use_vision=False,
-                use_qwen=False,
-                reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false；TXT 为保留原始换行和缩进，使用本地规则解析。",
+                use_qwen=True,
+                reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false；TXT 本地抽文本后直接交给 Qwen 结构化。",
             )
         return HomeworkImportRoute(
-            name="router_disabled_local_text",
+            name="router_disabled_local_text_to_qwen",
             source_type=source_type,
             selected_text_source="local_text",
             use_local_text=True,
             use_vision=False,
             use_qwen=True,
-            reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false，使用本地抽文本后直接进入 qwen/heuristic。",
+            reason="HOMEWORK_IMPORT_ROUTER_ENABLED=false，使用本地抽文本后直接进入 Qwen 结构化。",
         )
 
     if source_type == HomeworkImportJob.SOURCE_TYPE_TEXT:
         return HomeworkImportRoute(
-            name="text_local_text_to_heuristic",
+            name="text_local_text_to_qwen",
             source_type=source_type,
             selected_text_source="local_text",
             use_local_text=True,
             use_vision=False,
-            use_qwen=False,
-            reason="TXT 为保留原始换行和缩进，使用本地规则解析。",
+            use_qwen=True,
+            reason="TXT 本地抽文本后直接交给 Qwen 结构化。",
         )
 
     if source_type in {
@@ -1614,7 +1997,7 @@ def determine_import_route(
             use_local_text=True,
             use_vision=False,
             use_qwen=True,
-            reason="文本类文档先本地抽文本，再交给 qwen-plus 结构化。",
+            reason="文本类文档先本地抽文本，再交给 Qwen 结构化。",
         )
 
     if source_type == HomeworkImportJob.SOURCE_TYPE_PDF:
@@ -1648,7 +2031,7 @@ def determine_import_route(
             use_local_text=True,
             use_vision=True,
             use_qwen=True,
-            reason="PDF 文本质量不足，先进入火山视觉，再交给 qwen-plus。",
+            reason="PDF 文本质量不足，先进入火山视觉，再交给 Qwen 结构化。",
         )
 
     if source_type == HomeworkImportJob.SOURCE_TYPE_IMAGE:
@@ -1659,7 +2042,7 @@ def determine_import_route(
             use_local_text=False,
             use_vision=True,
             use_qwen=True,
-            reason="图片类文件直接进入火山视觉，再交给 qwen-plus。",
+            reason="图片类文件直接进入火山视觉，再交给 Qwen 结构化。",
         )
 
     raise HomeworkImportParseError("当前文件类型暂不支持导入识别。")
@@ -1716,6 +2099,7 @@ def extract_source_text_with_router(
 
 def _build_trace_lines(import_job: HomeworkImportJob, trace: HomeworkImportTrace) -> list[str]:
     source_type_text = dict(HomeworkImportJob.SOURCE_TYPE_CHOICES).get(import_job.source_type, import_job.source_type)
+    model_label = get_homework_llm_model_label()
     lines = [
         f"文件类型：{source_type_text}",
         f"路由：{trace.route_name or '未确定'}",
@@ -1789,14 +2173,15 @@ def _build_trace_lines(import_job: HomeworkImportJob, trace: HomeworkImportTrace
     if trace.qwen_attempted:
         if trace.qwen_block_failure_count and trace.qwen_block_success_count:
             lines.append(
-                f"qwen-plus：是，部分成功（成功 {trace.qwen_block_success_count}/{trace.qwen_block_attempt_count} 个 block，失败 {trace.qwen_block_failure_count} 个 block）"
+                f"{model_label}：是，部分成功（成功 {trace.qwen_block_success_count}/{trace.qwen_block_attempt_count} 个 block，失败 {trace.qwen_block_failure_count} 个 block）"
             )
         elif trace.qwen_error:
-            lines.append(f"qwen-plus：是，失败（{trace.qwen_error}）")
+            lines.append(f"{model_label}：是，失败（{trace.qwen_error}）")
         else:
-            lines.append("qwen-plus：是，成功")
+            lines.append(f"{model_label}：是，成功")
     else:
-        lines.append("qwen-plus：否")
+        lines.append(f"{model_label}：否")
+    lines.extend(trace.qwen_block_results)
 
     if trace.fallback_used:
         lines.append(f"fallback heuristic：是（{trace.fallback_reason or '已退回本地规则解析'}）")
@@ -1832,14 +2217,71 @@ def _finalize_import_job_parse_notes(import_job: HomeworkImportJob, trace: Homew
     return "\n".join(line for line in _build_trace_lines(import_job, trace) if line).strip()
 
 
+def _format_elapsed_seconds(started_at: float) -> str:
+    if not started_at:
+        return "0 秒"
+    elapsed_seconds = max(int(time.monotonic() - started_at), 0)
+    minutes, seconds = divmod(elapsed_seconds, 60)
+    if minutes:
+        return f"{minutes} 分 {seconds} 秒"
+    return f"{seconds} 秒"
+
+
+def _build_import_progress_notes(import_job: HomeworkImportJob, trace: HomeworkImportTrace) -> str:
+    source_type_text = dict(HomeworkImportJob.SOURCE_TYPE_CHOICES).get(import_job.source_type, import_job.source_type)
+    lines = [
+        f"解析进度：{trace.progress_step or '后台解析中'}",
+        f"进度更新时间：{timezone.localtime(timezone.now()).strftime('%H:%M:%S')}",
+        f"文件类型：{source_type_text}",
+    ]
+    if trace.progress_detail:
+        lines.append(f"当前步骤：{trace.progress_detail}")
+    if trace.route_name:
+        lines.append(f"路由：{trace.route_name}")
+    if trace.local_text_attempted:
+        if trace.local_text_success:
+            lines.append(f"本地抽文本：完成，长度 {trace.local_text_length}，行数 {trace.local_text_line_count}")
+        elif trace.local_text_error:
+            lines.append(f"本地抽文本：失败（{trace.local_text_error}）")
+        else:
+            lines.append("本地抽文本：进行中")
+    if trace.vision_attempted:
+        if trace.vision_success:
+            lines.append(f"视觉 OCR：完成，长度 {trace.vision_text_length}，行数 {trace.vision_text_line_count}")
+        elif trace.vision_error:
+            lines.append(f"视觉 OCR：失败（{trace.vision_error}）")
+        else:
+            lines.append("视觉 OCR：进行中")
+    if trace.qwen_attempted:
+        block_summary = ""
+        if trace.qwen_block_attempt_count:
+            block_summary = (
+                f"，成功 {trace.qwen_block_success_count}/{trace.qwen_block_attempt_count}"
+                f"，失败 {trace.qwen_block_failure_count}"
+            )
+        lines.append(f"{get_homework_llm_model_label()}：进行中{block_summary}")
+    lines.append("提示：模型调用期间可能单次等待到超时上限；页面会自动刷新显示最新阶段。")
+    return "\n".join(lines)
+
+
+def update_import_job_progress(import_job: HomeworkImportJob, trace: HomeworkImportTrace, step: str, detail: str = "") -> None:
+    trace.progress_step = step
+    trace.progress_detail = detail
+    import_job.parse_notes = _build_import_progress_notes(import_job, trace)
+    import_job.save(update_fields=["parse_notes", "updated_at"])
+
+
 def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJob:
     import_job.parse_status = HomeworkImportJob.STATUS_PARSING
-    import_job.save(update_fields=["parse_status", "updated_at"])
+    model_label = get_homework_llm_model_label()
     trace = HomeworkImportTrace(
         source_type=import_job.source_type,
         router_enabled=bool(getattr(settings, "HOMEWORK_IMPORT_ROUTER_ENABLED", False)),
         debug_enabled=bool(getattr(settings, "HOMEWORK_IMPORT_DEBUG", False)),
+        progress_started_at=time.monotonic(),
     )
+    import_job.parse_notes = _build_import_progress_notes(import_job, trace)
+    import_job.save(update_fields=["parse_status", "parse_notes", "updated_at"])
     duplicate_job = find_recent_duplicate_import_job(import_job)
     if duplicate_job is not None:
         duplicate_status_text = dict(HomeworkImportJob.PARSE_STATUS_CHOICES).get(
@@ -1853,17 +2295,26 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             f"状态 {duplicate_status_text}。"
         )
     try:
+        update_import_job_progress(import_job, trace, "抽取源文件文本", "正在读取上传文件并判断解析路线。")
         source_text, route = extract_source_text_with_router(import_job, trace)
+        update_import_job_progress(
+            import_job,
+            trace,
+            "源文件文本抽取完成",
+            f"已选择路线 {route.name}，准备结构化候选题。",
+        )
         candidates: list[dict] = []
 
         if route.use_vision:
             if not source_text:
                 trace.vision_manual_review_message = "已完成 OCR，但未提取到可结构化文本，请人工确认。"
             else:
+                update_import_job_progress(import_job, trace, "结构化 OCR 文本", "正在把 OCR 文本交给模型提取候选题。")
                 candidates = parse_visual_blocks_with_qwen(
                     source_text,
                     source_type=import_job.source_type,
                     trace=trace,
+                    progress_callback=lambda step, detail="": update_import_job_progress(import_job, trace, step, detail),
                 )
         elif not source_text:
             if (
@@ -1883,29 +2334,47 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
                 trace.model_notes.append(heuristic_notes)
             else:
                 try:
-                    trace.qwen_attempted = True
-                    candidates, qwen_notes = parse_candidates_with_qwen(
+                    update_import_job_progress(import_job, trace, "结构化文本", "正在把抽取文本交给模型提取候选题。")
+                    candidates, qwen_notes = parse_text_blocks_with_qwen(
                         source_text,
                         source_type=import_job.source_type,
                         source_origin=trace.selected_text_source or route.selected_text_source,
+                        trace=trace,
+                        progress_callback=lambda step, detail="": update_import_job_progress(import_job, trace, step, detail),
                     )
-                    trace.qwen_success = True
                     trace.model_notes.append(qwen_notes)
                 except HomeworkImportParseError as exc:
                     trace.qwen_error = str(exc)
                     if bool(getattr(settings, "HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC", True)):
                         trace.fallback_attempted = True
                         trace.fallback_used = True
-                        trace.fallback_reason = f"qwen-plus 不可用或调用失败，退回本地 heuristic：{exc}"
+                        trace.fallback_reason = f"{model_label} 不可用或调用失败，退回本地 heuristic：{exc}"
                         fallback_text = source_text or trace.local_text
                         candidates, heuristic_notes = parse_candidates_with_heuristic(fallback_text)
                         trace.model_notes.append(heuristic_notes)
                     else:
-                        trace.failure_step = "qwen-plus"
+                        trace.failure_step = model_label
                         trace.failure_reason = str(exc)
                         raise
 
         candidates = [sanitize_candidate(item, index=index) for index, item in enumerate(candidates, start=1)]
+        if (
+            candidates
+            and bool(getattr(settings, "HOMEWORK_IMPORT_SUPPLEMENT_MISSING_ANSWERS", True))
+            and any(candidate_needs_answer_analysis_supplement(candidate) for candidate in candidates)
+        ):
+            try:
+                candidates, supplement_notes = supplement_candidate_answers_with_qwen(
+                    candidates,
+                    source_text=source_text or trace.local_text,
+                    source_type=import_job.source_type,
+                    source_origin=trace.selected_text_source or route.selected_text_source,
+                    progress_callback=lambda step, detail="": update_import_job_progress(import_job, trace, step, detail),
+                )
+                if supplement_notes:
+                    trace.model_notes.append(supplement_notes)
+            except HomeworkImportParseError as exc:
+                trace.model_notes.append(f"{model_label} 答案解析补全失败，保留候选题等待老师手动补充：{exc}")
         trace.candidate_count = len(candidates)
         import_job.candidates_json = encode_sql_ascii_json_text(candidates)
         import_job.parse_notes = _finalize_import_job_parse_notes(import_job, trace)
@@ -1926,7 +2395,7 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             )
         if not trace.failure_step:
             if trace.qwen_error:
-                trace.failure_step = "qwen-plus"
+                trace.failure_step = model_label
             elif trace.vision_error:
                 trace.failure_step = "火山视觉"
             elif trace.local_text_error:

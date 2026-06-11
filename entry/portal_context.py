@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+import json
 import re
 from urllib.parse import urlencode
 
@@ -10,6 +11,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.urls import reverse
+from django.utils.html import escape
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 
@@ -68,6 +70,13 @@ from .models import (
     CourseCategory,
     CourseContent,
     CourseLevel,
+    ExamPaper,
+    ExamProctorEvent,
+    ExamQuestion,
+    ExamQuestionBankItem,
+    ExamQuestionBankPaper,
+    ExamSession,
+    ExamSubmissionAnswer,
     HomeworkAssignment,
     HomeworkImportJob,
     HomeworkQuestion,
@@ -84,6 +93,16 @@ from .models import (
 )
 from .shell_content import ROLE_SHELL_CONTENT
 from .student_import import teacher_can_import_students
+from .exam_online import (
+    EXAM_PRACTICE_SESSION_TYPES,
+    FINISHED_EXAM_SESSION_STATUSES,
+    build_exam_entry_state,
+    get_first_finished_exam_session_for_wrong_practice,
+    get_exam_session_questions,
+    get_exam_window_end,
+    get_wrong_question_ids_from_first_exam_session,
+    is_auto_gradable_exam_question,
+)
 from .student_learning_api import build_student_learning_overview
 from .student_portal_content import STUDENT_PORTAL_CONTENT
 from .teacher_course_catalog import TEACHER_COURSE_DEFINITIONS, TEACHER_COURSE_MAP
@@ -138,6 +157,35 @@ HOMEWORK_COMPLETION_STATUSES = {
     HomeworkSubmission.STATUS_SUBMITTED,
     HomeworkSubmission.STATUS_AUTO_CHECKED,
     HomeworkSubmission.STATUS_REVIEWED,
+}
+EXAM_SESSION_STATUS_LABELS = {
+    ExamSession.STATUS_ASSIGNED: "待开始",
+    ExamSession.STATUS_IN_PROGRESS: "考试中",
+    ExamSession.STATUS_SUBMITTED: "已交卷",
+    ExamSession.STATUS_AUTO_CHECKED: "已判分",
+    ExamSession.STATUS_EXPIRED: "已过期",
+    ExamSession.STATUS_INVALIDATED: "已作废",
+}
+EXAM_SESSION_STATUS_TONES = {
+    ExamSession.STATUS_ASSIGNED: "trial",
+    ExamSession.STATUS_IN_PROGRESS: "open",
+    ExamSession.STATUS_SUBMITTED: "future",
+    ExamSession.STATUS_AUTO_CHECKED: "future",
+    ExamSession.STATUS_EXPIRED: "locked",
+    ExamSession.STATUS_INVALIDATED: "locked",
+}
+EXAM_MODE_LABELS = {
+    ExamPaper.MODE_TIMED: "定时模式",
+    ExamPaper.MODE_DEADLINE: "DL模式",
+}
+EXAM_SESSION_TYPE_LABELS = {
+    ExamSession.SESSION_TYPE_EXAM: "正式考试",
+    ExamSession.SESSION_TYPE_FULL_PRACTICE: "整卷练习",
+    ExamSession.SESSION_TYPE_WRONG_PRACTICE: "错题练习",
+}
+TEACHER_EXAM_PRACTICE_SESSION_TYPE_LABELS = {
+    ExamSession.SESSION_TYPE_FULL_PRACTICE: "全卷练习",
+    ExamSession.SESSION_TYPE_WRONG_PRACTICE: "只练错题",
 }
 TEACHER_HOMEWORK_ALL_LEVEL_FILTER_VALUE = "all"
 TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE = "__ungrouped__"
@@ -2569,12 +2617,1051 @@ def build_teacher_student_homework_context(
     }
 
 
+def get_exam_session_status_text(status: str) -> str:
+    return EXAM_SESSION_STATUS_LABELS.get(status, status or "未知")
+
+
+def get_exam_session_status_tone(status: str) -> str:
+    return EXAM_SESSION_STATUS_TONES.get(status, "trial")
+
+
+def get_exam_session_type_text(session_type: str) -> str:
+    return EXAM_SESSION_TYPE_LABELS.get(session_type, session_type or "考试")
+
+
+def format_exam_score(value: object) -> str:
+    return f"{value or 0}"
+
+
+EXAM_QUESTION_NO_CHINESE_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def normalize_exam_question_no_for_sort(value: object) -> int:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return 0
+    digit_match = re.search(r"\d+", raw_text)
+    if digit_match:
+        return int(digit_match.group(0))
+
+    chinese_match = re.search(r"[零〇一二两三四五六七八九十百]+", raw_text)
+    if not chinese_match:
+        return 0
+    text = chinese_match.group(0)
+    if text == "十":
+        return 10
+    if "百" in text:
+        left, _, right = text.partition("百")
+        hundred = EXAM_QUESTION_NO_CHINESE_DIGITS.get(left, 1 if not left else 0) * 100
+        return hundred + normalize_exam_question_no_for_sort(right)
+    if "十" in text:
+        left, _, right = text.partition("十")
+        tens = EXAM_QUESTION_NO_CHINESE_DIGITS.get(left, 1 if not left else 0) * 10
+        ones = EXAM_QUESTION_NO_CHINESE_DIGITS.get(right, 0)
+        return tens + ones
+    value_number = 0
+    for char in text:
+        value_number = value_number * 10 + EXAM_QUESTION_NO_CHINESE_DIGITS.get(char, 0)
+    return value_number
+
+
+EXAM_MARKDOWN_MATH_REPLACEMENTS = {
+    r"\leq": "≤",
+    r"\le": "≤",
+    r"\geq": "≥",
+    r"\ge": "≥",
+    r"\neq": "≠",
+    r"\ne": "≠",
+    r"\times": "×",
+    r"\cdot": "·",
+    r"\lt": "<",
+    r"\gt": ">",
+}
+
+
+def normalize_exam_inline_math_for_display(value: object) -> str:
+    normalized = str(value or "")
+    for source, replacement in EXAM_MARKDOWN_MATH_REPLACEMENTS.items():
+        normalized = normalized.replace(source, replacement)
+    normalized = re.sub(r"\$([^$\n]+)\$", lambda match: match.group(1).strip(), normalized)
+    normalized = normalized.replace(r"\(", "").replace(r"\)", "")
+    return normalized
+
+
+def render_exam_markdown_for_display(value: object) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return mark_safe("<p>当前还没有题干。</p>")
+
+    html_parts: list[str] = []
+    paragraph_lines: list[str] = []
+    code_lines: list[str] = []
+    in_code_block = False
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_lines
+        if not paragraph_lines:
+            return
+        escaped_lines = [escape(normalize_exam_inline_math_for_display(line)) for line in paragraph_lines]
+        html_parts.append('<p class="exam-markdown-body__paragraph">' + "<br>".join(escaped_lines) + "</p>")
+        paragraph_lines = []
+
+    def flush_code() -> None:
+        nonlocal code_lines
+        html_parts.append(
+            '<pre class="exam-markdown-body__code"><code>'
+            + escape("\n".join(code_lines).rstrip())
+            + "</code></pre>"
+        )
+        code_lines = []
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if in_code_block:
+                flush_code()
+                in_code_block = False
+            else:
+                flush_paragraph()
+                in_code_block = True
+                code_lines = []
+            continue
+
+        if in_code_block:
+            code_lines.append(line.rstrip())
+            continue
+
+        if not stripped:
+            flush_paragraph()
+            continue
+
+        heading_match = re.match(r"^(#{1,4})\s+(.+)$", stripped)
+        if heading_match:
+            flush_paragraph()
+            html_parts.append(
+                '<h4 class="exam-markdown-body__heading">'
+                + escape(normalize_exam_inline_math_for_display(heading_match.group(2)))
+                + "</h4>"
+            )
+            continue
+
+        paragraph_lines.append(line)
+
+    if in_code_block:
+        flush_code()
+    flush_paragraph()
+    return mark_safe("\n".join(part for part in html_parts if part))
+
+
+def get_exam_mode_text(mode: str) -> str:
+    return EXAM_MODE_LABELS.get(mode, mode or "未知模式")
+
+
+def format_datetime_input_value(value) -> str:
+    if not value:
+        return ""
+    return timezone.localtime(value).strftime("%Y-%m-%dT%H:%M")
+
+
+def build_exam_time_rule_text(paper: ExamPaper) -> str:
+    window_end = get_exam_window_end(paper)
+    if paper.mode == ExamPaper.MODE_TIMED:
+        start_text = format_datetime(paper.start_at) if paper.start_at else "未设置"
+        end_text = format_datetime(window_end) if window_end else "未设置"
+        return f"{start_text} 开始，固定 {paper.duration_minutes} 分钟，{end_text} 结束"
+    end_text = format_datetime(window_end) if window_end else "未设置"
+    return f"DL {end_text} 前均可进入"
+
+
+def is_exam_paper_window_open(paper: ExamPaper, *, now=None) -> bool:
+    current_time = now or timezone.now()
+    window_end = get_exam_window_end(paper)
+    if paper.mode == ExamPaper.MODE_TIMED:
+        if not paper.start_at or not window_end:
+            return False
+        return paper.start_at <= current_time <= window_end
+    if not window_end:
+        return False
+    return current_time <= window_end
+
+
+def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None:
+    marker_match = re.search(r"(?:^|\n)exam_question_bank_paper_id=(\d+)(?:\n|$)", str(description or ""))
+    if not marker_match:
+        return None
+    try:
+        return int(marker_match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def collect_exam_paper_question_meta(paper: ExamPaper) -> dict[str, str]:
+    questions = list(
+        paper.questions.filter(is_active=True)
+        .order_by("question_no", "id")
+        .values("wrong_point_label", "source_snapshot_json")
+    )
+    knowledge_points: list[str] = []
+    level_codes: list[str] = []
+    for question in questions:
+        snapshot = question.get("source_snapshot_json") if isinstance(question.get("source_snapshot_json"), dict) else {}
+        knowledge_point = str(question.get("wrong_point_label") or snapshot.get("knowledge_point") or "").strip()
+        level_code = str(snapshot.get("level_code") or "").strip()
+        if knowledge_point and knowledge_point not in knowledge_points:
+            knowledge_points.append(knowledge_point)
+        if level_code and level_code not in level_codes:
+            level_codes.append(level_code)
+    bank_paper_id = get_exam_bank_paper_id_from_exam_description(paper.description)
+    if bank_paper_id:
+        bank_paper = ExamQuestionBankPaper.objects.filter(id=bank_paper_id, is_active=True).only("level", "title").first()
+        if bank_paper:
+            if bank_paper.level and bank_paper.level not in level_codes:
+                level_codes.insert(0, bank_paper.level)
+            if bank_paper.title and bank_paper.title not in knowledge_points:
+                knowledge_points.insert(0, bank_paper.title)
+    return {
+        "knowledge_text": " / ".join(knowledge_points[:3]) if knowledge_points else "未归类",
+        "level_text": " / ".join(level_codes[:3]) if level_codes else "未分级",
+        "search_text": " ".join(knowledge_points + level_codes),
+    }
+
+
+def build_exam_paper_status_summary(paper: ExamPaper) -> dict[str, object]:
+    in_progress_count = int(getattr(paper, "in_progress_count", 0) or 0)
+    now = timezone.now()
+    window_end = get_exam_window_end(paper)
+    has_started = paper.status == ExamPaper.STATUS_PUBLISHED or bool(paper.access_code)
+    if has_started and window_end and now > window_end:
+        return {"text": "已结束", "tone": "locked", "is_running": False}
+    is_running = has_started and (in_progress_count > 0 or is_exam_paper_window_open(paper, now=now))
+    if is_running:
+        return {"text": "进行中", "tone": "open", "is_running": True}
+    return {"text": "未开始", "tone": "trial", "is_running": False}
+
+
+def shorten_exam_bank_text(value: object, *, limit: int = 80) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
+def serialize_exam_bank_item(item: ExamQuestionBankItem) -> dict:
+    options = item.options_json if isinstance(item.options_json, dict) else {}
+    option_text = " / ".join(
+        f"{key}. {str(options.get(key) or '').strip()}"
+        for key in ["A", "B", "C", "D"]
+        if str(options.get(key) or "").strip()
+    )
+    return {
+        "id": item.id,
+        "course_id": item.course_id,
+        "course_title": item.course.title if item.course_id and item.course else "未绑定课程",
+        "source": item.source,
+        "source_text": dict(ExamQuestionBankItem.SOURCE_CHOICES).get(item.source, item.source),
+        "source_label": item.source_label or dict(ExamQuestionBankItem.SOURCE_CHOICES).get(item.source, item.source),
+        "level_code": item.level_code or "未分级",
+        "knowledge_point": item.knowledge_point,
+        "stem": item.stem,
+        "stem_preview": shorten_exam_bank_text(item.stem, limit=96),
+        "options_text": option_text,
+        "correct_answer": item.correct_answer,
+        "analysis": item.analysis,
+        "analysis_preview": shorten_exam_bank_text(item.analysis, limit=96),
+        "score": format_exam_score(item.score),
+        "created_at_text": format_datetime(item.created_at),
+        "search_text": " ".join(
+            [
+                item.source_label,
+                item.source,
+                item.level_code,
+                item.knowledge_point,
+                item.stem,
+                option_text,
+                item.correct_answer,
+                item.analysis,
+            ]
+        ).lower(),
+    }
+
+
+def infer_exam_bank_paper_subject(paper: ExamQuestionBankPaper) -> str:
+    raw_text = " ".join(
+        [
+            str(paper.level or ""),
+            str(paper.title or ""),
+            str(paper.source_file or ""),
+            str(paper.source_pdf_id or ""),
+        ]
+    ).lower()
+    if "python" in raw_text:
+        return "Python"
+    if "scratch" in raw_text:
+        return "SCRATCH"
+    if "无人机" in raw_text or "uav" in raw_text:
+        return "无人机"
+    if "ai" in raw_text or "人工智能" in raw_text:
+        return "AI"
+    if "gesp" in raw_text or "csp" in raw_text or "c++" in raw_text or "cpp" in raw_text:
+        return "C++"
+    return "未绑定学科"
+
+
+def serialize_available_exam_bank_paper(paper: ExamQuestionBankPaper, *, publisher_name: str = "") -> dict:
+    subject_title = infer_exam_bank_paper_subject(paper)
+    normalized_publisher_name = publisher_name or dict(ExamQuestionBankPaper.SOURCE_CHOICES).get(
+        paper.source, paper.source or "系统"
+    )
+    created_at_value = timezone.localtime(paper.created_at).date().isoformat() if paper.created_at else ""
+    return {
+        "id": paper.id,
+        "paper_id": paper.id,
+        "title": paper.title,
+        "subject_title": subject_title,
+        "level_text": paper.level or "未分级",
+        "publisher_name": normalized_publisher_name,
+        "created_at_text": format_datetime(paper.created_at),
+        "created_at_value": created_at_value,
+        "source_pdf_id": paper.source_pdf_id,
+        "source_file": paper.source_file,
+        "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
+        "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
+        "operation_label": "发布",
+        "search_text": " ".join(
+            [
+                paper.title,
+                subject_title,
+                paper.level or "",
+                normalized_publisher_name,
+                paper.source_file or "",
+                paper.source_pdf_id or "",
+            ]
+        ).lower(),
+    }
+
+
+def build_exam_option_items(
+    options: dict[str, object],
+    *,
+    selected_answer: str = "",
+    correct_answer: str = "",
+) -> list[dict[str, object]]:
+    normalized_selected_answer = str(selected_answer or "").strip().upper()
+    normalized_correct_answer = str(correct_answer or "").strip().upper()
+    option_items: list[dict[str, object]] = []
+    for key in ["A", "B", "C", "D"]:
+        raw_text = str(options.get(key) or "").strip()
+        if not raw_text:
+            continue
+        formatted = format_homework_option_display(raw_text)
+        is_selected = key == normalized_selected_answer and bool(normalized_selected_answer)
+        is_correct_answer = key == normalized_correct_answer and bool(normalized_correct_answer)
+        option_items.append(
+            {
+                "key": key,
+                "text": formatted["text"],
+                "display_text": formatted["display_text"],
+                "is_code_option": formatted["is_code_option"],
+                "is_selected": is_selected,
+                "is_correct_answer": is_correct_answer,
+                "is_wrong_selected": is_selected and normalized_selected_answer != normalized_correct_answer,
+            }
+        )
+    return option_items
+
+
+def serialize_exam_question(
+    question: ExamQuestion,
+    *,
+    answer: ExamSubmissionAnswer | None = None,
+    show_feedback: bool = False,
+    requires_explanation: bool = False,
+    selected_answer_override: str | None = None,
+    student_explanation_override: str | None = None,
+) -> dict:
+    options = question.options_json if isinstance(question.options_json, dict) else {}
+    selected_answer = (
+        str(selected_answer_override or "").strip().upper()
+        if selected_answer_override is not None
+        else (str(answer.selected_answer or "").strip().upper() if answer else "")
+    )
+    correct_answer = str(question.correct_answer or "").strip().upper()
+    student_explanation = (
+        str(student_explanation_override or "").strip()
+        if student_explanation_override is not None
+        else (str(answer.explanation_text or "").strip() if answer else "")
+    )
+    question_type_text = {
+        ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE: "单选题",
+        getattr(ExamQuestion, "QUESTION_TYPE_TRUE_FALSE", "true_false"): "判断题",
+        getattr(ExamQuestion, "QUESTION_TYPE_PROGRAMMING", "programming"): "编程题",
+    }.get(question.question_type, "考试题")
+    is_gradable = is_auto_gradable_exam_question(question)
+    return {
+        "id": question.id,
+        "question_no": question.question_no,
+        "question_type": question.question_type,
+        "question_type_text": question_type_text,
+        "stem": question.stem,
+        "stem_html": render_exam_markdown_for_display(question.stem),
+        "option_items": build_exam_option_items(
+            options,
+            selected_answer=selected_answer,
+            correct_answer=correct_answer if show_feedback else "",
+        ),
+        "correct_answer": correct_answer if show_feedback and is_gradable else "",
+        "analysis": question.analysis or "当前老师没有补充解析。",
+        "analysis_html": render_exam_markdown_for_display(question.analysis or "当前老师没有补充解析。"),
+        "is_important": question.is_important,
+        "important_note": question.important_note.strip(),
+        "important_note_html": render_exam_markdown_for_display(question.important_note.strip()) if question.important_note.strip() else "",
+        "score": format_exam_score(question.score),
+        "wrong_point_label": question.wrong_point_label or "未标注",
+        "image_path": question.image_path,
+        "student_answer": selected_answer,
+        "student_answer_text": selected_answer or "未作答",
+        "student_explanation": student_explanation,
+        "student_explanation_html": render_exam_markdown_for_display(student_explanation) if student_explanation else "",
+        "is_correct": bool(answer and answer.is_correct),
+        "is_wrong": bool(show_feedback and is_gradable and (not answer or not answer.is_correct)),
+        "is_gradable": is_gradable,
+        "requires_explanation": requires_explanation,
+        "show_feedback": show_feedback,
+    }
+
+
+def serialize_exam_session(session: ExamSession) -> dict:
+    paper = session.paper
+    entry_state = build_exam_entry_state(session)
+    window_end = entry_state.get("window_end")
+    is_finished = session.status in {
+        ExamSession.STATUS_SUBMITTED,
+        ExamSession.STATUS_AUTO_CHECKED,
+        ExamSession.STATUS_EXPIRED,
+        ExamSession.STATUS_INVALIDATED,
+    }
+    return {
+        "id": session.id,
+        "paper_id": paper.id,
+        "title": paper.title,
+        "description": paper.description or "当前老师没有补充考试说明。",
+        "course_title": paper.course.title if paper.course_id and paper.course else "未绑定课程",
+        "teacher_name": paper.teacher.full_name or paper.teacher.username,
+        "mode": paper.mode,
+        "mode_text": get_exam_mode_text(paper.mode),
+        "session_type": session.session_type,
+        "session_type_text": get_exam_session_type_text(session.session_type),
+        "requires_explanations": session.session_type == ExamSession.SESSION_TYPE_WRONG_PRACTICE,
+        "time_rule_text": build_exam_time_rule_text(paper),
+        "duration_minutes": paper.duration_minutes,
+        "start_at_text": format_datetime(paper.start_at) if paper.start_at else "未设置",
+        "end_at_text": format_datetime(window_end) if window_end else "未设置",
+        "proctoring_enabled": paper.proctoring_enabled,
+        "status": session.status,
+        "status_text": get_exam_session_status_text(session.status),
+        "status_tone": get_exam_session_status_tone(session.status),
+        "total_count": session.total_count,
+        "correct_count": session.correct_count,
+        "wrong_count": session.wrong_count,
+        "total_score": format_exam_score(session.total_score),
+        "earned_score": format_exam_score(session.earned_score),
+        "switch_count": session.switch_count,
+        "created_at_text": format_datetime(session.created_at),
+        "started_at_text": format_datetime(session.started_at) if session.started_at else "未开始",
+        "submitted_at_text": format_datetime(session.submitted_at) if session.submitted_at else "未提交",
+        "is_finished": is_finished,
+        "is_in_progress": session.status == ExamSession.STATUS_IN_PROGRESS,
+        "can_start": bool(entry_state["can_start"]) and session.status == ExamSession.STATUS_ASSIGNED,
+        "entry_message": str(entry_state["message"]),
+    }
+
+
+def build_teacher_exam_course_options(portal_user: PortalUser, student: Student) -> list[dict]:
+    options = []
+    seen_course_ids = set()
+    assignments = (
+        TeacherStudentAssignment.objects.select_related("course")
+        .filter(teacher=portal_user, student=student, is_active=True)
+        .order_by("course_id", "level_code", "id")
+    )
+    for assignment in assignments:
+        if assignment.course_id in seen_course_ids:
+            continue
+        seen_course_ids.add(assignment.course_id)
+        options.append(
+            {
+                "id": assignment.course_id,
+                "title": assignment.course.title,
+                "label": f"{assignment.course.title} / {assignment.level_code}",
+            }
+        )
+    return options
+
+
+def build_teacher_student_exam_context(
+    portal_user: PortalUser,
+    student: Student,
+    *,
+    exam_form_values: dict[str, object] | None = None,
+    exam_error_message: str = "",
+    exam_success_message: str = "",
+) -> dict:
+    sessions = list(
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(paper__teacher=portal_user, student=student, is_active=True, paper__is_active=True)
+        .order_by("-created_at", "-id")
+    )
+    exam_items = [serialize_exam_session(session) for session in sessions]
+    for item in exam_items:
+        item["teacher_detail_href"] = reverse("teacher-student-exam-detail", args=[student.id, item["id"]])
+    completed_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_AUTO_CHECKED)
+    in_progress_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_IN_PROGRESS)
+    assigned_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_ASSIGNED)
+    course_options = build_teacher_exam_course_options(portal_user, student)
+    selected_course_id = normalize_positive_value((exam_form_values or {}).get("course_id"), default=0, minimum=0)
+    if not selected_course_id and course_options:
+        selected_course_id = course_options[0]["id"]
+    return {
+        "exam_items": exam_items,
+        "exam_summary_items": [
+            {"label": "考试总数", "value": f"{len(sessions)} 场", "hint": "当前学生下的考试记录"},
+            {"label": "待开始", "value": f"{assigned_count} 场", "hint": "学生还没有开始的考试"},
+            {"label": "考试中", "value": f"{in_progress_count} 场", "hint": "学生已打开但未交卷"},
+            {"label": "已判分", "value": f"{completed_count} 场", "hint": "已提交并自动判分"},
+        ],
+        "exam_course_options": course_options,
+        "exam_create_disabled_reason": "当前学生不在你的负责课程范围内，暂时不能创建考试。" if not course_options else "",
+        "exam_error_message": exam_error_message,
+        "exam_success_message": exam_success_message,
+        "exam_modal_should_open": bool(exam_error_message),
+        "exam_form_values": {
+            "course_id": selected_course_id,
+            "title": str((exam_form_values or {}).get("title") or "阶段测验"),
+            "description": str((exam_form_values or {}).get("description") or ""),
+            "duration_minutes": str((exam_form_values or {}).get("duration_minutes") or "60"),
+            "proctoring_enabled": bool((exam_form_values or {}).get("proctoring_enabled")),
+            "questions": list((exam_form_values or {}).get("questions") or []),
+        },
+    }
+
+
+def build_teacher_exam_page_context(
+    portal_user: PortalUser,
+    *,
+    form_values: dict[str, object] | None = None,
+    error_message: str = "",
+    success_message: str = "",
+) -> dict:
+    assignments = list(get_teacher_active_assignments(portal_user))
+    assignments_by_course: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in assignments:
+        assignments_by_course[assignment.course_id].append(assignment)
+
+    course_options = []
+    for course_id, course_assignments in assignments_by_course.items():
+        course = course_assignments[0].course
+        unique_student_ids = {assignment.student_id for assignment in course_assignments}
+        course_options.append(
+            {
+                "id": course_id,
+                "title": course.title,
+                "label": f"{course.title} / {len(unique_student_ids)} 人",
+                "student_count": len(unique_student_ids),
+            }
+        )
+    course_options.sort(key=lambda item: item["title"])
+    selected_course_id = normalize_positive_value((form_values or {}).get("course_id"), default=0, minimum=0)
+    if not selected_course_id and course_options:
+        selected_course_id = course_options[0]["id"]
+
+    selected_student_ids = {
+        normalize_positive_value(value, default=0, minimum=1)
+        for value in ((form_values or {}).get("student_ids") or [])
+    }
+    selected_student_ids.discard(0)
+    selected_question_ids = [
+        normalize_positive_value(value, default=0, minimum=1)
+        for value in ((form_values or {}).get("question_bank_item_ids") or [])
+    ]
+    selected_question_ids = [item_id for item_id in selected_question_ids if item_id]
+    student_options = []
+    seen_pairs = set()
+    for assignment in assignments:
+        pair_key = (assignment.course_id, assignment.student_id)
+        if pair_key in seen_pairs:
+            continue
+        seen_pairs.add(pair_key)
+        is_default_selected = assignment.course_id == selected_course_id and not selected_student_ids
+        student_options.append(
+            {
+                "id": assignment.student_id,
+                "course_id": assignment.course_id,
+                "name": assignment.student.display_name,
+                "grade": assignment.student.grade or "待补充",
+                "scope": f"{assignment.course.title} / {assignment.level_code}",
+                "parent_phone": assignment.student.parent_user.phone if assignment.student.parent_user else "",
+                "is_selected": assignment.student_id in selected_student_ids or is_default_selected,
+            }
+        )
+
+    teacher_course_ids = sorted(assignments_by_course.keys())
+    question_bank_items = list(
+        ExamQuestionBankItem.objects.select_related("course", "content")
+        .filter(course_id__in=teacher_course_ids, is_active=True)
+        .order_by("course_id", "level_code", "knowledge_point", "id")
+    )
+    question_bank_rows = [serialize_exam_bank_item(item) for item in question_bank_items]
+    available_papers = list(
+        ExamQuestionBankPaper.objects.filter(is_active=True).order_by("-year", "-month", "level", "source_pdf_id", "id")
+    )
+    current_teacher_name = portal_user.full_name or portal_user.username
+    available_paper_rows = [
+        serialize_available_exam_bank_paper(paper, publisher_name=current_teacher_name) for paper in available_papers
+    ]
+    teacher_filter_options = [
+        {
+            "id": teacher.id,
+            "label": teacher.full_name or teacher.username,
+        }
+        for teacher in PortalUser.objects.filter(role=PortalUser.ROLE_TEACHER, is_active=True).order_by("full_name", "id")
+    ]
+    subject_filter_options = ["C++", "Python", "无人机", "AI", "SCRATCH"]
+    level_filter_options_by_subject: dict[str, list[str]] = {subject: [] for subject in subject_filter_options}
+
+    def add_level_filter_option(subject_title: str, level_code: object) -> None:
+        normalized_subject = str(subject_title or "").strip()
+        normalized_level = str(level_code or "").strip()
+        if not normalized_subject or not normalized_level:
+            return
+        subject_key = next(
+            (subject for subject in subject_filter_options if subject.lower() == normalized_subject.lower()),
+            normalized_subject,
+        )
+        level_filter_options_by_subject.setdefault(subject_key, [])
+        if normalized_level not in level_filter_options_by_subject[subject_key]:
+            level_filter_options_by_subject[subject_key].append(normalized_level)
+
+    course_levels = (
+        CourseLevel.objects.select_related("category", "category__course")
+        .filter(is_active=True, category__is_active=True)
+        .order_by("category__course__title", "category__sort_order", "category_id", "sort_order", "id")
+    )
+    for level in course_levels:
+        add_level_filter_option(
+            level.category.course.title if level.category_id and level.category and level.category.course else "",
+            level.code or level.title,
+        )
+    for assignment in assignments:
+        add_level_filter_option(assignment.course.title if assignment.course_id and assignment.course else "", assignment.level_code)
+    for item in question_bank_items:
+        add_level_filter_option(item.course.title if item.course_id and item.course else "", item.level_code)
+    for row in available_paper_rows:
+        add_level_filter_option(row["subject_title"], row["level_text"])
+    for fallback_level in ["CSP-J", "CSP-S", *[f"GESP{index}" for index in range(1, 9)]]:
+        add_level_filter_option("C++", fallback_level)
+    level_filter_options = []
+    for levels in level_filter_options_by_subject.values():
+        for level in levels:
+            if level not in level_filter_options:
+                level_filter_options.append(level)
+
+    now = timezone.localtime(timezone.now())
+    default_start_at = now + timedelta(minutes=10)
+    default_deadline = now + timedelta(days=7)
+    selected_mode = str((form_values or {}).get("mode") or ExamPaper.MODE_TIMED)
+    if selected_mode not in {ExamPaper.MODE_TIMED, ExamPaper.MODE_DEADLINE}:
+        selected_mode = ExamPaper.MODE_TIMED
+
+    papers = list(
+        ExamPaper.objects.select_related("course", "teacher")
+        .filter(teacher=portal_user, is_active=True)
+        .annotate(
+            question_count=Count("questions", filter=Q(questions__is_active=True)),
+            session_count=Count("sessions", filter=Q(sessions__is_active=True)),
+            assigned_count=Count(
+                "sessions",
+                filter=Q(sessions__is_active=True, sessions__status=ExamSession.STATUS_ASSIGNED),
+            ),
+            in_progress_count=Count(
+                "sessions",
+                filter=Q(sessions__is_active=True, sessions__status=ExamSession.STATUS_IN_PROGRESS),
+            ),
+            checked_count=Count(
+                "sessions",
+                filter=Q(sessions__is_active=True, sessions__status=ExamSession.STATUS_AUTO_CHECKED),
+            ),
+        )
+        .order_by("-created_at", "-id")[:50]
+    )
+    exam_items = []
+    for paper in papers:
+        meta = collect_exam_paper_question_meta(paper)
+        status_summary = build_exam_paper_status_summary(paper)
+        window_end = get_exam_window_end(paper)
+        exam_items.append(
+            {
+            "id": paper.id,
+            "title": paper.title,
+            "subject_title": paper.course.title if paper.course_id and paper.course else "未绑定学科",
+            "level_text": meta["level_text"],
+            "knowledge_text": meta["knowledge_text"],
+            "course_title": paper.course.title if paper.course_id and paper.course else "未绑定课程",
+            "exam_type_text": get_exam_mode_text(paper.mode),
+            "creator_name": paper.teacher.full_name or paper.teacher.username,
+            "mode_text": get_exam_mode_text(paper.mode),
+            "time_rule_text": build_exam_time_rule_text(paper),
+            "status_text": status_summary["text"],
+            "status_tone": status_summary["tone"],
+            "is_running": status_summary["is_running"],
+            "session_count": paper.session_count,
+            "assigned_count": paper.assigned_count,
+            "in_progress_count": paper.in_progress_count,
+            "checked_count": paper.checked_count,
+            "question_count": paper.question_count,
+            "access_code": paper.access_code,
+            "access_code_text": paper.access_code or "未生成",
+            "can_start_exam": not bool(status_summary["is_running"]),
+            "start_disabled_reason": "正在考试中，不允许重新生成口令。" if status_summary["is_running"] else "",
+            "start_action": reverse("teacher-exams"),
+            "detail_href": reverse("teacher-exam-detail", args=[paper.id]),
+            "edit_disabled_reason": "",
+            "schedule_mode": "scheduled" if paper.mode == ExamPaper.MODE_TIMED else "countdown",
+            "start_at_input": format_datetime_input_value(paper.start_at),
+            "end_at_input": format_datetime_input_value(window_end),
+            "duration_minutes": int(paper.duration_minutes or 45),
+            "created_at_text": format_datetime(paper.created_at),
+            "created_at_value": timezone.localtime(paper.created_at).date().isoformat() if paper.created_at else "",
+            "proctoring_enabled": paper.proctoring_enabled,
+            "search_text": " ".join(
+                [
+                    paper.title,
+                    paper.course.title if paper.course_id and paper.course else "",
+                    meta["search_text"],
+                    paper.teacher.full_name or paper.teacher.username,
+                    get_exam_mode_text(paper.mode),
+                    str(status_summary["text"]),
+                ]
+            ),
+            }
+        )
+
+    return {
+        "page_title": "考试管理",
+        "page_description": "从这里统一创建考试并发布给当前负责学生。考试入口不挂在每个学生行上。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "考试管理"},
+        ],
+        "summary_cards": [
+            {"label": "可发布课程", "value": f"{len(course_options)} 门", "hint": "来自当前教师负责关系"},
+            {"label": "可选学生", "value": f"{len({item['id'] for item in student_options})} 人", "hint": "按课程关系过滤"},
+            {"label": "题库题目", "value": f"{len(question_bank_rows)} 题", "hint": "当前负责课程下的可选题目"},
+            {"label": "已发布考试", "value": f"{len(papers)} 场", "hint": "最近 50 场"},
+        ],
+        "course_options": course_options,
+        "student_options": student_options,
+        "teacher_filter_options": teacher_filter_options,
+        "subject_filter_options": subject_filter_options,
+        "level_filter_options": level_filter_options,
+        "level_filter_options_by_subject": level_filter_options_by_subject,
+        "question_bank_rows": question_bank_rows,
+        "available_paper_rows": available_paper_rows,
+        "selected_question_ids": selected_question_ids,
+        "exam_items": exam_items,
+        "exam_table_rows": exam_items,
+        "error_message": error_message,
+        "success_message": success_message,
+        "form_values": {
+            "course_id": selected_course_id,
+            "mode": selected_mode,
+            "title": str((form_values or {}).get("title") or "阶段测验"),
+            "description": str((form_values or {}).get("description") or ""),
+            "duration_minutes": str((form_values or {}).get("duration_minutes") or "45"),
+            "start_at": str((form_values or {}).get("start_at") or default_start_at.strftime("%Y-%m-%dT%H:%M")),
+            "end_at": str((form_values or {}).get("end_at") or default_deadline.strftime("%Y-%m-%dT%H:%M")),
+            "proctoring_enabled": bool((form_values or {}).get("proctoring_enabled")),
+            "question_bank_item_ids": selected_question_ids,
+        },
+        "exam_bank_import_action": reverse("teacher-exams"),
+        "exam_bank_import_accept": ".json,application/json",
+        "exam_bank_import_sample": json.dumps(
+            {
+                "questions": [
+                    {
+                        "level_code": "P1",
+                        "knowledge_point": "加法基础",
+                        "stem": "1 + 1 = ?",
+                        "options": {"A": "2", "B": "3", "C": "4", "D": "5"},
+                        "correct_answer": "A",
+                        "analysis": "1 加 1 等于 2。",
+                        "score": 1,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        "mode_options": [
+            {"value": ExamPaper.MODE_TIMED, "label": "定时模式"},
+            {"value": ExamPaper.MODE_DEADLINE, "label": "DL模式"},
+        ],
+        "back_href": f"{reverse('teacher-students')}?tab=students",
+        "empty_message": "当前还没有发布过考试。",
+        "create_disabled_reason": "当前老师还没有负责课程，暂时不能创建考试。" if not course_options else "",
+    }
+
+
+def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) -> dict:
+    paper = (
+        ExamPaper.objects.select_related("teacher", "course")
+        .filter(id=paper_id, teacher=portal_user, is_active=True)
+        .get()
+    )
+    all_sessions = list(
+        paper.sessions.select_related("student")
+        .filter(is_active=True)
+        .order_by("-earned_score", "submitted_at", "id")
+    )
+    window_end = get_exam_window_end(paper)
+    eligible_exam_sessions = [
+        session
+        for session in all_sessions
+        if session.session_type == ExamSession.SESSION_TYPE_EXAM
+        and session.status in {ExamSession.STATUS_SUBMITTED, ExamSession.STATUS_AUTO_CHECKED}
+        and session.submitted_at
+        and (window_end is None or session.submitted_at <= window_end)
+    ]
+    eligible_exam_sessions.sort(
+        key=lambda session: (
+            -(session.earned_score or 0),
+            session.submitted_at or timezone.now(),
+            session.id,
+        )
+    )
+    eligible_exam_session_ids = [session.id for session in eligible_exam_sessions]
+    practice_sessions = [
+        session
+        for session in all_sessions
+        if session.session_type in EXAM_PRACTICE_SESSION_TYPES
+        and session.status in FINISHED_EXAM_SESSION_STATUSES
+        and session.submitted_at
+    ]
+    practice_sessions.sort(key=lambda session: (session.submitted_at, session.id), reverse=True)
+    questions = list(paper.questions.filter(is_active=True).order_by("question_no", "id"))
+    answers = list(
+        ExamSubmissionAnswer.objects.select_related("session", "session__student", "question")
+        .filter(session_id__in=eligible_exam_session_ids)
+        .order_by("question_id", "session_id")
+    )
+    answers_by_question: dict[int, list[ExamSubmissionAnswer]] = defaultdict(list)
+    for answer in answers:
+        answers_by_question[answer.question_id].append(answer)
+
+    question_rows = []
+    for question in questions:
+        question_answers = answers_by_question.get(question.id, [])
+        correct_count = sum(1 for answer in question_answers if answer.is_correct)
+        wrong_answers = [
+            str(answer.selected_answer or "未作答").strip() or "未作答"
+            for answer in question_answers
+            if not answer.is_correct
+        ]
+        distinct_wrong_answers = []
+        for wrong_answer in wrong_answers:
+            if wrong_answer not in distinct_wrong_answers:
+                distinct_wrong_answers.append(wrong_answer)
+        answer_count = correct_count + len(wrong_answers)
+        wrong_rate_value = len(wrong_answers) / answer_count if answer_count else 0
+        wrong_rate_percent = round(wrong_rate_value * 100, 1)
+        serialized_question = serialize_exam_question(question, show_feedback=True)
+        question_rows.append(
+            {
+                **serialized_question,
+                "correct_count": correct_count,
+                "wrong_count": len(wrong_answers),
+                "answer_count": answer_count,
+                "wrong_rate_value": wrong_rate_value,
+                "wrong_rate_text": f"{wrong_rate_percent:g}%",
+                "wrong_answers_text": "，".join(distinct_wrong_answers),
+                "wrong_summary_text": (
+                    f"{len(wrong_answers)}；错误答案还有：{'，'.join(distinct_wrong_answers)}"
+                    if wrong_answers
+                    else "0"
+                ),
+            }
+        )
+    question_rows.sort(
+        key=lambda row: (
+            -float(row["wrong_rate_value"] or 0),
+            normalize_exam_question_no_for_sort(row["question_no"]),
+        ),
+    )
+
+    leaderboard_rows = []
+    for index, session in enumerate(
+        eligible_exam_sessions[:10],
+        start=1,
+    ):
+        leaderboard_rows.append(
+            {
+                "rank": index,
+                "student_name": session.student.display_name,
+                "earned_score": format_exam_score(session.earned_score),
+                "total_score": format_exam_score(session.total_score),
+                "correct_count": session.correct_count,
+                "wrong_count": session.wrong_count,
+                "submitted_at_text": format_datetime(session.submitted_at),
+                "switch_count": session.switch_count,
+            }
+        )
+    practice_session_rows = [
+        {
+            "id": session.id,
+            "student_name": session.student.display_name,
+            "submitted_at_text": format_datetime(session.submitted_at),
+            "submitted_at_value": timezone.localtime(session.submitted_at).isoformat() if session.submitted_at else "",
+            "session_type": session.session_type,
+            "session_type_text": TEACHER_EXAM_PRACTICE_SESSION_TYPE_LABELS.get(
+                session.session_type,
+                get_exam_session_type_text(session.session_type),
+            ),
+            "score_summary": f"{session.correct_count} / {session.total_count}",
+            "correct_count": session.correct_count,
+            "total_count": session.total_count,
+            "earned_score": format_exam_score(session.earned_score),
+            "total_score": format_exam_score(session.total_score),
+            "detail_href": reverse("teacher-student-exam-detail", args=[session.student_id, session.id]),
+            "search_text": " ".join(
+                [
+                    session.student.display_name,
+                    get_exam_session_type_text(session.session_type),
+                    format_datetime(session.submitted_at),
+                    f"{session.correct_count}/{session.total_count}",
+                ]
+            ),
+        }
+        for session in practice_sessions
+    ]
+
+    status_summary = build_exam_paper_status_summary(
+        ExamPaper.objects.filter(id=paper.id)
+        .annotate(
+            session_count=Count("sessions", filter=Q(sessions__is_active=True)),
+            in_progress_count=Count(
+                "sessions",
+                filter=Q(sessions__is_active=True, sessions__status=ExamSession.STATUS_IN_PROGRESS),
+            ),
+            checked_count=Count(
+                "sessions",
+                filter=Q(sessions__is_active=True, sessions__status=ExamSession.STATUS_AUTO_CHECKED),
+            ),
+        )
+        .get()
+    )
+    meta = collect_exam_paper_question_meta(paper)
+    return {
+        "page_title": paper.title,
+        "page_description": "这里展示单场考试排行榜、完整试卷内容、答案解析和逐题正误统计。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "考试管理", "href": reverse("teacher-exams")},
+            {"label": paper.title},
+        ],
+        "summary_cards": [
+            {"label": "考试状态", "value": str(status_summary["text"]), "hint": build_exam_time_rule_text(paper)},
+            {"label": "考试提交", "value": f"{len(eligible_exam_sessions)} 条", "hint": "考试结束前的正式提交"},
+            {"label": "题目数量", "value": f"{len(questions)} 题", "hint": meta["knowledge_text"]},
+            {"label": "口令", "value": paper.access_code or "未生成", "hint": "开始考试后生成 6 位口令"},
+        ],
+        "paper": paper,
+        "leaderboard_rows": leaderboard_rows,
+        "practice_session_rows": practice_session_rows,
+        "question_rows": question_rows,
+        "back_href": reverse("teacher-exams"),
+        "empty_leaderboard_message": "当前还没有已提交并判分的学生记录。",
+        "empty_practice_message": "当前还没有学生独立练习记录。",
+    }
+
+
+def build_teacher_student_exam_detail_context(
+    portal_user: PortalUser,
+    student_id: int,
+    session_id: int,
+) -> dict:
+    session = (
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course", "student")
+        .filter(id=session_id, student_id=student_id, paper__teacher=portal_user, is_active=True, paper__is_active=True)
+        .get()
+    )
+    questions = get_exam_session_questions(session)
+    answers = {
+        answer.question_id: answer
+        for answer in session.answers.select_related("question").all()
+    }
+    question_rows = [
+        serialize_exam_question(question, answer=answers.get(question.id), show_feedback=True)
+        for question in questions
+    ]
+    wrong_rows = [question for question in question_rows if question["is_wrong"]]
+    proctor_events = list(session.proctor_events.order_by("occurred_at", "id")[:100])
+    serialized = serialize_exam_session(session)
+    return {
+        "page_title": f"{session.student.display_name} · {session.paper.title}",
+        "page_description": "查看学生本次提交的完整题目、答案、解析和监考事件。",
+        "breadcrumbs": [
+            {"label": "教师学生列表", "href": reverse("teacher-students")},
+            {"label": "考试管理", "href": reverse("teacher-exams")},
+            {"label": session.student.display_name, "href": reverse("teacher-student-detail", args=[session.student_id])},
+            {"label": session.paper.title},
+        ],
+        "summary_cards": [
+            {"label": "得分", "value": f"{serialized['earned_score']} / {serialized['total_score']}", "hint": serialized["status_text"]},
+            {"label": "正确题数", "value": f"{serialized['correct_count']} / {serialized['total_count']}", "hint": "自动判分结果"},
+            {"label": "提交类型", "value": serialized["session_type_text"], "hint": f"错题 {serialized['wrong_count']} 题"},
+            {"label": "切屏次数", "value": f"{serialized['switch_count']} 次", "hint": "来自浏览器监考事件"},
+        ],
+        "session": serialized,
+        "student": session.student,
+        "question_rows": question_rows,
+        "wrong_question_rows": wrong_rows,
+        "proctor_event_rows": [
+            {
+                "event_type": event.event_type,
+                "event_type_text": dict(ExamProctorEvent.EVENT_CHOICES).get(event.event_type, event.event_type),
+                "occurred_at_text": format_datetime(event.occurred_at),
+            }
+            for event in proctor_events
+        ],
+        "back_href": reverse("teacher-exam-detail", args=[session.paper_id]),
+    }
+
+
 def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
     student = get_student_by_user(portal_user)
     assignments = list(get_student_homework_queryset(student))
+    exam_sessions = list(
+        ExamSession.objects.filter(student=student, is_active=True, paper__is_active=True)
+    )
     completed_like = {HomeworkAssignment.STATUS_COMPLETED, HomeworkAssignment.STATUS_REVIEWED}
     pending_count = sum(1 for assignment in assignments if assignment.status == HomeworkAssignment.STATUS_ASSIGNED)
     completed_count = sum(1 for assignment in assignments if assignment.status in completed_like)
+    pending_exam_count = sum(
+        1
+        for session in exam_sessions
+        if session.status in {ExamSession.STATUS_ASSIGNED, ExamSession.STATUS_IN_PROGRESS}
+    )
     return {
         "page_mode": "entry_grid",
         "grid_variant": "three",
@@ -2588,7 +3675,7 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
         "summary_cards": [
             {"label": "我的作业", "value": f"{len(assignments)} 条"},
             {"label": "待完成", "value": f"{pending_count} 条"},
-            {"label": "已完成", "value": f"{completed_count} 条"},
+            {"label": "我的考试", "value": f"{len(exam_sessions)} 场"},
         ],
         "entry_hint": "先看“我的作业”，再打开对应知识点页完成练习。",
         "portal_cards": [
@@ -2603,6 +3690,18 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
                 "featured": True,
                 "action_label": "进入我的作业",
                 "action_href": reverse("student-homework-list"),
+            },
+            {
+                "slug": "exams",
+                "title": "我的考试",
+                "meta": "在线考试",
+                "subtitle": "查看老师发布的考试",
+                "note": f"当前共有 {len(exam_sessions)} 场考试，待完成 {pending_exam_count} 场。",
+                "state": "open",
+                "status_text": "已开放",
+                "featured": True,
+                "action_label": "进入我的考试",
+                "action_href": reverse("student-exam-list"),
             },
             {
                 "slug": "oj",
@@ -2651,6 +3750,315 @@ def build_student_homework_list_context(portal_user: PortalUser) -> dict:
         "homework_items": homework_items,
         "homework_table_rows": build_homework_assignment_table_rows(homework_items),
         "empty_message": "当前还没有老师布置的作业，先继续按课程进度学习。",
+    }
+
+
+def build_student_exam_list_context(
+    portal_user: PortalUser,
+    *,
+    error_message: str = "",
+    success_message: str = "",
+) -> dict:
+    student = get_student_by_user(portal_user)
+    sessions = list(
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(student=student, is_active=True, paper__is_active=True)
+        .order_by("-created_at", "-id")
+    )
+    assigned_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_ASSIGNED)
+    in_progress_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_IN_PROGRESS)
+    checked_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_AUTO_CHECKED)
+    exam_items = [serialize_exam_session(session) for session in sessions]
+    for item in exam_items:
+        item["detail_href"] = reverse("student-exam-detail", args=[item["id"]])
+        if item["is_finished"]:
+            item["action_label"] = "查看结果"
+        elif item["is_in_progress"]:
+            item["action_label"] = "继续作答"
+        else:
+            item["action_label"] = "查看并开始"
+
+    sessions_by_paper: dict[int, list[ExamSession]] = defaultdict(list)
+    for session in sessions:
+        sessions_by_paper[session.paper_id].append(session)
+    exam_table_rows = []
+    for paper_id, paper_sessions in sessions_by_paper.items():
+        latest_session = sorted(paper_sessions, key=lambda item: (item.created_at, item.id), reverse=True)[0]
+        paper = latest_session.paper
+        meta = collect_exam_paper_question_meta(paper)
+        serialized = serialize_exam_session(latest_session)
+        exam_table_rows.append(
+            {
+                "paper_id": paper_id,
+                "latest_session_id": latest_session.id,
+                "title": paper.title,
+                "knowledge_point": meta["knowledge_text"],
+                "level_text": meta["level_text"],
+                "course_title": serialized["course_title"],
+                "teacher_name": serialized["teacher_name"],
+                "session_type_text": serialized["session_type_text"],
+                "exam_time_text": serialized["time_rule_text"],
+                "exam_time_value": (
+                    timezone.localtime(paper.start_at or paper.end_at or paper.created_at).date().isoformat()
+                    if (paper.start_at or paper.end_at or paper.created_at)
+                    else ""
+                ),
+                "exam_time_sort_value": timezone.localtime(
+                    latest_session.created_at or paper.start_at or paper.end_at or paper.created_at
+                ).isoformat(),
+                "status_text": serialized["status_text"],
+                "status_tone": serialized["status_tone"],
+                "attempt_count": len(paper_sessions),
+                "latest_score": f"{serialized['earned_score']} / {serialized['total_score']}",
+                "latest_started_at_text": serialized["started_at_text"],
+                "latest_submitted_at_text": serialized["submitted_at_text"],
+                "detail_href": reverse("student-exam-record-detail", args=[paper_id]),
+                "search_text": " ".join(
+                    [
+                        paper.title,
+                        meta["knowledge_text"],
+                        meta["level_text"],
+                        serialized["course_title"],
+                        serialized["teacher_name"],
+                        serialized["session_type_text"],
+                        serialized["time_rule_text"],
+                        serialized["status_text"],
+                    ]
+                ),
+            }
+        )
+    exam_table_rows.sort(key=lambda row: (row["exam_time_sort_value"], row["paper_id"]), reverse=True)
+    return {
+        "page_title": "我的考试",
+        "page_description": "这里按试卷展示你的考试记录，输入老师给出的 6 位口令后可开启考试。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的考试"},
+        ],
+        "summary_cards": [
+            {"label": "考试总数", "value": f"{len(sessions)} 场", "hint": "当前账号下的全部考试"},
+            {"label": "待开始", "value": f"{assigned_count} 场", "hint": "还没有进入考试"},
+            {"label": "考试中", "value": f"{in_progress_count} 场", "hint": "已开始但未交卷"},
+            {"label": "已判分", "value": f"{checked_count} 场", "hint": "已提交并自动判分"},
+        ],
+        "exam_items": exam_items,
+        "exam_table_rows": exam_table_rows,
+        "error_message": error_message,
+        "success_message": success_message,
+        "empty_message": "当前还没有老师发布的考试。",
+    }
+
+
+def build_student_exam_record_detail_context(portal_user: PortalUser, paper_id: int) -> dict:
+    student = get_student_by_user(portal_user)
+    paper = (
+        ExamPaper.objects.select_related("teacher", "course")
+        .filter(id=paper_id, sessions__student=student, sessions__is_active=True, is_active=True)
+        .distinct()
+        .get()
+    )
+    sessions = list(
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(paper=paper, student=student, is_active=True)
+        .order_by("-attempt_no", "-created_at", "-id")
+    )
+    session_rows = []
+    for session in sessions:
+        serialized = serialize_exam_session(session)
+        if serialized["is_finished"]:
+            action_label = "查看结果"
+        elif serialized["is_in_progress"]:
+            action_label = "继续作答"
+        else:
+            action_label = "查看并开始"
+        session_rows.append(
+            {
+                **serialized,
+                "attempt_no": session.attempt_no,
+                "attempt_label": f"第 {session.attempt_no} 次",
+                "session_type_text": serialized["session_type_text"],
+                "detail_href": reverse("student-exam-detail", args=[session.id]),
+                "action_label": action_label,
+            }
+        )
+    meta = collect_exam_paper_question_meta(paper)
+    completed_count = sum(
+        1
+        for session in sessions
+        if session.status in {
+            ExamSession.STATUS_SUBMITTED,
+            ExamSession.STATUS_AUTO_CHECKED,
+            ExamSession.STATUS_EXPIRED,
+            ExamSession.STATUS_INVALIDATED,
+        }
+    )
+    best_score = max((session.earned_score for session in sessions), default=0)
+    return {
+        "page_title": paper.title,
+        "page_description": "这里展示同一场考试的全部作答记录，点击某一次记录后再进入考试或查看结果。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的考试", "href": reverse("student-exam-list")},
+            {"label": paper.title},
+        ],
+        "summary_cards": [
+            {"label": "作答记录", "value": f"{len(sessions)} 条", "hint": "同一考试下的全部记录"},
+            {"label": "已完成", "value": f"{completed_count} 条", "hint": "已提交、过期或作废的记录"},
+            {"label": "最高得分", "value": format_exam_score(best_score), "hint": "按历史记录统计"},
+            {"label": "知识点", "value": meta["knowledge_text"], "hint": meta["level_text"]},
+        ],
+        "paper": paper,
+        "session_rows": session_rows,
+        "empty_message": "当前考试还没有作答记录。",
+        "back_list_href": reverse("student-exam-list"),
+    }
+
+
+def build_student_exam_detail_context(
+    portal_user: PortalUser,
+    session_id: int,
+    *,
+    selected_answer_overrides: dict[int, str] | None = None,
+    explanation_overrides: dict[int, str] | None = None,
+) -> dict:
+    student = get_student_by_user(portal_user)
+    session = (
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(id=session_id, student=student, is_active=True, paper__is_active=True)
+        .get()
+    )
+    questions = get_exam_session_questions(session)
+    show_feedback = session.status in {
+        ExamSession.STATUS_SUBMITTED,
+        ExamSession.STATUS_AUTO_CHECKED,
+        ExamSession.STATUS_EXPIRED,
+        ExamSession.STATUS_INVALIDATED,
+    }
+    answers = {
+        answer.question_id: answer
+        for answer in session.answers.select_related("question").all()
+    }
+    requires_explanations = session.session_type == ExamSession.SESSION_TYPE_WRONG_PRACTICE
+    question_rows = [
+        serialize_exam_question(
+            question,
+            answer=answers.get(question.id),
+            show_feedback=show_feedback,
+            requires_explanation=requires_explanations,
+            selected_answer_override=(selected_answer_overrides or {}).get(question.id),
+            student_explanation_override=(explanation_overrides or {}).get(question.id),
+        )
+        for question in questions
+    ]
+    serialized = serialize_exam_session(session)
+    show_answer_sheet = session.status == ExamSession.STATUS_IN_PROGRESS
+    show_start_gate = session.status == ExamSession.STATUS_ASSIGNED
+    first_exam_wrong_question_count = len(get_wrong_question_ids_from_first_exam_session(session))
+    return {
+        "page_title": serialized["title"],
+        "page_description": "先确认考试模式和时间规则，点击开始后进入作答页。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "我的考试", "href": reverse("student-exam-list")},
+            {"label": serialized["title"]},
+        ],
+        "summary_cards": [
+            {"label": "状态", "value": serialized["status_text"], "hint": serialized["session_type_text"]},
+            {"label": "模式", "value": serialized["mode_text"], "hint": serialized["time_rule_text"]},
+            {"label": "题数", "value": f"{len(question_rows)} 题", "hint": "支持单选、判断，编程题暂展示题面"},
+            {"label": "切屏次数", "value": f"{serialized['switch_count']} 次", "hint": "开启监考时记录"},
+        ],
+        "session": serialized,
+        "session_id": session.id,
+        "paper": session.paper,
+        "question_rows": question_rows,
+        "wrong_question_count": first_exam_wrong_question_count,
+        "show_feedback": show_feedback,
+        "show_start_gate": show_start_gate,
+        "show_answer_sheet": show_answer_sheet,
+        "requires_explanations": requires_explanations,
+        "full_practice_action": "start_full_practice",
+        "wrong_practice_action": "start_wrong_practice",
+        "print_blank_full_href": reverse("student-exam-print", args=[session.id]) + "?variant=blank_full",
+        "print_result_full_href": reverse("student-exam-print", args=[session.id]) + "?variant=result_full",
+        "print_blank_wrong_href": reverse("student-exam-print", args=[session.id]) + "?variant=blank_wrong",
+        "print_result_wrong_href": reverse("student-exam-print", args=[session.id]) + "?variant=result_wrong",
+        "proctor_event_api": reverse("api-student-exam-proctor-event", args=[session.id]),
+        "back_list_href": reverse("student-exam-list"),
+    }
+
+
+def build_student_exam_print_context(
+    portal_user: PortalUser,
+    session_id: int,
+    *,
+    variant: str,
+    hide_important_marks: bool = False,
+) -> dict:
+    student = get_student_by_user(portal_user)
+    session = (
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(id=session_id, student=student, is_active=True, paper__is_active=True)
+        .get()
+    )
+    normalized_variant = variant if variant in {"blank_full", "result_full", "blank_wrong", "result_wrong"} else "blank_full"
+    blank_only = normalized_variant.startswith("blank_")
+    wrong_only = normalized_variant.endswith("_wrong")
+    show_result = normalized_variant.startswith("result_")
+    questions = get_exam_session_questions(session)
+    answer_source_session = session
+    answers = {
+        answer.question_id: answer
+        for answer in answer_source_session.answers.select_related("question").all()
+    }
+    if wrong_only:
+        answer_source_session = get_first_finished_exam_session_for_wrong_practice(session)
+        answers = {
+            answer.question_id: answer
+            for answer in answer_source_session.answers.select_related("question").all()
+        }
+        wrong_question_ids = set(get_wrong_question_ids_from_first_exam_session(session))
+        questions = [
+            question
+            for question in session.paper.questions.filter(is_active=True).order_by("question_no", "id")
+            if question.id in wrong_question_ids
+        ]
+    question_rows = [
+        serialize_exam_question(
+            question,
+            answer=answers.get(question.id),
+            show_feedback=show_result,
+        )
+        for question in questions
+    ]
+    serialized = serialize_exam_session(session)
+    mode_text = {
+        "blank_full": "空白整卷",
+        "result_full": "带结果整卷",
+        "blank_wrong": "空白错题卷",
+        "result_wrong": "完整错题卷",
+    }[normalized_variant]
+    return {
+        "page_title": f"{session.paper.title} - {mode_text}",
+        "paper": session.paper,
+        "session": serialized,
+        "question_rows": question_rows,
+        "blank_only": blank_only,
+        "wrong_only": wrong_only,
+        "show_result": show_result,
+        "show_important_marks": not hide_important_marks,
+        "show_important_note_text": show_result and session.session_type == ExamSession.SESSION_TYPE_EXAM,
+        "print_mode_text": mode_text,
+        "meta_items": [
+            {"label": "学生", "value": student.display_name},
+            {"label": "场次", "value": serialized["session_type_text"]},
+            {"label": "记录", "value": f"第 {session.attempt_no} 次"},
+            {"label": "得分", "value": f"{serialized['earned_score']} / {serialized['total_score']}"},
+        ],
+        "empty_message": "这次记录当前没有错题。" if wrong_only else "当前试卷还没有题目。",
     }
 
 
@@ -2734,6 +4142,8 @@ def serialize_homework_import_job(
         "parse_notes": parse_notes,
         "candidate_rows": candidate_rows,
         "candidate_count": len(candidate_rows),
+        "manual_candidate_start_index": len(candidate_rows),
+        "total_candidate_input_count": len(candidate_rows),
         "has_candidates": bool(candidate_rows),
         "ocr_preview": ocr_preview,
         "manual_review_message": manual_review_message,
@@ -2744,7 +4154,7 @@ def serialize_homework_import_job(
         "can_confirm": (
             can_confirm
             if can_confirm is not None
-            else import_job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(candidate_rows)
+            else import_job.parse_status == HomeworkImportJob.STATUS_PARSED
         ),
         "confirm_disabled_reason": confirm_disabled_reason,
     }
@@ -2928,6 +4338,7 @@ def build_teacher_homework_builder_context(
     *,
     upload_error_message: str = "",
     upload_success_message: str = "",
+    selected_import_job_id: int = 0,
 ) -> dict:
     assignment = (
         annotate_homework_online_question_counts(
@@ -2965,15 +4376,22 @@ def build_teacher_homework_builder_context(
         )
         if shared_source_job is not None:
             import_jobs.insert(0, shared_source_job)
-    serialized_jobs = [
-        serialize_homework_import_job(
+    serialized_jobs = []
+    for job in import_jobs:
+        serialized_job = serialize_homework_import_job(
             job,
-            can_confirm=base_confirm_allowed and job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(normalize_candidate_editor_rows(job.candidates_json)),
+            can_confirm=base_confirm_allowed and job.parse_status == HomeworkImportJob.STATUS_PARSED,
             confirm_disabled_reason=confirm_disabled_reason,
         )
-        for job in import_jobs
-    ]
-    latest_job = serialized_jobs[0] if serialized_jobs else None
+        serialized_job["detail_href"] = (
+            f"{reverse('teacher-homework-builder', args=[student.id, assignment.id])}"
+            f"?{urlencode({'import_job_id': job.id})}#candidate-editor"
+        )
+        serialized_job["is_selected"] = job.id == selected_import_job_id
+        serialized_jobs.append(serialized_job)
+    latest_job = next((job for job in serialized_jobs if job["id"] == selected_import_job_id), None)
+    if latest_job is None:
+        latest_job = serialized_jobs[0] if serialized_jobs else None
     confirmed_questions = [
         serialize_homework_question(question)
         for question in get_homework_assignment_questions(assignment)
@@ -3010,6 +4428,7 @@ def build_teacher_question_source_import_context(
     *,
     selected_course_slug: str = "",
     selected_content_id: int = 0,
+    selected_import_job_id: int = 0,
     upload_error_message: str = "",
     upload_success_message: str = "",
 ) -> dict:
@@ -3048,18 +4467,28 @@ def build_teacher_question_source_import_context(
         )
         .order_by("-created_at", "-id")
     )
-    serialized_jobs = [
-        {
+    serialized_jobs = []
+    for job in public_import_jobs:
+        detail_params = {
+            "course": normalized_course_slug,
+            "content_id": job.content_id or normalized_content_id,
+            "import_job_id": job.id,
+        }
+        serialized_job = {
             **serialize_homework_import_job(
                 job,
-                can_confirm=job.parse_status == HomeworkImportJob.STATUS_PARSED and bool(normalize_candidate_editor_rows(job.candidates_json)),
+                can_confirm=job.parse_status == HomeworkImportJob.STATUS_PARSED,
             ),
             **build_homework_import_job_source_metadata(job),
         }
-        for job in public_import_jobs
-    ]
-    latest_job = serialized_jobs[0] if serialized_jobs else None
-    latest_job_object = public_import_jobs[0] if public_import_jobs else None
+        serialized_job["detail_href"] = (
+            f"{reverse('teacher-question-source-import')}?{urlencode(detail_params)}#candidate-editor"
+        )
+        serialized_job["is_selected"] = job.id == selected_import_job_id
+        serialized_jobs.append(serialized_job)
+    selected_job_object = next((job for job in public_import_jobs if job.id == selected_import_job_id), None)
+    latest_job_object = selected_job_object or (public_import_jobs[0] if public_import_jobs else None)
+    latest_job = next((job for job in serialized_jobs if job["id"] == latest_job_object.id), None) if latest_job_object else None
     confirmed_questions = (
         [serialize_homework_question(question) for question in HomeworkQuestion.objects.filter(import_job=latest_job_object, is_active=True).order_by("question_no", "id")]
         if latest_job_object is not None
@@ -4333,6 +5762,17 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     ]
     page_shell["student_pool_links"].insert(
         0,
+        {
+            "label": "考试管理",
+            "href": reverse("teacher-exams"),
+            "import_label": "导入考题",
+            "import_href": f"{reverse('teacher-exams')}#exam-question-bank-import",
+            "homework_batch_label": "",
+            "homework_batch_href": "",
+        },
+    )
+    page_shell["student_pool_links"].insert(
+        1,
         {
             "label": "进入实时课堂",
             "href": reverse("teacher-live-classroom"),
@@ -5718,6 +7158,9 @@ def build_teacher_student_detail_context(
     homework_success_message: str = "",
     homework_summary_form_values: dict[str, object] | None = None,
     homework_summary_error_message: str = "",
+    exam_form_values: dict[str, object] | None = None,
+    exam_error_message: str = "",
+    exam_success_message: str = "",
 ) -> dict:
     student_assignments = list(
         TeacherStudentAssignment.objects.select_related("course", "student", "student__user", "student__parent_user", "student__teacher_user")
@@ -5884,12 +7327,19 @@ def build_teacher_student_detail_context(
         homework_summary_form_values=homework_summary_form_values,
         homework_summary_error_message=homework_summary_error_message,
     )
+    exam_context = build_teacher_student_exam_context(
+        portal_user,
+        student,
+        exam_form_values=exam_form_values,
+        exam_error_message=exam_error_message,
+        exam_success_message=exam_success_message,
+    )
     content_restriction_context = build_teacher_student_content_restriction_context(portal_user, student)
 
     return {
         "student": student,
         "page_title": f"{student.display_name} · 教师工作台",
-        "page_description": "当前页将学生概览、GESP4 专题开放管理、教学记录录入和最近记录整理在同一个最小教师工作台中。",
+        "page_description": "当前页将学生概览、GESP4 专题开放管理、作业、考试、教学记录录入和最近记录整理在同一个教师工作台中。",
         "summary_cards": [
             {
                 "label": "已开放专题",
@@ -5985,6 +7435,7 @@ def build_teacher_student_detail_context(
         ],
         "assignment_management_href": reverse("teacher-student-assignments", args=[student.id]),
         **homework_context,
+        **exam_context,
         **content_restriction_context,
     }
 

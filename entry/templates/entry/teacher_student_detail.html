@@ -54,6 +54,7 @@
                             <a href="#topic-management" class="teacher-anchor-link">专题开放管理</a>
                             <a href="#content-restrictions" class="teacher-anchor-link">内容限制</a>
                             <a href="#homework-panel" class="teacher-anchor-link">作业</a>
+                            <a href="#exam-panel" class="teacher-anchor-link">考试</a>
                             <a href="#teaching-records" class="teacher-anchor-link">教学记录录入</a>
                             <a href="#recent-records" class="teacher-anchor-link">最近记录</a>
                         </div>
@@ -495,6 +496,74 @@
                                 <div class="entry-hint-bar">
                                     <strong>还没有布置作业</strong>
                                     <span>可以先点上方“布置作业”，给当前学生安排一个知识点任务。</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </section>
+                </section>
+
+                <section class="portal-workbench-panel portal-workbench-panel--recent workbench-panel workbench-panel--recent" id="exam-panel">
+                    <div class="section-heading">
+                        <p class="section-heading__eyebrow">Exams</p>
+                        <h3>考试记录</h3>
+                        <p>考试从教师端“考试管理”统一发布。这里仅查看当前学生的考试结果、错题和监考记录。</p>
+                    </div>
+
+                    <div class="portal-mini-stat-grid teacher-mini-stat-grid">
+                        {% for item in exam_summary_items %}
+                            <article class="portal-mini-stat teacher-mini-stat">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                                <p>{{ item.hint }}</p>
+                            </article>
+                        {% endfor %}
+                    </div>
+
+                    <section class="record-panel record-panel--recent portal-block-offset-md">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Exam Records</p>
+                            <h3>当前学生考试记录</h3>
+                        </div>
+
+                        <div class="content-access-list">
+                            {% for item in exam_items %}
+                                <article class="content-access-card content-access-card--{{ item.status_tone }}">
+                                    <div class="content-access-card__top">
+                                        <div>
+                                            <h5>{{ item.title }}</h5>
+                                            <p>{{ item.course_title }} · {{ item.teacher_name }}</p>
+                                        </div>
+                                        <span class="state-pill state-pill--{{ item.status_tone }}">{{ item.status_text }}</span>
+                                    </div>
+                                    <p class="content-access-card__description">{{ item.description }}</p>
+                                    <div class="topic-work-card__meta">
+                                        <article class="topic-work-card__meta-item">
+                                            <span>得分</span>
+                                            <strong>{{ item.earned_score }} / {{ item.total_score }}</strong>
+                                            <p>{{ item.correct_count }} 对 / {{ item.wrong_count }} 错</p>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>模式</span>
+                                            <strong>{{ item.mode_text }}</strong>
+                                            <p>{{ item.time_rule_text }}</p>
+                                        </article>
+                                        <article class="topic-work-card__meta-item">
+                                            <span>监考</span>
+                                            <strong>{% if item.proctoring_enabled %}已开启{% else %}未开启{% endif %}</strong>
+                                            <p>切屏 {{ item.switch_count }} 次</p>
+                                        </article>
+                                    </div>
+                                    <div class="content-access-card__footer">
+                                        <span>{{ item.started_at_text }} / {{ item.submitted_at_text }}</span>
+                                        <div class="topic-access-card__pills">
+                                            <a href="{{ item.teacher_detail_href }}" class="teacher-anchor-link">查看详情</a>
+                                        </div>
+                                    </div>
+                                </article>
+                            {% empty %}
+                                <div class="entry-hint-bar">
+                                    <strong>还没有考试记录</strong>
+                                    <span>请从教师端“考试管理”统一发布考试。</span>
                                 </div>
                             {% endfor %}
                         </div>

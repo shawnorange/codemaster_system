@@ -1,0 +1,241 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page_title }}</title>
+    <link rel="icon" type="image/png" href="{% static 'entry/images/title.png' %}">
+    <link rel="shortcut icon" href="{% static 'entry/images/title.png' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_print.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <style>
+        .exam-print-list {
+            display: grid;
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .exam-print-question {
+            break-inside: avoid;
+            border: 1px solid #dfe7f1;
+            border-radius: 12px;
+            padding: 16px;
+            background: #ffffff;
+        }
+
+        .exam-print-question__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .exam-print-question__header h2 {
+            margin: 0;
+            color: #124f85;
+            font-size: 1.05rem;
+        }
+
+        .exam-print-question__header span {
+            color: #667891;
+            font-size: 0.88rem;
+        }
+
+        .exam-print-image {
+            max-width: 100%;
+            margin: 12px 0;
+            border-radius: 8px;
+        }
+
+        .exam-print-options {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .exam-print-option {
+            border: 1px solid #dfe7f1;
+            border-radius: 8px;
+            padding: 9px 11px;
+            color: #25334a;
+        }
+
+        .exam-print-option--correct {
+            background: #edf9f0;
+            border-color: #57b56a;
+        }
+
+        .exam-print-option--wrong {
+            background: #fff0f0;
+            border-color: #e06767;
+        }
+
+        .exam-print-feedback {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            background: #f7fbff;
+        }
+
+        .exam-important-note {
+            background: #fff8e8;
+            border: 1px solid rgba(190, 126, 0, 0.18);
+            border-radius: 8px;
+            color: #664100;
+            display: grid;
+            gap: 6px;
+            line-height: 1.6;
+            margin: 12px 0;
+            padding: 10px 12px;
+        }
+
+        .exam-important-note strong {
+            color: #8a5700;
+        }
+
+        .exam-print-important-hidden .exam-important-note {
+            display: none !important;
+        }
+
+        .exam-print-toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .print-button--secondary {
+            background: #ffffff;
+            border: 1px solid #cbd9ea;
+            color: #124f85;
+        }
+
+        .exam-print-answer-space {
+            min-height: 64px;
+            margin-top: 12px;
+            border: 1px dashed #c7d4e4;
+            border-radius: 8px;
+        }
+
+        @media print {
+            .exam-print-question {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body class="print-page">
+    <div class="print-shell">
+        <div class="print-logo">
+            <img src="{% static 'entry/images/code_master.png' %}" alt="大师码 Logo">
+        </div>
+
+        <div class="print-toolbar">
+            <div class="print-toolbar__copy">
+                <p>{{ paper.title }}</p>
+                <h1>{{ print_mode_text }}</h1>
+            </div>
+            <div class="exam-print-toolbar-actions">
+                {% if blank_only and show_important_marks %}
+                    <button
+                        type="button"
+                        class="print-button print-button--secondary"
+                        data-clear-print-important
+                    >去重点标记</button>
+                {% endif %}
+                <button type="button" class="print-button" onclick="window.print()">打印</button>
+            </div>
+        </div>
+
+        <div class="meta-grid">
+            {% for item in meta_items %}
+                <article class="meta-card">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                </article>
+            {% endfor %}
+        </div>
+
+        <div class="exam-print-list">
+            {% for question in question_rows %}
+                <article class="exam-print-question">
+                    <div class="exam-print-question__header">
+                        <h2>第 {{ question.question_no }} 题</h2>
+                        <span>{{ question.question_type_text }} · {{ question.score }} 分</span>
+                    </div>
+                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                    {% if question.image_path %}
+                        <img class="exam-print-image" src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片">
+                    {% endif %}
+                    {% if question.option_items %}
+                        <div class="exam-print-options">
+                            {% for option in question.option_items %}
+                                <div class="exam-print-option{% if show_result and option.is_correct_answer %} exam-print-option--correct{% elif show_result and option.is_wrong_selected %} exam-print-option--wrong{% endif %}">
+                                    {{ option.key }}. {{ option.display_text }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="exam-print-answer-space"></div>
+                    {% endif %}
+
+                    {% if show_important_marks and question.is_important %}
+                        <div class="exam-important-note">
+                            <strong>老师标记重点</strong>
+                            {% if show_important_note_text and question.important_note_html %}
+                                <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    {% if blank_only %}
+                        <div class="exam-print-answer-space"></div>
+                    {% elif show_result %}
+                        <div class="exam-print-feedback">
+                            <strong>作答结果</strong>
+                            <span>你的答案：{{ question.student_answer_text }}；正确答案：{{ question.correct_answer }}。</span>
+                            <strong>解析</strong>
+                            <div class="exam-markdown-body">{{ question.analysis_html }}</div>
+                            {% if question.student_explanation_html %}
+                                <strong>你的解析</strong>
+                                <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </article>
+            {% empty %}
+                <article class="exam-print-question">
+                    <div class="exam-print-feedback">{{ empty_message }}</div>
+                </article>
+            {% endfor %}
+        </div>
+    </div>
+    {% if blank_only and show_important_marks %}
+        <script>
+            (function () {
+                const clearButton = document.querySelector("[data-clear-print-important]");
+                if (!clearButton) {
+                    return;
+                }
+                const importantNotes = Array.from(document.querySelectorAll(".exam-important-note"));
+                function syncImportantVisibility(isHidden) {
+                    document.body.classList.toggle("exam-print-important-hidden", isHidden);
+                    importantNotes.forEach((node) => {
+                        node.hidden = isHidden;
+                    });
+                    clearButton.textContent = isHidden ? "显示重点标记" : "去重点标记";
+                    clearButton.setAttribute("aria-pressed", isHidden ? "true" : "false");
+                }
+                clearButton.addEventListener("click", () => {
+                    syncImportantVisibility(!document.body.classList.contains("exam-print-important-hidden"));
+                });
+            })();
+        </script>
+    {% endif %}
+</body>
+</html>

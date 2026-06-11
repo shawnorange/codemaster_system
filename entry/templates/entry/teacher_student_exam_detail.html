@@ -1,0 +1,194 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .teacher-exam-submission-option--correct .topic-access-option__content {
+            background: #edf9f0;
+            border-color: #57b56a;
+        }
+
+        .teacher-exam-submission-option--wrong .topic-access-option__content {
+            background: #fff0f0;
+            border-color: #e06767;
+        }
+
+        .teacher-exam-submission-option--correct .topic-access-option__header h4 {
+            color: #166b2d;
+        }
+
+        .teacher-exam-submission-option--wrong .topic-access-option__header h4 {
+            color: #9d1c1c;
+        }
+
+        .teacher-exam-submission-placeholder {
+            border: 1px dashed #cfd9e7;
+            border-radius: 8px;
+            color: #4f6684;
+            line-height: 1.6;
+            padding: 12px 14px;
+        }
+
+        .teacher-exam-submission-section {
+            margin-top: 24px;
+        }
+
+        .exam-important-note {
+            background: #fff8e8;
+            border: 1px solid rgba(190, 126, 0, 0.18);
+            border-radius: 8px;
+            color: #664100;
+            display: grid;
+            gap: 6px;
+            line-height: 1.6;
+            margin: 12px 0;
+            padding: 10px 12px;
+        }
+
+        .exam-important-note strong {
+            color: #8a5700;
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Exam Detail</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary teacher-exam-submission-section">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Submission Detail</p>
+            <h3>提交详情</h3>
+            <p>这里按学生提交时的答案展示整张卷子，正确答案使用绿色标注，错误答案使用红色标注。</p>
+        </div>
+
+        <div class="content-access-list">
+            {% for question in question_rows %}
+                <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %}">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>第 {{ question.question_no }} 题</h5>
+                            <p>{{ question.question_type_text }} · {{ question.score }} 分 · {{ question.wrong_point_label }}</p>
+                        </div>
+                        {% if question.is_gradable %}
+                            <span class="state-pill state-pill--{% if question.is_correct %}open{% else %}locked{% endif %}">
+                                {% if question.is_correct %}正确{% else %}错误{% endif %}
+                            </span>
+                        {% endif %}
+                    </div>
+                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                    {% if question.image_path %}
+                        <img src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                    {% endif %}
+                    {% if question.is_important %}
+                        <div class="exam-important-note">
+                            <strong>老师标记重点</strong>
+                            {% if question.important_note_html %}
+                                <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                            {% else %}
+                                <span>这道题已被老师标记为重点题。</span>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                    <div class="record-form">
+                        {% if question.option_items %}
+                            {% for option in question.option_items %}
+                                <label class="topic-access-option{% if option.is_correct_answer %} teacher-exam-submission-option--correct{% elif option.is_wrong_selected %} teacher-exam-submission-option--wrong{% endif %}">
+                                    <input
+                                        type="radio"
+                                        name="question_{{ question.id }}"
+                                        value="{{ option.key }}"
+                                        {% if option.is_selected %}checked{% endif %}
+                                        disabled
+                                    >
+                                    <div class="topic-access-option__content">
+                                        <div class="topic-access-option__header">
+                                            <div>
+                                                <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                <h4>{{ option.display_text }}</h4>
+                                            </div>
+                                            {% if option.is_correct_answer %}
+                                                <span class="state-pill state-pill--open">正确答案</span>
+                                            {% elif option.is_wrong_selected %}
+                                                <span class="state-pill state-pill--locked">学生答案</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </label>
+                            {% endfor %}
+                        {% else %}
+                            <div class="teacher-exam-submission-placeholder">
+                                编程题在线提交与评测下一步接入；当前展示学生提交记录和解析。
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="record-inline-feedback">
+                        <strong>解析</strong>
+                        <div class="exam-markdown-body">
+                            {% if question.is_gradable %}
+                                <p class="exam-markdown-body__paragraph">学生答案：{{ question.student_answer_text }}；正确答案：{{ question.correct_answer }}。</p>
+                            {% endif %}
+                            {{ question.analysis_html }}
+                        </div>
+                        {% if question.student_explanation_html %}
+                            <strong>学生解析</strong>
+                            <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
+                        {% endif %}
+                    </div>
+                </article>
+            {% empty %}
+                <div class="entry-hint-bar">当前提交没有题目。</div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel teacher-exam-submission-section">
+        <div class="section-heading section-heading--compact">
+            <p class="section-heading__eyebrow">Proctor Events</p>
+            <h3>监考事件</h3>
+        </div>
+        <ul class="support-list">
+            {% for event in proctor_event_rows %}
+                <li>
+                    <strong>{{ event.event_type_text }}</strong>
+                    <span>{{ event.occurred_at_text }}</span>
+                </li>
+            {% empty %}
+                <li>
+                    <strong>暂无事件</strong>
+                    <span>未开启监考，或学生考试过程中没有触发浏览器事件。</span>
+                </li>
+            {% endfor %}
+        </ul>
+        <div class="topic-access-modal__footer topic-access-modal__footer--course">
+            <a class="teacher-anchor-link" href="{{ back_href }}">返回考试详情</a>
+        </div>
+    </section>
+{% endblock %}

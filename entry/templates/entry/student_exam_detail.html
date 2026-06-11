@@ -1,0 +1,487 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .student-exam-option--correct .topic-access-option__content {
+            background: #edf9f0;
+            border-color: #57b56a;
+        }
+
+        .student-exam-option--wrong .topic-access-option__content {
+            background: #fff0f0;
+            border-color: #e06767;
+        }
+
+        .student-exam-option--correct .topic-access-option__header h4 {
+            color: #166b2d;
+        }
+
+        .student-exam-option--wrong .topic-access-option__header h4 {
+            color: #9d1c1c;
+        }
+
+        .student-exam-programming-placeholder {
+            border: 1px dashed #cfd9e7;
+            border-radius: 8px;
+            color: #4f6684;
+            line-height: 1.6;
+            padding: 12px 14px;
+        }
+
+        .student-exam-result-actions {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin: 0 0 18px;
+        }
+
+        .student-exam-result-actions form,
+        .student-exam-result-actions a,
+        .student-exam-result-actions button {
+            min-width: 0;
+        }
+
+        .student-exam-result-actions .login-button,
+        .student-exam-result-actions .teacher-anchor-link {
+            width: 100%;
+            min-height: 42px;
+            box-sizing: border-box;
+            text-align: center;
+            justify-content: center;
+        }
+
+        .student-exam-explanation-field {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .student-exam-explanation-field span {
+            color: #4f6684;
+            font-size: 0.88rem;
+            font-weight: 700;
+        }
+
+        .student-exam-explanation-field textarea {
+            width: 100%;
+            min-height: 92px;
+            box-sizing: border-box;
+            resize: vertical;
+            border: 1px solid #d8e1ec;
+            border-radius: 10px;
+            padding: 10px 12px;
+            color: #25334a;
+            line-height: 1.6;
+        }
+
+        .student-exam-explanation-field--focus textarea {
+            border-color: #e06767;
+            box-shadow: 0 0 0 3px rgba(224, 103, 103, 0.16);
+        }
+
+        .exam-important-note {
+            background: #fff8e8;
+            border: 1px solid rgba(190, 126, 0, 0.18);
+            border-radius: 8px;
+            color: #664100;
+            display: grid;
+            gap: 6px;
+            line-height: 1.6;
+            margin: 12px 0;
+            padding: 10px 12px;
+        }
+
+        .exam-important-note strong {
+            color: #8a5700;
+        }
+
+        .student-exam-practice-confirm {
+            border: 0;
+            border-radius: 8px;
+            box-shadow: 0 24px 70px rgba(15, 61, 107, 0.22);
+            color: #25334a;
+            max-width: min(460px, calc(100vw - 32px));
+            padding: 0;
+            width: 100%;
+        }
+
+        .student-exam-practice-confirm::backdrop {
+            background: rgba(18, 35, 58, 0.34);
+        }
+
+        .student-exam-practice-confirm__body {
+            display: grid;
+            gap: 14px;
+            padding: 22px;
+        }
+
+        .student-exam-practice-confirm__body h4 {
+            color: #124f85;
+            font-size: 1.08rem;
+            margin: 0;
+        }
+
+        .student-exam-practice-confirm__body p {
+            line-height: 1.7;
+            margin: 0;
+        }
+
+        .student-exam-practice-confirm__actions {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .student-exam-practice-confirm__actions button {
+            justify-content: center;
+            width: 100%;
+        }
+
+        @media (max-width: 760px) {
+            .student-exam-result-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .student-exam-practice-confirm__actions {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Online Exam</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">{% if show_feedback %}Exam Result{% elif show_answer_sheet %}Answer Sheet{% else %}Exam Entry{% endif %}</p>
+            <h3>{% if show_feedback %}考试结果{% elif show_answer_sheet %}考试作答{% else %}准备开始{% endif %}</h3>
+            <p>{% if show_feedback %}提交后会显示每题答案和解析。{% elif show_answer_sheet %}请选择每道题的答案后提交。{% else %}确认时间规则后，点击开始考试进入作答页。{% endif %}</p>
+        </div>
+
+        {% if show_feedback %}
+            <div class="student-exam-result-actions">
+                <form method="post" data-practice-start-form data-practice-title="整张卷子重新练习">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="{{ full_practice_action }}">
+                    <button type="submit" class="login-button">整张卷子重新练习</button>
+                </form>
+                <form method="post" data-practice-start-form data-practice-title="只练错题">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="{{ wrong_practice_action }}">
+                    <button type="submit" class="login-button" {% if not wrong_question_count %}disabled{% endif %}>只练错题</button>
+                </form>
+                <a class="teacher-anchor-link" href="{{ print_blank_full_href }}" target="_blank" rel="noopener">打印空白卷</a>
+                <a class="teacher-anchor-link" href="{{ print_result_full_href }}" target="_blank" rel="noopener">打印带结果的整张卷子</a>
+                <a class="teacher-anchor-link" href="{{ print_blank_wrong_href }}" target="_blank" rel="noopener">打印空白错题卷</a>
+                <a class="teacher-anchor-link" href="{{ print_result_wrong_href }}" target="_blank" rel="noopener">打印完整错题卷</a>
+            </div>
+            <dialog class="student-exam-practice-confirm" id="student-exam-practice-confirm">
+                <div class="student-exam-practice-confirm__body">
+                    <h4 id="student-exam-practice-confirm-title">开始新的练习</h4>
+                    <p>点开后将直接记时并增加一条练习记录，请确定你有完整的练习时间。</p>
+                    <div class="student-exam-practice-confirm__actions">
+                        <button type="button" class="teacher-anchor-link" data-practice-confirm-cancel>取消</button>
+                        <button type="button" class="login-button" data-practice-confirm-submit>确定</button>
+                    </div>
+                </div>
+            </dialog>
+        {% endif %}
+
+        {% if show_start_gate %}
+            <div class="content-access-list">
+                <article class="content-access-card content-access-card--{{ session.status_tone }}">
+                    <div class="content-access-card__top">
+                        <div>
+                            <h5>{{ session.title }}</h5>
+                            <p>{{ session.course_title }} · {{ session.mode_text }}</p>
+                        </div>
+                        <span class="state-pill state-pill--{{ session.status_tone }}">{{ session.status_text }}</span>
+                    </div>
+                    <p class="content-access-card__description">{{ session.description }}</p>
+                    <div class="topic-work-card__meta">
+                        <article class="topic-work-card__meta-item">
+                            <span>进入规则</span>
+                            <strong>{{ session.mode_text }}</strong>
+                            <p>{{ session.time_rule_text }}</p>
+                        </article>
+                        <article class="topic-work-card__meta-item">
+                            <span>题数</span>
+                            <strong>{{ question_rows|length }} 题</strong>
+                            <p>支持单选、判断，编程题暂展示题面</p>
+                        </article>
+                        <article class="topic-work-card__meta-item">
+                            <span>监考</span>
+                            <strong>{% if session.proctoring_enabled %}已开启{% else %}未开启{% endif %}</strong>
+                            <p>开始后记录切屏和窗口事件</p>
+                        </article>
+                    </div>
+                    <div class="record-inline-feedback">
+                        <strong>入口状态</strong>
+                        <span>{{ session.entry_message }}</span>
+                    </div>
+                </article>
+            </div>
+
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <a class="teacher-anchor-link" href="{{ back_list_href }}">返回考试列表</a>
+                {% if session.can_start and question_rows %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_action" value="start_exam">
+                        <button type="submit" class="login-button">开始考试</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% else %}
+            <form method="post" id="student-exam-form">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="submit_exam">
+                <div class="content-access-list">
+                    {% for question in question_rows %}
+                        <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %}">
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>第 {{ question.question_no }} 题</h5>
+                                    <p>{{ question.question_type_text }} · {{ question.score }} 分</p>
+                                </div>
+                                {% if show_feedback %}
+                                    <span class="state-pill state-pill--{% if question.is_correct %}open{% else %}locked{% endif %}">
+                                        {% if question.is_correct %}正确{% else %}错误{% endif %}
+                                    </span>
+                                {% endif %}
+                            </div>
+                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                            {% if question.image_path %}
+                                <img src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                            {% endif %}
+                            {% if question.is_important and show_answer_sheet and session.session_type != "exam" %}
+                                <div class="exam-important-note">
+                                    <strong>老师标记重点</strong>
+                                </div>
+                            {% elif question.is_important and show_feedback %}
+                                <div class="exam-important-note">
+                                    <strong>老师标记重点</strong>
+                                    {% if session.session_type == "exam" and question.important_note_html %}
+                                        <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                            <div class="record-form">
+                                {% if question.option_items %}
+                                    {% for option in question.option_items %}
+                                        <label class="topic-access-option{% if show_feedback and option.is_correct_answer %} student-exam-option--correct{% elif show_feedback and option.is_wrong_selected %} student-exam-option--wrong{% endif %}">
+                                            <input
+                                                type="radio"
+                                                name="question_{{ question.id }}"
+                                                value="{{ option.key }}"
+                                                {% if option.is_selected %}checked{% endif %}
+                                                {% if show_feedback %}disabled{% endif %}
+                                            >
+                                            <div class="topic-access-option__content">
+                                                <div class="topic-access-option__header">
+                                                    <div>
+                                                        <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                        <h4>{{ option.display_text }}</h4>
+                                                    </div>
+                                                    {% if show_feedback and option.is_correct_answer %}
+                                                        <span class="state-pill state-pill--open">正确答案</span>
+                                                    {% elif show_feedback and option.is_wrong_selected %}
+                                                        <span class="state-pill state-pill--locked">你的答案</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </label>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="student-exam-programming-placeholder">
+                                        编程题在线提交与评测下一步接入；当前先展示题面，提交选择题后可查看解析。
+                                    </div>
+                                {% endif %}
+                                {% if show_answer_sheet and question.requires_explanation and question.is_gradable %}
+                                    <label class="student-exam-explanation-field" data-explanation-question-id="{{ question.id }}">
+                                        <span>写出本题解析（不少于 10 字）</span>
+                                        <textarea id="exam-explanation-{{ question.id }}" name="explanation_{{ question.id }}" placeholder="请写出你的推理过程、错因或解题依据。">{{ question.student_explanation }}</textarea>
+                                    </label>
+                                {% endif %}
+                            </div>
+                            {% if show_feedback and question.is_gradable %}
+                                <div class="record-inline-feedback">
+                                    <strong>解析</strong>
+                                    <div class="exam-markdown-body">
+                                        <p class="exam-markdown-body__paragraph">你的答案：{{ question.student_answer_text }}；正确答案：{{ question.correct_answer }}。</p>
+                                        {{ question.analysis_html }}
+                                    </div>
+                                    {% if question.student_explanation_html %}
+                                        <strong>你的解析</strong>
+                                        <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
+                                    {% endif %}
+                                </div>
+                            {% elif show_feedback %}
+                                <div class="record-inline-feedback">
+                                    <strong>解析</strong>
+                                    <div class="exam-markdown-body">{{ question.analysis_html }}</div>
+                                </div>
+                            {% endif %}
+                        </article>
+                    {% empty %}
+                        <div class="entry-hint-bar">当前考试还没有题目。</div>
+                    {% endfor %}
+                </div>
+
+                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                    <a class="teacher-anchor-link" href="{{ back_list_href }}">返回考试列表</a>
+                    {% if show_answer_sheet and question_rows %}
+                        <button type="submit" class="login-button">提交考试</button>
+                    {% endif %}
+                </div>
+            </form>
+        {% endif %}
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    {% if show_feedback %}
+        <script>
+            (function () {
+                const dialog = document.getElementById("student-exam-practice-confirm");
+                const title = document.getElementById("student-exam-practice-confirm-title");
+                const cancelButton = document.querySelector("[data-practice-confirm-cancel]");
+                const submitButton = document.querySelector("[data-practice-confirm-submit]");
+                const forms = Array.from(document.querySelectorAll("[data-practice-start-form]"));
+                let pendingForm = null;
+                if (!dialog || !forms.length || !cancelButton || !submitButton) {
+                    return;
+                }
+                function closeDialog() {
+                    pendingForm = null;
+                    if (typeof dialog.close === "function") {
+                        dialog.close();
+                    } else {
+                        dialog.removeAttribute("open");
+                    }
+                }
+                forms.forEach((form) => {
+                    form.addEventListener("submit", (event) => {
+                        event.preventDefault();
+                        pendingForm = form;
+                        if (title) {
+                            title.textContent = form.dataset.practiceTitle || "开始新的练习";
+                        }
+                        if (typeof dialog.showModal === "function") {
+                            dialog.showModal();
+                        } else {
+                            dialog.setAttribute("open", "open");
+                        }
+                    });
+                });
+                cancelButton.addEventListener("click", closeDialog);
+                dialog.addEventListener("cancel", (event) => {
+                    event.preventDefault();
+                    closeDialog();
+                });
+                submitButton.addEventListener("click", () => {
+                    if (!pendingForm) {
+                        closeDialog();
+                        return;
+                    }
+                    submitButton.disabled = true;
+                    HTMLFormElement.prototype.submit.call(pendingForm);
+                });
+            })();
+        </script>
+    {% endif %}
+    {% if error_message and requires_explanations %}
+        <script>
+            (function () {
+                const focusQuestionId = "{{ focus_question_id|default:0 }}";
+                const fields = Array.from(document.querySelectorAll("[data-explanation-question-id]"));
+                let targetField = focusQuestionId && focusQuestionId !== "0"
+                    ? fields.find((field) => field.dataset.explanationQuestionId === focusQuestionId)
+                    : null;
+                if (!targetField) {
+                    targetField = fields.find((field) => {
+                        const textarea = field.querySelector("textarea");
+                        return textarea && textarea.value.replace(/\s+/g, "").length < 10;
+                    });
+                }
+                if (!targetField) {
+                    return;
+                }
+                targetField.classList.add("student-exam-explanation-field--focus");
+                targetField.scrollIntoView({behavior: "smooth", block: "center"});
+                const textarea = targetField.querySelector("textarea");
+                if (textarea) {
+                    setTimeout(() => textarea.focus(), 350);
+                }
+            })();
+        </script>
+    {% endif %}
+    {% if session.proctoring_enabled and show_answer_sheet %}
+        <script>
+            (function () {
+                const endpoint = "{{ proctor_event_api }}";
+                const csrfInput = document.querySelector("#student-exam-form input[name='csrfmiddlewaretoken']");
+                const csrfToken = csrfInput ? csrfInput.value : "";
+                const sendEvent = (eventType) => {
+                    if (!endpoint || !csrfToken) {
+                        return;
+                    }
+                    fetch(endpoint, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken
+                        },
+                        body: JSON.stringify({event_type: eventType}),
+                        keepalive: true
+                    }).catch(() => {});
+                };
+                document.addEventListener("visibilitychange", () => {
+                    if (document.visibilityState === "hidden") {
+                        sendEvent("visibility_hidden");
+                    }
+                });
+                window.addEventListener("blur", () => sendEvent("blur"));
+                window.addEventListener("focus", () => sendEvent("focus"));
+                document.addEventListener("paste", () => sendEvent("paste"));
+            })();
+        </script>
+    {% endif %}
+{% endblock %}
