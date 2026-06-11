@@ -66,9 +66,11 @@ from .exam_paper_import import (
     combine_raw_ocr_page_markdown,
     confirm_exam_question_bank_import_job,
     detect_exam_import_source_type,
+    format_exam_markdown_for_teacher_edit,
     get_supported_exam_import_extensions,
     is_raw_ocr_page_question,
     materialize_raw_ocr_paper_questions,
+    restore_exam_markdown_code_fences_from_original,
     separate_programming_reference_solutions_for_paper,
     split_ocr_markdown_into_question_blocks,
 )
@@ -1010,6 +1012,7 @@ def serialize_exam_bank_paper_question_for_review(
         "question_type": question.question_type,
         "question_type_text": get_exam_bank_question_type_review_label(question.question_type),
         "stem_md": question.stem_md,
+        "stem_md_for_edit": format_exam_markdown_for_teacher_edit(question.stem_md),
         "stem_html": render_exam_markdown_for_display(question.stem_md),
         "answer_text": str(answer_text or ""),
         "analysis_md": question.analysis_md,
@@ -1056,6 +1059,7 @@ def serialize_parsed_ocr_question_for_review(
         "question_type": question_type,
         "question_type_text": get_exam_bank_question_type_review_label(question_type),
         "stem_md": stem_md,
+        "stem_md_for_edit": format_exam_markdown_for_teacher_edit(stem_md),
         "stem_html": render_exam_markdown_for_display(stem_md),
         "answer_text": answer_text,
         "analysis_md": str(parsed_question.get("analysis_md") or ""),
@@ -1196,6 +1200,7 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
             if question_type not in type_values:
                 raise ValidationError(f"第 {question.question_no} 题题型不合法。")
             stem_md = normalize_preserved_multiline_text(request.POST.get(f"question_{question_id}_stem_md") or "").strip()
+            stem_md = restore_exam_markdown_code_fences_from_original(stem_md, question.stem_md)
             if not stem_md:
                 raise ValidationError(f"第 {question.question_no} 题题面不能为空。")
             answer_text = str(request.POST.get(f"question_{question_id}_answer") or "").strip()

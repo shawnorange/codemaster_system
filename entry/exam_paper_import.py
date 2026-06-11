@@ -372,6 +372,8 @@ def normalize_markdown_math_for_display(text: str) -> str:
 
 CODE_FENCE_RE = re.compile(r"^\s*```")
 CODE_LINE_NUMBER_PIPE_RE = re.compile(r"^(\s*)\d{1,4}\s+\|\s(.*)$")
+CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s+(?=\S)(.*)$")
+PDF_PAGE_FOOTER_RE = re.compile(r"^\s*(?:第\s*)?\d{1,3}\s*页\s*/\s*共\s*\d{1,3}\s*页\s*$")
 
 
 def unwrap_outer_markdown_fence(markdown_text: str) -> str:
@@ -395,13 +397,168 @@ def strip_code_block_line_numbers(markdown_text: str) -> str:
             if match:
                 cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
                 continue
+            match = CODE_LINE_NUMBER_SPACE_RE.match(line)
+            if match:
+                cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
+                continue
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines).strip()
+
+
+def strip_pdf_page_footers(markdown_text: str) -> str:
+    lines = markdown_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return "\n".join(line for line in lines if not PDF_PAGE_FOOTER_RE.match(line.strip())).strip()
+
+
+def format_exam_markdown_for_teacher_edit(markdown_text: object) -> str:
+    text = strip_code_block_line_numbers(str(markdown_text or ""))
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    formatted_lines: list[str] = []
+    in_code_block = False
+    code_lines: list[str] = []
+
+    def flush_code() -> None:
+        nonlocal code_lines
+        if not code_lines:
+            return
+        while code_lines and not code_lines[0].strip():
+            code_lines.pop(0)
+        while code_lines and not code_lines[-1].strip():
+            code_lines.pop()
+        min_indent: int | None = None
+        for code_line in code_lines:
+            if not code_line.strip():
+                continue
+            indent = len(code_line) - len(code_line.lstrip(" "))
+            min_indent = indent if min_indent is None else min(min_indent, indent)
+        trim = min_indent or 0
+        formatted_lines.extend(code_line[trim:].rstrip() for code_line in code_lines)
+        code_lines = []
+
+    for line in lines:
+        if CODE_FENCE_RE.match(line):
+            if in_code_block:
+                flush_code()
+                in_code_block = False
+            else:
+                in_code_block = True
+                code_lines = []
+            continue
+        if in_code_block:
+            code_lines.append(line)
+            continue
+        formatted_lines.append(line.rstrip())
+
+    if in_code_block:
+        flush_code()
+    return "\n".join(formatted_lines).strip()
+
+
+def is_likely_cpp_code_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith(("#include", "using namespace")):
+        return True
+    if re.search(r"\b(int|long|double|float|char|bool|string|void|auto)\s+\w+", stripped):
+        return True
+    if re.search(r"\b(cin|cout|scanf|printf)\b|<<|>>", stripped):
+        return True
+    if re.search(r"\b(if|else|for|while|return|break|continue)\b", stripped):
+        return True
+    if stripped in {"{", "}"}:
+        return True
+    if stripped.endswith((";", "{", "}")):
+        return True
+    return False
+
+
+def find_likely_cpp_code_range(lines: list[str]) -> tuple[int, int] | None:
+    best_start = -1
+    best_end = -1
+    current_start: int | None = None
+    for index, line in enumerate(lines):
+        is_code = is_likely_cpp_code_line(line)
+        if is_code and current_start is None:
+            current_start = index
+        if not is_code and current_start is not None:
+            if index - current_start > best_end - best_start:
+                best_start = current_start
+                best_end = index
+            current_start = None
+    if current_start is not None and len(lines) - current_start > best_end - best_start:
+        best_start = current_start
+        best_end = len(lines)
+    if best_start < 0 or best_end - best_start < 2:
+        return None
+    return best_start, best_end
+
+
+def restore_exam_markdown_code_fences_from_original(edited_text: object, original_text: object) -> str:
+    edited = str(edited_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    original = str(original_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    original_lines = original.split("\n")
+    fence_lines = [line.strip() for line in original_lines if CODE_FENCE_RE.match(line)]
+    if not edited or not fence_lines or "```" in edited:
+        return edited
+    if len(fence_lines) != 2:
+        return edited
+    opening_fence = fence_lines[0]
+    before_lines: list[str] = []
+    after_lines: list[str] = []
+    in_code_block = False
+    seen_code_block = False
+    for line in original_lines:
+        if CODE_FENCE_RE.match(line):
+            in_code_block = not in_code_block
+            seen_code_block = True
+            continue
+        if not seen_code_block:
+            before_lines.append(line)
+        elif not in_code_block:
+            after_lines.append(line)
+    before_text = "\n".join(before_lines).strip()
+    after_text = "\n".join(after_lines).strip()
+    edited_lines = edited.split("\n")
+    start_index = 0
+    end_index = len(edited_lines)
+    if before_text:
+        before_count = len(before_text.split("\n"))
+        if "\n".join(edited_lines[:before_count]).strip() == before_text:
+            start_index = before_count
+    if after_text:
+        after_count = len(after_text.split("\n"))
+        if "\n".join(edited_lines[end_index - after_count:]).strip() == after_text:
+            end_index -= after_count
+    code_text = "\n".join(edited_lines[start_index:end_index]).strip()
+    if not code_text:
+        code_range = find_likely_cpp_code_range(edited_lines)
+        if code_range is None:
+            return edited
+        start_index, end_index = code_range
+        code_text = "\n".join(edited_lines[start_index:end_index]).strip()
+        before_text = "\n".join(edited_lines[:start_index]).strip()
+        after_text = "\n".join(edited_lines[end_index:]).strip()
+    elif start_index == 0 and end_index == len(edited_lines):
+        code_range = find_likely_cpp_code_range(edited_lines)
+        if code_range is not None:
+            start_index, end_index = code_range
+            code_text = "\n".join(edited_lines[start_index:end_index]).strip()
+            before_text = "\n".join(edited_lines[:start_index]).strip()
+            after_text = "\n".join(edited_lines[end_index:]).strip()
+    rebuilt_parts = []
+    if before_text:
+        rebuilt_parts.append(before_text)
+    rebuilt_parts.append(f"{opening_fence}\n{code_text}\n```")
+    if after_text:
+        rebuilt_parts.append(after_text)
+    return "\n\n".join(part for part in rebuilt_parts if part).strip()
 
 
 def clean_imported_markdown(markdown_text: str) -> str:
     normalized = markdown_text.replace("\r\n", "\n").replace("\r", "\n").replace("\u3000", " ")
     normalized = unwrap_outer_markdown_fence(normalized)
+    normalized = strip_pdf_page_footers(normalized)
     normalized = strip_code_block_line_numbers(normalized)
     normalized = normalize_markdown_math_for_display(normalized)
     normalized = re.sub(r"\n{4,}", "\n\n\n", normalized)

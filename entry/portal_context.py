@@ -2701,8 +2701,31 @@ def normalize_exam_inline_math_for_display(value: object) -> str:
     return normalized
 
 
+EXAM_CODE_FENCE_RE = re.compile(r"^\s*```")
+EXAM_CODE_LINE_NUMBER_PIPE_RE = re.compile(r"^(\s*)\d{1,4}\s+\|\s(.*)$")
+EXAM_CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s+(?=\S)(.*)$")
+
+
+def strip_exam_display_code_line_numbers(value: object) -> str:
+    lines = str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    in_code_block = False
+    cleaned_lines: list[str] = []
+    for line in lines:
+        if EXAM_CODE_FENCE_RE.match(line):
+            in_code_block = not in_code_block
+            cleaned_lines.append(line)
+            continue
+        if in_code_block:
+            match = EXAM_CODE_LINE_NUMBER_PIPE_RE.match(line) or EXAM_CODE_LINE_NUMBER_SPACE_RE.match(line)
+            if match:
+                cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
+                continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
+
+
 def render_exam_markdown_for_display(value: object) -> str:
-    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = strip_exam_display_code_line_numbers(value)
     if not text:
         return mark_safe("<p>当前还没有题干。</p>")
 

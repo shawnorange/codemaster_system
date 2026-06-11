@@ -22,7 +22,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from entry.auth import AUTH_COOKIE_NAME, AUTH_COOKIE_SALT
-from entry.exam_paper_import import split_ocr_markdown_into_question_blocks
+from entry.exam_paper_import import (
+    format_exam_markdown_for_teacher_edit,
+    restore_exam_markdown_code_fences_from_original,
+    split_ocr_markdown_into_question_blocks,
+)
 from entry.models import (
     Course,
     ExamPaper,
@@ -857,7 +861,7 @@ class ExamMVPTests(TestCase):
             question_uid="editable-q-001",
             question_no=1,
             question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
-            stem_md="原始题干 $N$",
+            stem_md="原始题干 $N$\n\n```cpp\n1 int main() {\n2     return 0;\n3 }\n```",
             answer_json={"correct_answer": "A"},
             analysis_md="原始解析",
             programming_json={},
@@ -890,6 +894,8 @@ class ExamMVPTests(TestCase):
         self.assertContains(edit_response, 'name="question_ids"', html=False)
         self.assertContains(edit_response, 'data-add-new-question', html=False)
         self.assertContains(edit_response, f'name="question_{question.id}_option_d"', html=False)
+        self.assertContains(edit_response, "int main()")
+        self.assertNotContains(edit_response, "```cpp")
 
         save_response = self.client.post(
             reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
@@ -899,7 +905,7 @@ class ExamMVPTests(TestCase):
                 "question_ids": [str(question.id)],
                 "new_question_keys": ["1"],
                 f"question_{question.id}_type": ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
-                f"question_{question.id}_stem_md": "修改后题干 $N$\n```cpp\nint main() {\n  return 0;\n}\n```",
+                f"question_{question.id}_stem_md": "修改后题干 $N$\nint main() {\n  return 0;\n}",
                 f"question_{question.id}_answer": "B",
                 f"question_{question.id}_option_a": "修改 A",
                 f"question_{question.id}_option_b": "修改 B",
@@ -925,6 +931,7 @@ class ExamMVPTests(TestCase):
         self.assertEqual(paper.title, "修改后的试卷")
         self.assertEqual(paper.level, "GESP2")
         self.assertIn("修改后题干", question.stem_md)
+        self.assertIn("```cpp", question.stem_md)
         self.assertEqual(question.answer_json["correct_answer"], "B")
         self.assertEqual(question.analysis_md, "修改解析")
         self.assertEqual(
@@ -1463,6 +1470,48 @@ class ExamMVPTests(TestCase):
         self.assertIn("交朋友", programming["stem_md"])
         self.assertIn("参考程序", programming["analysis_md"])
         self.assertIn("#include <iostream>", programming["analysis_md"])
+
+    def test_ocr_markdown_cleaning_drops_page_footer_and_code_line_numbers(self) -> None:
+        markdown_text = "\n".join(
+            [
+                "1 单选题（每题 2 分，共 30 分）",
+                "| 题号 | 1 |",
+                "| 答案 | A |",
+                "第 1 题 阅读代码，输出是？（ ）",
+                "```cpp",
+                "1 int a = 1;",
+                "2 | cout << a;",
+                "3 return 0;",
+                "```",
+                "A. 1",
+                "B. 2",
+                "第 1 页 / 共 10 页",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown_text)
+
+        question = parsed_questions[0]
+        self.assertNotIn("第 1 页 / 共 10 页", question["stem_md"])
+        self.assertIn("int a = 1;", question["stem_md"])
+        self.assertIn("cout << a;", question["stem_md"])
+        self.assertIn("return 0;", question["stem_md"])
+        self.assertNotIn("1 int a", question["stem_md"])
+        self.assertNotIn("2 | cout", question["stem_md"])
+
+    def test_teacher_edit_display_hides_code_fence_but_save_restores_cpp_marker(self) -> None:
+        original = "第 1 题 阅读代码。\n\n```cpp\n1 int main() {\n2     return 0;\n3 }\n```"
+
+        display_text = format_exam_markdown_for_teacher_edit(original)
+        saved_text = restore_exam_markdown_code_fences_from_original(
+            "第 1 题 修改后阅读代码。\nint main() {\n    return 0;\n}",
+            original,
+        )
+
+        self.assertNotIn("```cpp", display_text)
+        self.assertIn("int main()", display_text)
+        self.assertIn("```cpp", saved_text)
+        self.assertIn("return 0;", saved_text)
 
     def test_ocr_question_split_closes_malformed_code_before_next_choice_question(self) -> None:
         markdown_text = "\n".join(
