@@ -1026,6 +1026,7 @@ def serialize_exam_bank_paper_question_for_review(
             {
                 "key": key,
                 "text": option_map.get(key, ""),
+                "text_html": render_exam_markdown_for_display(option_map.get(key, "")),
             }
             for key in ["A", "B", "C", "D"]
         ],
@@ -1069,6 +1070,7 @@ def serialize_parsed_ocr_question_for_review(
             {
                 "key": key,
                 "text": str(option_map.get(key) or ""),
+                "text_html": render_exam_markdown_for_display(str(option_map.get(key) or "")),
             }
             for key in ["A", "B", "C", "D"]
         ],

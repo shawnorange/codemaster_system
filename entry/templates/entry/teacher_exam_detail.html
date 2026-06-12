@@ -279,10 +279,10 @@
                             <div class="topic-access-option teacher-exam-question-option">
                                 <div class="topic-access-option__content">
                                     <div class="topic-access-option__header">
-                                        <div>
-                                            <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
-                                            <h4>{{ option.display_text }}</h4>
-                                        </div>
+                                            <div>
+                                                <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                <div class="exam-markdown-body">{{ option.display_html }}</div>
+                                            </div>
                                         {% if option.is_correct_answer %}
                                             <span class="state-pill state-pill--open">正确答案</span>
                                         {% endif %}

@@ -433,9 +433,13 @@ def strip_numbered_code_line(line: str, *, allow_numeric_output: bool = False) -
     match = CODE_LINE_NUMBER_PIPE_RE.match(line)
     if match:
         return f"{match.group(1)}{match.group(2)}".rstrip()
-    match = (CODE_LINE_NUMBER_ANY_RE if allow_numeric_output else CODE_LINE_NUMBER_SPACE_RE).match(line)
-    if match:
-        return f"{match.group(1)}{match.group(2)}".rstrip()
+    generic_match = re.match(r"^(\s*)\d{1,4}\s(.*\S)\s*$", line)
+    if generic_match:
+        leading_space = generic_match.group(1)
+        remainder = generic_match.group(2)
+        first_content = remainder.lstrip()[:1]
+        if allow_numeric_output or first_content in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_#{};/":
+            return f"{leading_space}{remainder}".rstrip()
     return None
 
 

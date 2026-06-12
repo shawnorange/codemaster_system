@@ -171,7 +171,7 @@
                             {% for option in question.options %}
                                 <label class="exam-bank-edit-field">
                                     <span>选项 {{ option.key }}</span>
-                                    <input type="text" name="question_{{ question.id }}_option_{{ option.key|lower }}" value="{{ option.text }}" maxlength="500">
+                                    <textarea name="question_{{ question.id }}_option_{{ option.key|lower }}" rows="3">{{ option.text }}</textarea>
                                 </label>
                             {% endfor %}
                         </div>
@@ -214,7 +214,7 @@
                         {% for key in option_keys %}
                             <label class="exam-bank-edit-field">
                                 <span>选项 {{ key }}</span>
-                                <input type="text" name="new_question___KEY___option_{{ key|lower }}" value="" maxlength="500">
+                                <textarea name="new_question___KEY___option_{{ key|lower }}" rows="3"></textarea>
                             </label>
                         {% endfor %}
                     </div>

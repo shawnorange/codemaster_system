@@ -2707,8 +2707,27 @@ EXAM_CODE_LINE_NUMBER_SPACE_RE = re.compile(r"^(\s*)\d{1,4}\s(?=[A-Za-z_#{};/])(
 EXAM_CODE_LINE_NUMBER_ONLY_RE = re.compile(r"^(\s*)\d{1,4}\s*$")
 
 
+def strip_exam_display_numbered_code_line(line: str) -> str | None:
+    if EXAM_CODE_LINE_NUMBER_ONLY_RE.match(line):
+        return ""
+    match = EXAM_CODE_LINE_NUMBER_PIPE_RE.match(line)
+    if match:
+        return f"{match.group(1)}{match.group(2)}".rstrip()
+    generic_match = re.match(r"^(\s*)\d{1,4}\s(.*\S)\s*$", line)
+    if generic_match:
+        leading_space = generic_match.group(1)
+        remainder = generic_match.group(2)
+        first_content = remainder.lstrip()[:1]
+        if first_content in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_#{};/":
+            return f"{leading_space}{remainder}".rstrip()
+    return None
+
+
 def strip_exam_display_code_line_numbers(value: object) -> str:
-    lines = str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    text = str(value or "")
+    if "\n" not in text and "\\n" in text and not re.search(r"""["'][^"']*\\n[^"']*["']""", text):
+        text = text.replace("\\n", "\n")
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     in_code_block = False
     cleaned_lines: list[str] = []
     for line in lines:
@@ -2717,13 +2736,9 @@ def strip_exam_display_code_line_numbers(value: object) -> str:
             cleaned_lines.append(line)
             continue
         if in_code_block:
-            match = EXAM_CODE_LINE_NUMBER_ONLY_RE.match(line)
-            if match:
-                cleaned_lines.append("")
-                continue
-            match = EXAM_CODE_LINE_NUMBER_PIPE_RE.match(line) or EXAM_CODE_LINE_NUMBER_SPACE_RE.match(line)
-            if match:
-                cleaned_lines.append(f"{match.group(1)}{match.group(2)}")
+            stripped_line = strip_exam_display_numbered_code_line(line)
+            if stripped_line is not None:
+                cleaned_lines.append(stripped_line)
                 continue
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines).strip()
@@ -2759,16 +2774,35 @@ def render_exam_markdown_for_display(value: object) -> str:
     for line in text.split("\n"):
         stripped = line.strip()
         if stripped.startswith("```"):
+            opening_match = re.match(r"^```\s*([A-Za-z][\w+-]*)?[\t ]*(.*)$", stripped)
+            inline_code = opening_match.group(2) if opening_match else ""
+            closes_inline = inline_code.endswith("```")
+            if closes_inline:
+                inline_code = inline_code[:-3].rstrip()
             if in_code_block:
+                if inline_code:
+                    code_lines.append(inline_code)
                 flush_code()
                 in_code_block = False
             else:
                 flush_paragraph()
                 in_code_block = True
                 code_lines = []
+                if inline_code:
+                    code_lines.append(inline_code)
+                if closes_inline:
+                    flush_code()
+                    in_code_block = False
             continue
 
         if in_code_block:
+            if line.rstrip().endswith("```"):
+                closing_line = line.rstrip()[:-3].rstrip()
+                if closing_line:
+                    code_lines.append(closing_line)
+                flush_code()
+                in_code_block = False
+                continue
             code_lines.append(line.rstrip())
             continue
 
@@ -3029,6 +3063,7 @@ def build_exam_option_items(
                 "key": key,
                 "text": formatted["text"],
                 "display_text": formatted["display_text"],
+                "display_html": render_exam_markdown_for_display(raw_text),
                 "is_code_option": formatted["is_code_option"],
                 "is_selected": is_selected,
                 "is_correct_answer": is_correct_answer,

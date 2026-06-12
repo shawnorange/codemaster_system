@@ -894,6 +894,7 @@ class ExamMVPTests(TestCase):
         self.assertContains(edit_response, 'name="question_ids"', html=False)
         self.assertContains(edit_response, 'data-add-new-question', html=False)
         self.assertContains(edit_response, f'name="question_{question.id}_option_d"', html=False)
+        self.assertContains(edit_response, f'<textarea name="question_{question.id}_option_a"', html=False)
         self.assertContains(edit_response, "int main()")
         self.assertContains(edit_response, "```cpp")
 
@@ -907,7 +908,7 @@ class ExamMVPTests(TestCase):
                 f"question_{question.id}_type": ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
                 f"question_{question.id}_stem_md": "修改后题干 $N$\nint main() {\n  return 0;\n}",
                 f"question_{question.id}_answer": "B",
-                f"question_{question.id}_option_a": "修改 A",
+                f"question_{question.id}_option_a": "```cpp\ncout << 1;\n```",
                 f"question_{question.id}_option_b": "修改 B",
                 f"question_{question.id}_option_c": "新增 C",
                 f"question_{question.id}_option_d": "",
@@ -936,7 +937,7 @@ class ExamMVPTests(TestCase):
         self.assertEqual(question.analysis_md, "修改解析")
         self.assertEqual(
             list(question.options.order_by("sort_order").values_list("option_key", "option_text_md")),
-            [("A", "修改 A"), ("B", "修改 B"), ("C", "新增 C")],
+            [("A", "```cpp\ncout << 1;\n```"), ("B", "修改 B"), ("C", "新增 C")],
         )
         self.assertEqual(added_question.question_type, ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE)
         self.assertEqual(added_question.answer_json["correct_answer"], "C")
@@ -950,6 +951,7 @@ class ExamMVPTests(TestCase):
         updated_preview_response = self.client.get(reverse("teacher-exam-bank-paper-preview", args=[paper.id]))
         self.assertContains(updated_preview_response, "修改后的试卷")
         self.assertContains(updated_preview_response, "修改后题干 N")
+        self.assertContains(updated_preview_response, "cout &lt;&lt; 1;")
         self.assertContains(updated_preview_response, "修改 B")
         self.assertContains(updated_preview_response, "新增题干")
 
@@ -1528,8 +1530,32 @@ class ExamMVPTests(TestCase):
         self.assertIn("int M = 0, N = 0;", stem_md)
         self.assertIn("\n\nif (N > M)", stem_md)
         self.assertIn("    cout << (N - M);", stem_md)
+        self.assertIn("    cout << (M - N);", stem_md)
         self.assertNotIn("\n4\n", stem_md)
         self.assertNotIn("1 int M", stem_md)
+
+    def test_display_markdown_strips_indented_code_line_numbers(self) -> None:
+        rendered = render_exam_markdown_for_display(
+            "\n".join(
+                [
+                    "```cpp",
+                    "int i;",
+                    "for (i = 1; i < 10; i++){",
+                    "3     if (i % 2 == 0){",
+                    "4         continue;     // L1",
+                    "5     }",
+                    "}",
+                    'printf("%2d%2d\\n", i, i);',
+                    "```",
+                ]
+            )
+        )
+
+        rendered_text = str(rendered)
+        self.assertIn("    if (i % 2 == 0){", rendered_text)
+        self.assertIn("        continue;     // L1", rendered_text)
+        self.assertNotIn("3     if", rendered_text)
+        self.assertIn("%2d%2d\\n", rendered_text)
 
     def test_choice_option_numeric_code_content_is_not_stripped_as_line_number(self) -> None:
         markdown_text = "\n".join(
@@ -1587,6 +1613,19 @@ class ExamMVPTests(TestCase):
         self.assertIn("61\n43", options["A"])
         self.assertIn("52\n34", options["B"])
         self.assertNotIn("6143", options["A"])
+
+    def test_render_exam_markdown_expands_literal_newline_options(self) -> None:
+        rendered = render_exam_markdown_for_display("61\\n43")
+
+        self.assertIn("61<br>43", str(rendered))
+
+    def test_render_exam_markdown_handles_inline_fenced_option_code(self) -> None:
+        rendered = render_exam_markdown_for_display("```cpp tnt += N / 10\\n N /= 10```")
+
+        rendered_text = str(rendered)
+        self.assertIn("<pre", rendered_text)
+        self.assertIn("tnt += N / 10\n N /= 10", rendered_text)
+        self.assertNotIn("```cpp", rendered_text)
 
     def test_programming_reference_solution_stops_before_next_programming_question(self) -> None:
         markdown_text = "\n".join(
