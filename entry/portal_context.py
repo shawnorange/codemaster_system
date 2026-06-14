@@ -3543,7 +3543,7 @@ def build_teacher_exam_page_context(
     }
 
 
-def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) -> dict:
+def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *, selected_student_id: int = 0) -> dict:
     paper = (
         ExamPaper.objects.select_related("teacher", "course")
         .filter(id=paper_id, teacher=portal_user, is_active=True)
@@ -3571,6 +3571,12 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) ->
         )
     )
     eligible_exam_session_ids = [session.id for session in eligible_exam_sessions]
+    eligible_sessions_by_student_id = {
+        session.student_id: session
+        for session in eligible_exam_sessions
+    }
+    selected_student_id = selected_student_id if selected_student_id in eligible_sessions_by_student_id else 0
+    selected_student_session = eligible_sessions_by_student_id.get(selected_student_id)
     practice_sessions = [
         session
         for session in all_sessions
@@ -3586,17 +3592,29 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) ->
         .order_by("question_id", "session_id")
     )
     answers_by_question: dict[int, list[ExamSubmissionAnswer]] = defaultdict(list)
+    selected_answers_by_question: dict[int, ExamSubmissionAnswer] = {}
     for answer in answers:
         answers_by_question[answer.question_id].append(answer)
+        if selected_student_session and answer.session_id == selected_student_session.id:
+            selected_answers_by_question[answer.question_id] = answer
 
     question_rows = []
     for question in questions:
         question_answers = answers_by_question.get(question.id, [])
         correct_count = sum(1 for answer in question_answers if answer.is_correct)
-        wrong_answers = [
-            str(answer.selected_answer or "未作答").strip() or "未作答"
+        wrong_student_rows = [
+            {
+                "student_id": answer.session.student_id,
+                "student_name": answer.session.student.display_name,
+                "selected_answer": str(answer.selected_answer or "未作答").strip() or "未作答",
+                "submitted_at_text": format_datetime(answer.session.submitted_at),
+            }
             for answer in question_answers
             if not answer.is_correct
+        ]
+        wrong_answers = [
+            row["selected_answer"]
+            for row in wrong_student_rows
         ]
         distinct_wrong_answers = []
         for wrong_answer in wrong_answers:
@@ -3606,6 +3624,9 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) ->
         wrong_rate_value = len(wrong_answers) / answer_count if answer_count else 0
         wrong_rate_percent = round(wrong_rate_value * 100, 1)
         serialized_question = serialize_exam_question(question, show_feedback=True)
+        selected_answer = selected_answers_by_question.get(question.id)
+        selected_student_answer_text = str(selected_answer.selected_answer or "未作答").strip() if selected_answer else ""
+        selected_student_is_wrong = bool(selected_answer and not selected_answer.is_correct)
         question_rows.append(
             {
                 **serialized_question,
@@ -3620,14 +3641,31 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) ->
                     if wrong_answers
                     else "0"
                 ),
+                "wrong_student_rows": wrong_student_rows,
+                "selected_student_answer_text": selected_student_answer_text,
+                "selected_student_is_wrong": selected_student_is_wrong,
+                "selected_student_status_text": (
+                    f"该生答案：{selected_student_answer_text}，错误"
+                    if selected_student_is_wrong
+                    else (f"该生答案：{selected_student_answer_text}，正确" if selected_answer else "")
+                ),
             }
         )
-    question_rows.sort(
-        key=lambda row: (
-            -float(row["wrong_rate_value"] or 0),
-            normalize_exam_question_no_for_sort(row["question_no"]),
-        ),
-    )
+    if selected_student_session:
+        question_rows.sort(
+            key=lambda row: (
+                0 if row["selected_student_is_wrong"] else 1,
+                -float(row["wrong_rate_value"] or 0),
+                normalize_exam_question_no_for_sort(row["question_no"]),
+            ),
+        )
+    else:
+        question_rows.sort(
+            key=lambda row: (
+                -float(row["wrong_rate_value"] or 0),
+                normalize_exam_question_no_for_sort(row["question_no"]),
+            ),
+        )
 
     leaderboard_rows = []
     for index, session in enumerate(
@@ -3709,6 +3747,16 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int) ->
         "leaderboard_rows": leaderboard_rows,
         "practice_session_rows": practice_session_rows,
         "question_rows": question_rows,
+        "stats_student_options": [
+            {
+                "id": session.student_id,
+                "name": session.student.display_name,
+                "selected": session.student_id == selected_student_id,
+            }
+            for session in sorted(eligible_sessions_by_student_id.values(), key=lambda item: item.student.display_name)
+        ],
+        "selected_stats_student_id": selected_student_id,
+        "selected_stats_student_name": selected_student_session.student.display_name if selected_student_session else "",
         "back_href": reverse("teacher-exams"),
         "empty_leaderboard_message": "当前还没有已提交并判分的学生记录。",
         "empty_practice_message": "当前还没有学生独立练习记录。",

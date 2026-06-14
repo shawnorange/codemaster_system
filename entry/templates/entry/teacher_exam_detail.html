@@ -60,6 +60,28 @@
             white-space: normal;
         }
 
+        .teacher-exam-question-stats-heading {
+            align-items: flex-end;
+            display: flex;
+            gap: 16px;
+            justify-content: space-between;
+        }
+
+        .teacher-exam-stats-filter {
+            display: grid;
+            gap: 6px;
+            min-width: min(280px, 100%);
+        }
+
+        .teacher-exam-stats-filter select {
+            border: 1px solid rgba(15, 103, 184, 0.16);
+            border-radius: 8px;
+            color: var(--text-main);
+            font: inherit;
+            padding: 10px 12px;
+            width: 100%;
+        }
+
         .teacher-exam-important {
             position: relative;
         }
@@ -74,6 +96,21 @@
             display: none;
         }
 
+        .teacher-exam-wrong-detail {
+            position: relative;
+        }
+
+        .teacher-exam-wrong-detail__summary {
+            border: 0;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .teacher-exam-wrong-detail__summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .teacher-exam-wrong-detail__panel,
         .teacher-exam-important__panel {
             background: rgba(255, 255, 255, 0.98);
             border: 1px solid rgba(15, 103, 184, 0.16);
@@ -87,6 +124,23 @@
             right: 0;
             top: calc(100% + 8px);
             z-index: 3;
+        }
+
+        .teacher-exam-wrong-detail__panel {
+            min-width: min(360px, 88vw);
+        }
+
+        .teacher-exam-wrong-detail__row {
+            align-items: center;
+            border-bottom: 1px solid rgba(15, 103, 184, 0.08);
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            padding: 6px 0;
+        }
+
+        .teacher-exam-wrong-detail__row:last-child {
+            border-bottom: 0;
         }
 
         .teacher-exam-important__panel select,
@@ -174,6 +228,11 @@
         @media (max-width: 920px) {
             .teacher-exam-question-review {
                 grid-template-columns: 1fr;
+            }
+
+            .teacher-exam-question-stats-heading {
+                align-items: stretch;
+                flex-direction: column;
             }
         }
     </style>
@@ -283,10 +342,27 @@
     </section>
 
     <section class="surface-panel surface-panel--primary teacher-exam-question-stats">
-        <div class="section-heading">
-            <p class="section-heading__eyebrow">Paper Content</p>
-            <h3>试卷内容与逐题统计</h3>
-            <p>按错误率从高到低展示；错误率相同时，按题号自然升序展示。</p>
+        <div class="section-heading teacher-exam-question-stats-heading">
+            <div>
+                <p class="section-heading__eyebrow">Paper Content</p>
+                <h3>试卷内容与逐题统计</h3>
+                <p>
+                    {% if selected_stats_student_name %}
+                        当前优先展示 {{ selected_stats_student_name }} 做错的题目；其余题目继续按错误率排序。
+                    {% else %}
+                        按错误率从高到低展示；错误率相同时，按题号自然升序展示。
+                    {% endif %}
+                </p>
+            </div>
+            <form class="teacher-exam-stats-filter" method="get">
+                <label class="section-heading__eyebrow" for="teacher-exam-stats-student">逐题统计筛选</label>
+                <select id="teacher-exam-stats-student" name="stats_student_id" onchange="this.form.submit()">
+                    <option value="" {% if not selected_stats_student_id %}selected{% endif %}>全部</option>
+                    {% for item in stats_student_options %}
+                        <option value="{{ item.id }}" {% if item.selected %}selected{% endif %}>{{ item.name }}</option>
+                    {% endfor %}
+                </select>
+            </form>
         </div>
         {% if question_rows %}
             <div class="teacher-exam-question-review" id="teacher-exam-question-review">
@@ -312,7 +388,25 @@
                                 </div>
                                 <div class="portal-action-row portal-action-row--leading">
                                     <span class="state-pill state-pill--open">对 {{ question.correct_count }}</span>
-                                    <span class="state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</span>
+                                    {% if question.wrong_count %}
+                                        <details class="teacher-exam-wrong-detail">
+                                            <summary class="teacher-exam-wrong-detail__summary state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</summary>
+                                            <div class="teacher-exam-wrong-detail__panel">
+                                                <strong>做错学生</strong>
+                                                {% for item in question.wrong_student_rows %}
+                                                    <div class="teacher-exam-wrong-detail__row">
+                                                        <span>{{ item.student_name }}</span>
+                                                        <span class="state-pill state-pill--locked">答案 {{ item.selected_answer }}</span>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        </details>
+                                    {% else %}
+                                        <span class="state-pill state-pill--locked">错 0</span>
+                                    {% endif %}
+                                    {% if question.selected_student_status_text %}
+                                        <span class="state-pill state-pill--{% if question.selected_student_is_wrong %}locked{% else %}open{% endif %}">{{ question.selected_student_status_text }}</span>
+                                    {% endif %}
                                     {% if question.option_items %}
                                         <details class="teacher-exam-important">
                                             <summary class="teacher-exam-important__summary state-pill state-pill--future">
@@ -322,6 +416,7 @@
                                                 {% csrf_token %}
                                                 <input type="hidden" name="form_action" value="update_exam_question_answer">
                                                 <input type="hidden" name="question_id" value="{{ question.id }}">
+                                                <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
                                                 <label>
                                                     <span class="section-heading__eyebrow">标准答案</span>
                                                     <select name="correct_answer" required>
@@ -345,6 +440,7 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="form_action" value="mark_exam_question_important">
                                             <input type="hidden" name="question_id" value="{{ question.id }}">
+                                            <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
                                             <label>
                                                 <span class="section-heading__eyebrow">重点说明（可选）</span>
                                                 <textarea name="important_note" placeholder="可以留空直接提交。">{{ question.important_note }}</textarea>
@@ -388,7 +484,26 @@
                                 {% endfor %}
                             </div>
                             <div class="record-inline-feedback">
-                                <strong>答案解析</strong>
+                                <div class="content-access-card__top">
+                                    <strong>答案解析</strong>
+                                    <details class="teacher-exam-important">
+                                        <summary class="teacher-exam-important__summary state-pill state-pill--future">编辑解析</summary>
+                                        <form class="teacher-exam-important__panel" method="post">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="update_exam_question_analysis">
+                                            <input type="hidden" name="question_id" value="{{ question.id }}">
+                                            <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
+                                            <label>
+                                                <span class="section-heading__eyebrow">解析 Markdown</span>
+                                                <textarea name="analysis" placeholder="可以填写文字、代码块或解题过程。">{{ question.analysis }}</textarea>
+                                            </label>
+                                            <p class="section-heading__eyebrow">保存后学生端考试结果页会同步显示。</p>
+                                            <div class="teacher-exam-important__actions">
+                                                <button type="submit" class="login-button">保存解析</button>
+                                            </div>
+                                        </form>
+                                    </details>
+                                </div>
                                 <div class="exam-markdown-body">
                                     <p class="exam-markdown-body__paragraph">正确答案：{{ question.correct_answer }}。</p>
                                     {{ question.analysis_html }}

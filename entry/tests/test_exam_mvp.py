@@ -3346,6 +3346,122 @@ class ExamMVPTests(TestCase):
         self.assertEqual(rows_by_question_no[1]["wrong_count"], 0)
         self.assertEqual(rows_by_question_no[1]["wrong_rate_text"], "0%")
 
+        analysis_response = self.client.post(
+            reverse("teacher-exam-detail", args=[session.paper_id]),
+            {
+                "form_action": "update_exam_question_analysis",
+                "question_id": str(question.id),
+                "analysis": "老师补充解析：选择 B 才符合题意。",
+            },
+            follow=True,
+        )
+        self.assertContains(analysis_response, "已更新第 1 题解析")
+        question.refresh_from_db()
+        self.assertEqual(question.analysis, "老师补充解析：选择 B 才符合题意。")
+        answer.refresh_from_db()
+        self.assertEqual(answer.analysis_snapshot, "老师补充解析：选择 B 才符合题意。")
+
+        self.sign_in(self.student_user)
+        student_result_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertContains(student_result_response, "老师补充解析：选择 B 才符合题意。")
+
+    def test_teacher_exam_detail_filters_question_stats_by_student_and_shows_wrong_students(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        first_question = session.paper.questions.get()
+        second_question = ExamQuestion.objects.create(
+            paper=session.paper,
+            question_no=2,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem="2 + 2 = ?",
+            options_json={"A": "4", "B": "3", "C": "2", "D": "1"},
+            correct_answer="A",
+            analysis="2 加 2 等于 4。",
+            score="2",
+            wrong_point_label="加法基础",
+            is_active=True,
+        )
+        second_user = PortalUser.objects.create(
+            username="exam_second_student",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="第二学生",
+            phone="13810000088",
+        )
+        second_student = Student.objects.create(
+            user=second_user,
+            teacher_user=self.teacher,
+            display_name="第二学生",
+            grade="五年级",
+            campus="虹桥校区",
+            primary_course_name="Python",
+            primary_track_name="算法",
+            primary_level_name="P1",
+        )
+
+        self.sign_in(self.student_user)
+        self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
+        self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {
+                "form_action": "submit_exam",
+                f"question_{first_question.id}": "B",
+                f"question_{second_question.id}": "A",
+            },
+        )
+        second_session = ExamSession.objects.create(
+            paper=session.paper,
+            student=second_student,
+            assigned_by=self.teacher,
+            attempt_no=1,
+            session_type=ExamSession.SESSION_TYPE_EXAM,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+            total_count=2,
+            correct_count=1,
+            wrong_count=1,
+            total_score="4.00",
+            earned_score="2.00",
+            started_at=timezone.now() - timedelta(minutes=20),
+            submitted_at=timezone.now() - timedelta(minutes=1),
+            checked_at=timezone.now(),
+        )
+        ExamSubmissionAnswer.objects.create(
+            session=second_session,
+            question=first_question,
+            selected_answer="A",
+            is_correct=True,
+            score="2.00",
+            correct_answer_snapshot="A",
+            analysis_snapshot=first_question.analysis,
+        )
+        ExamSubmissionAnswer.objects.create(
+            session=second_session,
+            question=second_question,
+            selected_answer="D",
+            is_correct=False,
+            score="0.00",
+            correct_answer_snapshot="A",
+            analysis_snapshot=second_question.analysis,
+        )
+
+        self.sign_in(self.teacher)
+        response = self.client.get(reverse("teacher-exam-detail", args=[session.paper_id]))
+        self.assertContains(response, "逐题统计筛选")
+        self.assertContains(response, "考试学生")
+        self.assertContains(response, "第二学生")
+        self.assertContains(response, "做错学生")
+        self.assertContains(response, "答案 B")
+        self.assertContains(response, "答案 D")
+
+        filtered_response = self.client.get(
+            reverse("teacher-exam-detail", args=[session.paper_id]) + f"?stats_student_id={second_student.id}"
+        )
+        self.assertContains(filtered_response, "当前优先展示 第二学生 做错的题目")
+        self.assertContains(filtered_response, "该生答案：D，错误")
+        content = filtered_response.content.decode("utf-8")
+        second_index = content.find('data-question-no="2"')
+        first_index = content.find('data-question-no="1"')
+        self.assertGreaterEqual(second_index, 0)
+        self.assertGreater(first_index, second_index)
+
     def test_teacher_exam_detail_question_no_sort_handles_natural_labels(self) -> None:
         self.assertEqual(normalize_exam_question_no_for_sort("1."), 1)
         self.assertEqual(normalize_exam_question_no_for_sort("第 2 题"), 2)
