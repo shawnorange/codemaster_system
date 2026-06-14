@@ -3299,6 +3299,53 @@ class ExamMVPTests(TestCase):
         self.assertContains(practice_detail_response, "teacher-exam-submission-option--wrong")
         self.assertContains(practice_detail_response, '<pre class="exam-markdown-body__code"><code>', html=False)
 
+    def test_teacher_updates_exam_answer_and_recalculates_submitted_scores(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        question = session.paper.questions.get()
+
+        self.sign_in(self.student_user)
+        self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
+        self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {"form_action": "submit_exam", f"question_{question.id}": "B"},
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.correct_count, 0)
+        self.assertEqual(str(session.earned_score), "0.00")
+        answer = ExamSubmissionAnswer.objects.get(session=session, question=question)
+        self.assertFalse(answer.is_correct)
+        self.assertEqual(answer.correct_answer_snapshot, "A")
+
+        self.sign_in(self.teacher)
+        detail_response = self.client.get(reverse("teacher-exam-detail", args=[session.paper_id]))
+        self.assertContains(detail_response, "修改答案")
+        response = self.client.post(
+            reverse("teacher-exam-detail", args=[session.paper_id]),
+            {
+                "form_action": "update_exam_question_answer",
+                "question_id": str(question.id),
+                "correct_answer": "B",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "已修改第 1 题标准答案，并同步重算 1 条提交记录。")
+        question.refresh_from_db()
+        self.assertEqual(question.correct_answer, "B")
+        session.refresh_from_db()
+        self.assertEqual(session.correct_count, 1)
+        self.assertEqual(session.wrong_count, 0)
+        self.assertEqual(str(session.earned_score), "2.00")
+        answer.refresh_from_db()
+        self.assertTrue(answer.is_correct)
+        self.assertEqual(str(answer.score), "2.00")
+        self.assertEqual(answer.correct_answer_snapshot, "B")
+        rows_by_question_no = {row["question_no"]: row for row in response.context["question_rows"]}
+        self.assertEqual(rows_by_question_no[1]["correct_count"], 1)
+        self.assertEqual(rows_by_question_no[1]["wrong_count"], 0)
+        self.assertEqual(rows_by_question_no[1]["wrong_rate_text"], "0%")
+
     def test_teacher_exam_detail_question_no_sort_handles_natural_labels(self) -> None:
         self.assertEqual(normalize_exam_question_no_for_sort("1."), 1)
         self.assertEqual(normalize_exam_question_no_for_sort("第 2 题"), 2)

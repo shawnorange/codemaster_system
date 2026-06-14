@@ -42,6 +42,10 @@ EXAM_PRACTICE_SESSION_TYPES = {
     ExamSession.SESSION_TYPE_FULL_PRACTICE,
     ExamSession.SESSION_TYPE_WRONG_PRACTICE,
 }
+RECALCULABLE_EXAM_SESSION_STATUSES = {
+    ExamSession.STATUS_SUBMITTED,
+    ExamSession.STATUS_AUTO_CHECKED,
+}
 
 
 class ExamError(Exception):
@@ -738,6 +742,93 @@ def grade_exam_session(
             ]
         )
         return locked_session
+
+
+def recalculate_exam_session_score(session: ExamSession) -> ExamSession:
+    with transaction.atomic():
+        locked_session = ExamSession.objects.select_for_update().select_related("paper").get(id=session.id)
+        if not locked_session.is_active or locked_session.status not in RECALCULABLE_EXAM_SESSION_STATUSES:
+            return locked_session
+
+        questions = get_exam_session_questions(locked_session)
+        gradable_questions = [question for question in questions if is_auto_gradable_exam_question(question)]
+        answers_by_question = {
+            answer.question_id: answer
+            for answer in ExamSubmissionAnswer.objects.select_for_update().filter(session=locked_session, question__in=gradable_questions)
+        }
+        correct_count = 0
+        earned_score = Decimal("0.00")
+        total_score = Decimal("0.00")
+
+        for question in gradable_questions:
+            answer = answers_by_question.get(question.id)
+            selected_answer = normalize_exam_answer(answer.selected_answer if answer else "")
+            is_correct = bool(selected_answer and selected_answer == normalize_exam_answer(question.correct_answer))
+            total_score += Decimal(question.score)
+            score = Decimal(question.score) if is_correct else Decimal("0.00")
+            if is_correct:
+                correct_count += 1
+                earned_score += score
+            if answer:
+                answer.selected_answer = selected_answer
+                answer.is_correct = is_correct
+                answer.score = score.quantize(Decimal("0.01"))
+                answer.correct_answer_snapshot = normalize_exam_answer(question.correct_answer)
+                answer.analysis_snapshot = question.analysis
+                answer.save(
+                    update_fields=[
+                        "selected_answer",
+                        "is_correct",
+                        "score",
+                        "correct_answer_snapshot",
+                        "analysis_snapshot",
+                        "updated_at",
+                    ]
+                )
+            else:
+                ExamSubmissionAnswer.objects.create(
+                    session=locked_session,
+                    question=question,
+                    selected_answer="",
+                    explanation_text="",
+                    is_correct=False,
+                    score=Decimal("0.00"),
+                    correct_answer_snapshot=normalize_exam_answer(question.correct_answer),
+                    analysis_snapshot=question.analysis,
+                )
+
+        locked_session.total_count = len(gradable_questions)
+        locked_session.correct_count = correct_count
+        locked_session.wrong_count = locked_session.total_count - correct_count
+        locked_session.total_score = total_score.quantize(Decimal("0.01"))
+        locked_session.earned_score = earned_score.quantize(Decimal("0.01"))
+        locked_session.checked_at = timezone.now()
+        locked_session.save(
+            update_fields=[
+                "total_count",
+                "correct_count",
+                "wrong_count",
+                "total_score",
+                "earned_score",
+                "checked_at",
+                "updated_at",
+            ]
+        )
+        return locked_session
+
+
+def recalculate_exam_scores_for_paper(paper: ExamPaper) -> int:
+    updated_count = 0
+    with transaction.atomic():
+        sessions = list(
+            ExamSession.objects.select_for_update()
+            .filter(paper=paper, is_active=True, status__in=RECALCULABLE_EXAM_SESSION_STATUSES)
+            .order_by("id")
+        )
+        for session in sessions:
+            recalculate_exam_session_score(session)
+            updated_count += 1
+    return updated_count
 
 
 def record_exam_proctor_event(

@@ -89,16 +89,20 @@
             z-index: 3;
         }
 
+        .teacher-exam-important__panel select,
         .teacher-exam-important__panel textarea {
             border: 1px solid rgba(15, 103, 184, 0.16);
             border-radius: 8px;
             box-sizing: border-box;
             color: var(--text-main);
             font: inherit;
-            min-height: 82px;
             padding: 10px 12px;
-            resize: vertical;
             width: 100%;
+        }
+
+        .teacher-exam-important__panel textarea {
+            min-height: 82px;
+            resize: vertical;
         }
 
         .teacher-exam-important__actions {
@@ -208,6 +212,9 @@
     {% if success_message %}
         <div class="entry-hint-bar">{{ success_message }}</div>
     {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
 
     <section class="surface-panel surface-panel--primary teacher-exam-leaderboard">
         <div class="section-heading">
@@ -306,6 +313,30 @@
                                 <div class="portal-action-row portal-action-row--leading">
                                     <span class="state-pill state-pill--open">对 {{ question.correct_count }}</span>
                                     <span class="state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</span>
+                                    {% if question.option_items %}
+                                        <details class="teacher-exam-important">
+                                            <summary class="teacher-exam-important__summary state-pill state-pill--future">
+                                                修改答案
+                                            </summary>
+                                            <form class="teacher-exam-important__panel" method="post">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="form_action" value="update_exam_question_answer">
+                                                <input type="hidden" name="question_id" value="{{ question.id }}">
+                                                <label>
+                                                    <span class="section-heading__eyebrow">标准答案</span>
+                                                    <select name="correct_answer" required>
+                                                        {% for option in question.option_items %}
+                                                            <option value="{{ option.key }}" {% if option.key == question.correct_answer %}selected{% endif %}>{{ option.key }}{% if option.display_text %} · {{ option.display_text|truncatechars:24 }}{% endif %}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </label>
+                                                <p class="section-heading__eyebrow">保存后会同步重算已提交学生的得分、排行榜和逐题错误率。</p>
+                                                <div class="teacher-exam-important__actions">
+                                                    <button type="submit" class="login-button">保存并重算</button>
+                                                </div>
+                                            </form>
+                                        </details>
+                                    {% endif %}
                                     <details class="teacher-exam-important">
                                         <summary class="teacher-exam-important__summary state-pill state-pill--future">
                                             {% if question.is_important %}已标重点{% else %}标记重点{% endif %}

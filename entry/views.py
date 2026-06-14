@@ -59,6 +59,7 @@ from .exam_online import (
     normalize_exam_answer,
     normalize_exam_options,
     record_exam_proctor_event,
+    recalculate_exam_scores_for_paper,
     start_exam_session,
 )
 from .exam_paper_import import (
@@ -5253,10 +5254,9 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     if request.method == "POST":
         action = str(request.POST.get("form_action") or "").strip()
-        if action != "mark_exam_question_important":
+        if action not in {"mark_exam_question_important", "update_exam_question_answer"}:
             return redirect(reverse("teacher-exam-detail", args=[paper_id]))
         question_id = normalize_positive_int(request.POST.get("question_id"), default=0, minimum=1)
-        important_note = str(request.POST.get("important_note") or "").strip()
         try:
             question = (
                 ExamQuestion.objects.select_related("paper")
@@ -5265,6 +5265,28 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
             )
         except ExamQuestion.DoesNotExist as exc:
             raise Http404("未找到该考试题目") from exc
+        if action == "update_exam_question_answer":
+            new_answer = normalize_exam_answer(request.POST.get("correct_answer"))
+            options = question.options_json if isinstance(question.options_json, dict) else {}
+            if not new_answer or new_answer not in options:
+                return redirect(
+                    build_redirect_with_query(
+                        reverse("teacher-exam-detail", args=[paper_id]),
+                        params={"op": "answer_update_failed", "question": question.question_no},
+                        anchor=f"exam-question-{question.id}",
+                    )
+                )
+            question.correct_answer = new_answer
+            question.save(update_fields=["correct_answer", "updated_at"])
+            updated_sessions = recalculate_exam_scores_for_paper(question.paper)
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exam-detail", args=[paper_id]),
+                    params={"op": "answer_updated", "question": question.question_no, "sessions": updated_sessions},
+                    anchor=f"exam-question-{question.id}",
+                )
+            )
+        important_note = str(request.POST.get("important_note") or "").strip()
         question.is_important = True
         question.important_note = important_note
         question.important_marked_by = portal_user
@@ -5283,6 +5305,10 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
         raise Http404("未找到该考试") from exc
     if request.GET.get("op") == "important_marked":
         context["success_message"] = "已标记重点题。"
+    elif request.GET.get("op") == "answer_updated":
+        context["success_message"] = f"已修改第 {request.GET.get('question') or ''} 题标准答案，并同步重算 {request.GET.get('sessions') or '0'} 条提交记录。"
+    elif request.GET.get("op") == "answer_update_failed":
+        context["error_message"] = f"第 {request.GET.get('question') or ''} 题标准答案无效，请选择当前题目已有选项。"
     return render_shell_page(request, "teacher", "entry/teacher_exam_detail.html", context)
 
 
