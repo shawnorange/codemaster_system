@@ -16,6 +16,8 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core import signing
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -141,6 +143,92 @@ class ExamMVPTests(TestCase):
         output.seek(0)
         return output.read()
 
+    def build_demo_text_layer_pdf_bytes(self) -> bytes:
+        import fitz  # type: ignore
+
+        document = fitz.open()
+        page = document.new_page(width=595, height=842)
+        font_candidates = [
+            Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+            Path("/System/Library/Fonts/Supplemental/Songti.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"),
+        ]
+        font_path = next((path for path in font_candidates if path.exists()), None)
+        font_name = "helv"
+        if font_path:
+            page.insert_font(fontname="cjk", fontfile=str(font_path))
+            font_name = "cjk"
+        page.insert_text((50, 45), "1 单选题（每题 2 分，共 30 分）", fontsize=11, fontname=font_name)
+        page.insert_text((50, 65), "题号 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15", fontsize=9, fontname=font_name)
+        page.insert_text((50, 80), "答案 A B C D A B C D A B C D A B C", fontsize=9, fontname=font_name)
+        y = 110
+        for question_no in range(1, 16):
+            page.insert_text((50, y), f"第 {question_no} 题 自动切题测试题干（ ）", fontsize=10, fontname=font_name)
+            page.insert_text((70, y + 13), "A. 选项 A   B. 选项 B   C. 选项 C   D. 选项 D", fontsize=8, fontname=font_name)
+            y += 45
+        page.insert_text((260, 820), "第 1 页 / 共 1 页", fontsize=8, fontname=font_name)
+        page = document.new_page(width=595, height=842)
+        if font_path:
+            page.insert_font(fontname="cjk", fontfile=str(font_path))
+        page.insert_text((50, 45), "2 判断题（每题 2 分，共 20 分）", fontsize=11, fontname=font_name)
+        page.insert_text((50, 65), "题号 1 2 3 4 5 6 7 8 9 10", fontsize=9, fontname=font_name)
+        page.insert_text((50, 80), "答案 √ × √ × √ × √ × √ ×", fontsize=9, fontname=font_name)
+        y = 110
+        for local_no in range(1, 11):
+            page.insert_text((50, y), f"第 {local_no} 题 自动切题判断题题干。", fontsize=10, fontname=font_name)
+            y += 35
+        page.insert_text((50, 500), "3 编程题（每题 25 分，共 50 分）", fontsize=11, fontname=font_name)
+        page.insert_text((50, 530), "3.1 编程题 1", fontsize=11, fontname=font_name)
+        page.insert_text((60, 555), "试题名称：交朋友", fontsize=10, fontname=font_name)
+        page.insert_text((60, 580), "3.1.1 题目描述", fontsize=10, fontname=font_name)
+        page.insert_text((60, 605), "Alice 想要找身高最接近的人。", fontsize=9, fontname=font_name)
+        page.insert_text((60, 650), "3.1.7 参考程序", fontsize=10, fontname=font_name)
+        page.insert_text((60, 665), "#include <iostream>", fontsize=8, fontname=font_name)
+        page.insert_text((50, 700), "3．2 编程题 2", fontsize=11, fontname=font_name)
+        page.insert_text((60, 725), "试题名称：数字替换", fontsize=10, fontname=font_name)
+        page.insert_text((60, 750), "3.2.1 题目描述", fontsize=10, fontname=font_name)
+        page.insert_text((60, 775), "把数字 4 替换成数字 8。", fontsize=9, fontname=font_name)
+        page.insert_text((260, 820), "第 2 页 / 共 2 页", fontsize=8, fontname=font_name)
+        pdf_bytes = document.tobytes()
+        document.close()
+        return pdf_bytes
+
+    def build_demo_csp_j_round1_pdf_bytes(self) -> bytes:
+        import fitz  # type: ignore
+
+        document = fitz.open()
+        page = document.new_page(width=595, height=842)
+        font_candidates = [
+            Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+            Path("/System/Library/Fonts/Supplemental/Songti.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"),
+        ]
+        font_path = next((path for path in font_candidates if path.exists()), None)
+        font_name = "helv"
+        if font_path:
+            page.insert_font(fontname="cjk", fontfile=str(font_path))
+            font_name = "cjk"
+        page.insert_text((50, 45), "2023 CCF CSP-J 第一轮 C++ 语言试题", fontsize=10, fontname=font_name)
+        page.insert_text((50, 70), "一、单项选择题（共15题，每题2分）", fontsize=11, fontname=font_name)
+        y = 95
+        for question_no in range(1, 16):
+            page.insert_text((50, y), f"{question_no}. 单项选择题测试（ ）", fontsize=9, fontname=font_name)
+            page.insert_text((70, y + 12), "A. A  B. B  C. C  D. D", fontsize=8, fontname=font_name)
+            y += 35
+        page.insert_text((50, 650), "二、阅读程序（判断题正确填√，错误填×）", fontsize=11, fontname=font_name)
+        page.insert_text((50, 675), "(1)", fontsize=10, fontname=font_name)
+        page.insert_text((70, 700), "01 #include <iostream>", fontsize=8, fontname=font_name)
+        page.insert_text((70, 715), "02 int main(){ return 0; }", fontsize=8, fontname=font_name)
+        page.insert_text((50, 740), "16. 该程序可以正常编译。（ ）", fontsize=9, fontname=font_name)
+        page.insert_text((50, 765), "17. 该程序输出为（ ）", fontsize=9, fontname=font_name)
+        page.insert_text((70, 780), "A. 0  B. 1  C. 2  D. 3", fontsize=8, fontname=font_name)
+        page.insert_text((50, 815), "第1页，共1页", fontsize=8, fontname=font_name)
+        pdf_bytes = document.tobytes()
+        document.close()
+        return pdf_bytes
+
     def build_docx_bytes(self, text: str) -> bytes:
         buffer = BytesIO()
         document_xml = (
@@ -213,6 +301,426 @@ class ExamMVPTests(TestCase):
         self.assertNotContains(exam_response, 'id="teacher-exam-level-options"', html=False)
         self.assertNotContains(exam_response, "所选题目")
         self.assertNotContains(exam_response, 'name="exam_bank_json_file"', html=False)
+        self.assertNotContains(exam_response, "PDF 截图切题 Demo")
+        self.assertNotContains(exam_response, reverse("teacher-exam-pdf-crop-demo-upload"))
+        self.assertNotContains(exam_response, 'name="demo_pdf"', html=False)
+
+    def test_teacher_pdf_crop_demo_renders_pdf_and_saves_relative_crop(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_demo_text_layer_pdf_bytes()
+
+        upload_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo-upload"),
+            {
+                "demo_subject": "cpp",
+                "demo_exam_type": "gesp1",
+                "demo_year": "2024",
+                "demo_month": "5",
+                "demo_scale": "2",
+                "demo_pdf": SimpleUploadedFile("demo.pdf", pdf_bytes, content_type="application/pdf"),
+            },
+        )
+
+        self.assertEqual(upload_response.status_code, 302)
+        self.assertIn("/teacher/exams/pdf-crop-demo/", upload_response["Location"])
+        detail_response = self.client.get(upload_response["Location"])
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "PDF 截图切题 Demo")
+        self.assertContains(detail_response, "exam_assets/demo_pages/")
+        self.assertNotContains(detail_response, "/Users/")
+        self.assertNotContains(detail_response, "/opt/")
+
+        session_id = upload_response["Location"].rstrip("/").split("/")[-1]
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            state = json.load(state_file)
+        self.assertEqual(state["subject"], "cpp")
+        self.assertEqual(state["exam_type"], "gesp1")
+        self.assertEqual(state["month"], "05")
+        self.assertEqual(len(state["pages"]), 2)
+        self.assertTrue(state["pages"][0]["image_path"].startswith("exam_assets/demo_pages/"))
+        self.assertEqual(state["auto_summary"]["anchor_count"], 27)
+        self.assertEqual(state["auto_summary"]["answer_count"], 25)
+        self.assertFalse(state["auto_summary"]["fallback_used"])
+        self.assertGreaterEqual(len(state["crops"]), 27)
+        crop = state["crops"][0]
+        self.assertEqual(crop["answer"], "A")
+        self.assertEqual(crop["question_type"], "single_choice")
+        self.assertEqual(
+            crop["image_path"],
+            "exam_assets/demo_questions/cpp/gesp1/2024_05/cpp_gesp1_2024_05_s01_q001_p01.png",
+        )
+        self.assertTrue(default_storage.exists(crop["image_path"]))
+        programming_crops = [item for item in state["crops"] if item["question_type"] == "programming"]
+        self.assertEqual([item["question_no"] for item in programming_crops], [26, 27])
+        self.assertTrue(programming_crops[0]["image_path"].endswith("cpp_gesp1_2024_05_s03_q026_p01.png"))
+        self.assertTrue(programming_crops[1]["image_path"].endswith("cpp_gesp1_2024_05_s03_q027_p01.png"))
+        self.assertLess(programming_crops[0]["crop_box"][3], 1300)
+        self.assertContains(detail_response, "pdf-demo-preview-footer")
+        self.assertContains(detail_response, "保存答案修改")
+        self.assertContains(detail_response, "确认填入答案")
+        self.assertContains(detail_response, 'name="quick_answer_1"', html=False)
+        self.assertContains(detail_response, 'name="quick_answer_25"', html=False)
+        self.assertContains(detail_response, "调整截图")
+        self.assertContains(detail_response, "确认入库并查看已入库试卷")
+
+        quick_answer_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {
+                "form_action": "bulk_update_pdf_crop_demo_answers",
+                "quick_answer_1": "d",
+                "quick_answer_15": "a",
+                "quick_answer_16": "对",
+                "quick_answer_25": "错",
+            },
+        )
+        self.assertEqual(quick_answer_response.status_code, 200)
+        self.assertContains(quick_answer_response, "已快速填入 4 道客观题答案。")
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            quick_answer_state = json.load(state_file)
+        first_question_records = [item for item in quick_answer_state["crops"] if item["question_no"] == 1]
+        fifteenth_question_records = [item for item in quick_answer_state["crops"] if item["question_no"] == 15]
+        first_judgment_records = [item for item in quick_answer_state["crops"] if item["question_no"] == 16]
+        last_judgment_records = [item for item in quick_answer_state["crops"] if item["question_no"] == 25]
+        self.assertTrue(first_question_records)
+        self.assertTrue(fifteenth_question_records)
+        self.assertTrue(first_judgment_records)
+        self.assertTrue(last_judgment_records)
+        self.assertTrue(all(item["answer"] == "D" for item in first_question_records))
+        self.assertTrue(all(item["answer"] == "A" for item in fifteenth_question_records))
+        self.assertTrue(all(item["answer"] == "√" for item in first_judgment_records))
+        self.assertTrue(all(item["answer"] == "×" for item in last_judgment_records))
+
+        state = quick_answer_state
+        initial_crop_count = len(state["crops"])
+        add_part_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {
+                "form_action": "add_pdf_crop_demo_part",
+                "page_no": "1",
+                "section_no": "1",
+                "question_no": "1",
+                "part_no": "2",
+                "question_type": "single_choice",
+                "answer": "A",
+                "score": "2",
+                "x1": "10",
+                "y1": "10",
+                "x2": "120",
+                "y2": "120",
+            },
+        )
+        self.assertEqual(add_part_response.status_code, 200)
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            updated_state = json.load(state_file)
+        self.assertEqual(len(updated_state["crops"]), initial_crop_count + 1)
+        replace_part_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {
+                "form_action": "add_pdf_crop_demo_part",
+                "page_no": "1",
+                "section_no": "1",
+                "question_no": "1",
+                "part_no": "2",
+                "question_type": "single_choice",
+                "answer": "B",
+                "score": "3",
+                "x1": "20",
+                "y1": "20",
+                "x2": "140",
+                "y2": "140",
+            },
+        )
+        self.assertEqual(replace_part_response.status_code, 200)
+        self.assertContains(replace_part_response, "已替换第 1 大题第 1 题第 2 张截图。")
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            replaced_state = json.load(state_file)
+        self.assertEqual(len(replaced_state["crops"]), initial_crop_count + 1)
+        replacement = next(item for item in replaced_state["crops"] if item["question_no"] == 1 and item["part_no"] == 2)
+        self.assertEqual(replacement["answer"], "B")
+        self.assertEqual(replacement["score"], "3")
+        self.assertEqual(replacement["crop_box"], [20, 20, 140, 140])
+
+    def test_pdf_crop_demo_parses_gesp_answer_blocks_before_first_question(self) -> None:
+        from entry.views import parse_pdf_demo_answers
+
+        answers = parse_pdf_demo_answers(
+            {
+                "single_choice": [
+                    {"text": "1 单选题（每题2分，共30分）"},
+                    {"text": "| 题号 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |"},
+                    {"text": "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"},
+                    {"text": "| 答案 | B | B | B | C | B | C | D | B | C | A | D | A | C | C | C |"},
+                    {"text": "第 1 题 下列 C++ 代码的输出是？"},
+                ],
+                "judgment": [
+                    {"text": "2 判断题（每题2分，共20分）"},
+                    {"text": "题号 1 2 3 4 5 6 7 8 9 10"},
+                    {"text": "答案"},
+                    {"text": "√ × × √ √ × √ × √ ×"},
+                    {"text": "第 1 题 C++ 是编程语言。"},
+                ],
+            }
+        )
+
+        self.assertEqual([answers[index] for index in range(1, 16)], ["B", "B", "B", "C", "B", "C", "D", "B", "C", "A", "D", "A", "C", "C", "C"])
+        self.assertEqual([answers[index] for index in range(16, 26)], ["√", "×", "×", "√", "√", "×", "√", "×", "√", "×"])
+
+        split_cell_answers = parse_pdf_demo_answers(
+            {
+                "single_choice": [
+                    {"text": "1 单选题（每题2分，共30分）"},
+                    {"text": "题号"},
+                    *[{"text": str(index)} for index in range(1, 16)],
+                    {"text": "答案"},
+                    *[{"text": token} for token in ["Ｂ", "Ｂ", "Ｂ", "Ｃ", "Ｂ", "Ｃ", "Ｄ", "Ｂ", "Ｃ", "Ａ", "Ｄ", "Ａ", "Ｃ", "Ｃ", "Ｃ"]],
+                    {"text": "第 1 题 C++ 表达式的值是？"},
+                ],
+                "judgment": [
+                    {"text": "2 判断题（每题2分，共20分）"},
+                    {"text": "题号"},
+                    *[{"text": str(index)} for index in range(1, 11)],
+                    {"text": "答案"},
+                    *[{"text": token} for token in ["✓", "X", "✓", "✕", "√", "×", "✓", "X", "√", "×"]],
+                    {"text": "第 1 题 C++ 是编程语言。"},
+                ],
+            }
+        )
+        self.assertEqual([split_cell_answers[index] for index in range(1, 16)], ["B", "B", "B", "C", "B", "C", "D", "B", "C", "A", "D", "A", "C", "C", "C"])
+        self.assertEqual([split_cell_answers[index] for index in range(16, 26)], ["√", "×", "√", "×", "√", "×", "√", "×", "√", "×"])
+
+        noisy_judgment_answers = parse_pdf_demo_answers(
+            {
+                "judgment": [
+                    {"text": "2 判断题"},
+                    {"text": "题号 1 2 3 4 5 6 7 8 9 10"},
+                    {"text": "答案 √ × √ × √ × √ × √ ×"},
+                    {"text": "CCF GESP C++ 编程能力等级认证"},
+                    {"text": "第 1 题 执行C++代码 cout<<(5&2)<<endl; 后将输出 1。"},
+                ]
+            }
+        )
+        self.assertEqual([noisy_judgment_answers[index] for index in range(16, 26)], ["√", "×", "√", "×", "√", "×", "√", "×", "√", "×"])
+
+        missing_judgment_answers = parse_pdf_demo_answers(
+            {
+                "judgment": [
+                    {"text": "2 判断题"},
+                    {"text": "答案"},
+                    {"text": "CCF GESP C++ 编程能力等级认证"},
+                    {"text": "第 1 题 执行C++代码 cout<<(5&2)<<endl; 后将输出 1。"},
+                ]
+            }
+        )
+        self.assertNotIn(16, missing_judgment_answers)
+
+        geometry_answers = parse_pdf_demo_answers(
+            {
+                "single_choice": [
+                    {"text": "1 单选题（每题2分，共30分）", "x0": 10, "y0": 10, "y1": 20},
+                    {"text": "题号", "x0": 10, "y0": 30, "y1": 40},
+                    *[
+                        {"text": str(index), "x0": 40 + index * 12, "y0": 30, "y1": 40}
+                        for index in range(1, 16)
+                    ],
+                    {"text": "答案", "x0": 10, "y0": 45, "y1": 55},
+                    *[
+                        {"text": token, "x0": 40 + index * 12, "y0": 45, "y1": 55}
+                        for index, token in enumerate(["B", "B", "B", "C", "B", "C", "D", "B", "C", "A", "D", "A", "C", "C", "C"], start=1)
+                    ],
+                    {"text": "CCF GESP CCF 编程能力等级认证", "x0": 10, "y0": 70, "y1": 80},
+                    {"text": "第 1 题 C++ 表达式的值是？", "x0": 10, "y0": 100, "y1": 110},
+                ],
+                "judgment": [],
+            }
+        )
+        self.assertEqual([geometry_answers[index] for index in range(1, 16)], ["B", "B", "B", "C", "B", "C", "D", "B", "C", "A", "D", "A", "C", "C", "C"])
+
+    def test_pdf_crop_demo_detects_number_dot_question_anchors(self) -> None:
+        from entry.views import detect_pdf_demo_anchors
+
+        anchors, boundaries, _answers = detect_pdf_demo_anchors(
+            [
+                {"page_no": 1, "text": "1 单选题（每题2分，共30分）", "x0": 50, "y0": 40, "x1": 300, "y1": 60},
+                {"page_no": 1, "text": "题号 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15", "x0": 50, "y0": 70, "x1": 400, "y1": 85},
+                {"page_no": 1, "text": "答案 D D A D C A B B C D C A B D B", "x0": 50, "y0": 90, "x1": 500, "y1": 105},
+                {"page_no": 1, "text": "1. 高级语言编写的程序需要经过以下（ ）操作。", "x0": 70, "y0": 150, "x1": 500, "y1": 170},
+                {"page_no": 1, "text": "2．下列选项正确的是（ ）。", "x0": 70, "y0": 310, "x1": 500, "y1": 330},
+                {"page_no": 2, "text": "2 判断题（每题2分，共20分）", "x0": 50, "y0": 40, "x1": 300, "y1": 60},
+                {"page_no": 2, "text": "题号 1 2 3 4 5 6 7 8 9 10", "x0": 50, "y0": 70, "x1": 400, "y1": 85},
+                {"page_no": 2, "text": "答案 √ × √ × √ × √ × √ ×", "x0": 50, "y0": 90, "x1": 500, "y1": 105},
+                {"page_no": 2, "text": "1、执行 C++ 代码后将输出 1。（ ）", "x0": 70, "y0": 150, "x1": 500, "y1": 170},
+                {"page_no": 2, "text": "2. C++ 程序执行后输出正确。（ ）", "x0": 70, "y0": 250, "x1": 500, "y1": 270},
+            ]
+        )
+
+        self.assertEqual([int(anchor["question_no"]) for anchor in anchors], [1, 2, 16, 17])
+        self.assertIn("single_choice", [boundary["boundary_type"] for boundary in boundaries])
+        self.assertIn("judgment", [boundary["boundary_type"] for boundary in boundaries])
+
+    def test_pdf_crop_demo_infers_visual_judgment_answers_from_red_marks(self) -> None:
+        from PIL import Image, ImageDraw
+
+        from entry.views import infer_pdf_demo_visual_judgment_answers
+
+        image = Image.new("RGB", (1000, 1400), "white")
+        draw = ImageDraw.Draw(image)
+        expected_answers = ["√", "√", "√", "√", "×", "×", "√", "√", "×", "√"]
+        for index, answer in enumerate(expected_answers):
+            x = 210 + index * 55
+            if answer == "√":
+                draw.line([(x, 430), (x + 8, 446), (x + 24, 410)], fill=(238, 40, 40), width=4)
+            else:
+                draw.line([(x, 418), (x + 18, 436)], fill=(238, 40, 40), width=4)
+                draw.line([(x + 18, 418), (x, 436)], fill=(238, 40, 40), width=4)
+
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_path = default_storage.save("exam_assets/demo_pages/visual_judgment/page_001.png", ContentFile(image_buffer.getvalue()))
+        answers = infer_pdf_demo_visual_judgment_answers(
+            pages=[{"page_no": 1, "image_path": image_path, "width": 1000, "height": 1400}],
+            page_metrics={
+                1: {
+                    "width_pt": 500,
+                    "height_pt": 700,
+                    "width_px": 1000,
+                    "height_px": 1400,
+                    "top_pt": 20,
+                    "bottom_pt": 680,
+                }
+            },
+            lines=[
+                {"page_no": 1, "text": "2 判断题（每题2分，共20分）", "x0": 50, "y0": 180, "x1": 300, "y1": 200},
+                {"page_no": 1, "text": "第 1 题 执行C++代码后将输出 1。", "x0": 50, "y0": 245, "x1": 450, "y1": 260},
+            ],
+        )
+
+        self.assertEqual([answers[index] for index in range(16, 26)], expected_answers)
+
+    def test_pdf_crop_demo_does_not_create_fake_crops_without_question_anchors(self) -> None:
+        from entry.views import build_pdf_demo_auto_crops
+
+        class NoQuestionAnchorDocument:
+            page_count = 0
+
+        state = {
+            "subject": "cpp",
+            "exam_type": "gesp3",
+            "year": "2023",
+            "month": "06",
+            "pages": [{"page_no": 1, "image_path": "exam_assets/demo_pages/no_anchor/page_001.png", "width": 1000, "height": 1400}],
+        }
+        crops, summary = build_pdf_demo_auto_crops(
+            state=state,
+            document=NoQuestionAnchorDocument(),
+            pages=state["pages"],
+        )
+
+        self.assertEqual(crops, [])
+        self.assertTrue(summary["fallback_used"])
+        self.assertTrue(summary["requires_manual_crop"])
+        self.assertEqual(summary["crop_count"], 0)
+
+    def test_pdf_crop_demo_section_fallback_stops_programming_before_reference_code(self) -> None:
+        from entry.views import build_pdf_demo_section_fallback_regions
+
+        regions = build_pdf_demo_section_fallback_regions(
+            boundaries=[
+                {"boundary_type": "single_choice", "page_no": 1, "x0": 50, "y0": 40, "y1": 60},
+                {"boundary_type": "judgment", "page_no": 3, "x0": 50, "y0": 100, "y1": 120},
+                {"boundary_type": "programming", "page_no": 5, "x0": 50, "y0": 100, "y1": 120},
+                {"boundary_type": "programming_reference", "page_no": 6, "x0": 50, "y0": 300, "y1": 320},
+            ],
+            page_metrics={
+                page_no: {
+                    "width_pt": 500,
+                    "height_pt": 700,
+                    "width_px": 1000,
+                    "height_px": 1400,
+                    "top_pt": 20,
+                    "bottom_pt": 680,
+                }
+                for page_no in range(1, 7)
+            },
+            answers={**{question_no: "A" for question_no in range(1, 16)}, **{question_no: "√" for question_no in range(16, 26)}},
+        )
+
+        self.assertIn(26, regions)
+        self.assertIn(27, regions)
+        reference_y_px = 300 * 2
+        programming_regions_on_reference_page = [
+            region for question_no in (26, 27) for region in regions[question_no] if region["page_no"] == 6
+        ]
+        self.assertTrue(programming_regions_on_reference_page)
+        self.assertTrue(all(region["bbox"][3] <= reference_y_px - 12 for region in programming_regions_on_reference_page))
+
+    def test_teacher_pdf_crop_demo_confirm_creates_publishable_snapshot_with_images(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_demo_text_layer_pdf_bytes()
+
+        upload_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo-upload"),
+            {
+                "demo_scale": "2",
+                "demo_pdf": SimpleUploadedFile("2024年5月C++1级试题.pdf", pdf_bytes, content_type="application/pdf"),
+            },
+        )
+
+        self.assertEqual(upload_response.status_code, 302)
+        session_id = upload_response["Location"].rstrip("/").split("/")[-1]
+        update_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {
+                "form_action": "update_pdf_crop_demo_answers",
+                "question_type_1": "single_choice",
+                "answer_1": "D",
+                "score_1": "3",
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+        confirm_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {"form_action": "confirm_pdf_crop_demo_to_bank"},
+        )
+
+        self.assertEqual(confirm_response.status_code, 302)
+        self.assertIn("op=pdf_crop_demo_confirmed", confirm_response["Location"])
+        bank_paper = ExamQuestionBankPaper.objects.get(source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR)
+        self.assertEqual(bank_paper.level, "GESP1")
+        self.assertEqual(bank_paper.year, 2024)
+        self.assertEqual(bank_paper.month, 5)
+        self.assertEqual(bank_paper.questions.count(), 27)
+        self.assertEqual(bank_paper.questions.get(question_no=1).answer_json["correct_answer"], "D")
+        self.assertEqual(bank_paper.questions.get(question_no=1).full_json["score"], "3")
+        programming_question = bank_paper.questions.get(question_no=26)
+        self.assertEqual(programming_question.question_type, ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING)
+        self.assertEqual(programming_question.assets.filter(asset_role="content").count(), 1)
+        self.assertTrue(programming_question.assets.get().relative_path.startswith("exam_assets/demo_questions/"))
+        bank_paper.questions.filter(question_no=2).update(answer_json={})
+
+        start_at = timezone.now() + timedelta(minutes=5)
+        end_at = start_at + timedelta(minutes=45)
+        publish_response = self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "create_exam_from_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+                "exam_schedule_mode": "scheduled",
+                "exam_schedule_start_at": self.format_datetime_local(start_at),
+                "exam_schedule_end_at": self.format_datetime_local(end_at),
+            },
+        )
+        self.assertEqual(publish_response.status_code, 302)
+        exam_paper = ExamPaper.objects.get(title=bank_paper.title)
+        self.assertEqual(exam_paper.questions.count(), 27)
+        first_question = exam_paper.questions.get(question_no=1)
+        self.assertEqual(first_question.correct_answer, "D")
+        self.assertEqual(first_question.score, 3)
+        self.assertEqual(exam_paper.questions.get(question_no=2).correct_answer, "")
+        programming_exam_question = exam_paper.questions.get(question_no=26)
+        self.assertEqual(programming_exam_question.score, 25)
+        image_paths = programming_exam_question.source_snapshot_json.get("image_paths")
+        self.assertIsInstance(image_paths, list)
+        self.assertEqual(image_paths, [programming_exam_question.image_path])
 
     def test_teacher_new_exam_paper_page_creates_import_job(self) -> None:
         self.sign_in(self.teacher)
@@ -220,6 +728,7 @@ class ExamMVPTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "新增试卷")
         self.assertContains(response, 'name="source_pdf"', html=False)
+        self.assertContains(response, 'name="use_qwen_ocr"', html=False)
         self.assertContains(response, "识别链路检查")
         self.assertContains(response, "CSP-J")
         self.assertContains(response, "CSP-S")
@@ -259,6 +768,7 @@ class ExamMVPTests(TestCase):
                 "course_id": str(self.cpp_course.id),
                 "level_code": "GESP1",
                 "title": "GESP1 2026年3月C++1级真题",
+                "use_qwen_ocr": "on",
                 "source_pdf": SimpleUploadedFile(
                     "2026年3月C++1级试题.pdf",
                     pdf_bytes,
@@ -286,6 +796,7 @@ class ExamMVPTests(TestCase):
                 "course_id": str(self.cpp_course.id),
                 "level_code": "GESP1",
                 "title": "GESP1 2026年3月C++1级真题",
+                "use_qwen_ocr": "on",
                 "source_pdf": SimpleUploadedFile(
                     "2026年3月C++1级试题.pdf",
                     pdf_bytes,
@@ -296,6 +807,105 @@ class ExamMVPTests(TestCase):
         self.assertEqual(duplicate_response.status_code, 302)
         self.assertIn("op=existing", duplicate_response["Location"])
         self.assertEqual(ExamQuestionBankImportJob.objects.filter(source_pdf_id="2026_3_c_1").count(), 1)
+
+    def test_teacher_new_exam_paper_page_defaults_pdf_to_crop_demo(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_demo_text_layer_pdf_bytes()
+        upload_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "course_id": str(self.cpp_course.id),
+                "level_code": "GESP1",
+                "title": "2024年5月C++一级截图试卷",
+                "source_pdf": SimpleUploadedFile(
+                    "2024年5月C++一级试题.pdf",
+                    pdf_bytes,
+                    content_type="application/pdf",
+                ),
+            },
+        )
+
+        self.assertEqual(upload_response.status_code, 302)
+        self.assertIn("/teacher/exams/pdf-crop-demo/", upload_response["Location"])
+        self.assertEqual(ExamQuestionBankImportJob.objects.count(), 0)
+        session_id = upload_response["Location"].rstrip("/").split("/")[-1]
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            state = json.load(state_file)
+        self.assertEqual(state["subject"], "cpp")
+        self.assertEqual(state["exam_type"], "gesp1")
+        self.assertEqual(state["year"], "2024")
+        self.assertEqual(state["month"], "05")
+        self.assertGreaterEqual(len(state["crops"]), 27)
+
+    def test_teacher_new_exam_paper_page_uses_csp_j_round1_grouped_material_crop_mode(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_demo_csp_j_round1_pdf_bytes()
+        upload_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "course_id": str(self.cpp_course.id),
+                "level_code": "CSP-J",
+                "title": "2023年CSP-J初赛真题",
+                "source_pdf": SimpleUploadedFile(
+                    "2023年CSP-J初赛真题.pdf",
+                    pdf_bytes,
+                    content_type="application/pdf",
+                ),
+            },
+        )
+
+        self.assertEqual(upload_response.status_code, 302)
+        self.assertIn("/teacher/exams/pdf-crop-demo/", upload_response["Location"])
+        session_id = upload_response["Location"].rstrip("/").split("/")[-1]
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            state = json.load(state_file)
+        self.assertEqual(state["crop_mode"], "csp_j_round1")
+        self.assertEqual(state["exam_type"], "csp_j")
+        grouped_records = [record for record in state["crops"] if record["question_no"] == 16]
+        self.assertTrue(grouped_records)
+        self.assertEqual(grouped_records[0]["display_mode"], "grouped_material")
+        self.assertTrue(grouped_records[0]["material_image_paths"])
+        self.assertTrue(grouped_records[0]["material_image_paths"][0].endswith("_g001_material_p01.png"))
+
+        confirm_response = self.client.post(
+            reverse("teacher-exam-pdf-crop-demo", args=[session_id]),
+            {"form_action": "confirm_pdf_crop_demo_to_bank"},
+        )
+        self.assertEqual(confirm_response.status_code, 302)
+        bank_paper = ExamQuestionBankPaper.objects.get(import_batch_uid=session_id)
+        bank_question = bank_paper.questions.get(question_no=16)
+        full_json = bank_question.full_json
+        self.assertEqual(full_json["display_mode"], "grouped_material")
+        self.assertTrue(full_json["material_image_paths"])
+        self.assertTrue(full_json["question_image_paths"])
+        content_assets = list(bank_question.assets.filter(asset_role="content").order_by("id"))
+        self.assertGreaterEqual(len(content_assets), 2)
+        self.assertEqual(content_assets[0].asset_type, "material_crop")
+
+    def test_teacher_new_exam_paper_page_detects_csp_j1_filename_as_round1(self) -> None:
+        self.sign_in(self.teacher)
+        pdf_bytes = self.build_demo_csp_j_round1_pdf_bytes()
+        upload_response = self.client.post(
+            reverse("teacher-exam-paper-new"),
+            {
+                "course_id": str(self.cpp_course.id),
+                "level_code": "CSP-J",
+                "title": "CSP-J 2022 题目",
+                "source_pdf": SimpleUploadedFile(
+                    "CSP-J1-2022-题目.pdf",
+                    pdf_bytes,
+                    content_type="application/pdf",
+                ),
+            },
+        )
+
+        self.assertEqual(upload_response.status_code, 302)
+        self.assertIn("/teacher/exams/pdf-crop-demo/", upload_response["Location"])
+        session_id = upload_response["Location"].rstrip("/").split("/")[-1]
+        with default_storage.open(f"exam_assets/demo_sessions/{session_id}.json", "r") as state_file:
+            state = json.load(state_file)
+        self.assertEqual(state["crop_mode"], "csp_j_round1")
+        self.assertTrue([record for record in state["crops"] if record["question_no"] == 16 and record["material_image_paths"]])
 
     def test_teacher_new_exam_paper_page_shows_confirmed_bank_paper_grid(self) -> None:
         self.sign_in(self.teacher)
@@ -1118,6 +1728,68 @@ class ExamMVPTests(TestCase):
         self.assertContains(updated_exam_page_response, "2024年3月C++二级真题")
         self.assertContains(updated_exam_page_response, "GESP2")
         self.assertContains(updated_exam_page_response, "未开始")
+
+    def test_deleted_exam_management_record_allows_bank_paper_hard_delete(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2026,
+            month=6,
+            source_pdf_id="delete_after_exam_management_removed",
+            source_file="delete-after-management.pdf",
+            title="管理删除后可硬删除试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        bank_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="delete_after_exam_management_removed_q1",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="1 + 1 = ?",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={},
+        )
+        ExamQuestionBankOption.objects.create(question=bank_question, option_key="A", option_text_md="2", sort_order=1)
+        start_at = timezone.now() + timedelta(minutes=5)
+        end_at = start_at + timedelta(minutes=45)
+        publish_response = self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "create_exam_from_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+                "exam_schedule_mode": "scheduled",
+                "exam_schedule_start_at": self.format_datetime_local(start_at),
+                "exam_schedule_end_at": self.format_datetime_local(end_at),
+            },
+        )
+        self.assertEqual(publish_response.status_code, 302)
+        exam_paper = ExamPaper.objects.get(title=bank_paper.title)
+
+        published_page = self.client.get(reverse("teacher-exams"))
+        published_row = next(row for row in published_page.context["available_paper_rows"] if row["id"] == bank_paper.id)
+        self.assertEqual(published_row["delete_label"], "删除")
+
+        delete_exam_response = self.client.post(
+            reverse("teacher-exams"),
+            {"form_action": "delete_exam", "paper_id": str(exam_paper.id)},
+        )
+        self.assertEqual(delete_exam_response.status_code, 302)
+        exam_paper.refresh_from_db()
+        self.assertFalse(exam_paper.is_active)
+
+        after_management_delete_page = self.client.get(reverse("teacher-exams"))
+        hard_delete_row = next(row for row in after_management_delete_page.context["available_paper_rows"] if row["id"] == bank_paper.id)
+        self.assertEqual(hard_delete_row["delete_label"], "硬删除")
+        hard_delete_response = self.client.post(
+            reverse("teacher-exams"),
+            {"form_action": "delete_bank_paper", "bank_paper_id": str(bank_paper.id)},
+        )
+        self.assertEqual(hard_delete_response.status_code, 302)
+        self.assertIn("mode=hard", hard_delete_response["Location"])
+        self.assertFalse(ExamQuestionBankPaper.objects.filter(id=bank_paper.id).exists())
 
     def test_teacher_can_publish_bank_paper_as_immediate_countdown_exam(self) -> None:
         self.sign_in(self.teacher)
@@ -2239,6 +2911,12 @@ class ExamMVPTests(TestCase):
         self.assertEqual(start_response.status_code, 302)
         session.refresh_from_db()
         self.assertEqual(session.status, ExamSession.STATUS_IN_PROGRESS)
+        answer_sheet_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertEqual(answer_sheet_response.status_code, 200)
+        self.assertContains(answer_sheet_response, 'id="student-exam-paper-layout"', html=False)
+        self.assertContains(answer_sheet_response, 'data-student-exam-question-button', html=False)
+        self.assertContains(answer_sheet_response, "上一题")
+        self.assertContains(answer_sheet_response, "下一题")
 
         submit_response = self.client.post(
             reverse("student-exam-detail", args=[session.id]),

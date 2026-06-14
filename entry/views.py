@@ -2,6 +2,8 @@ import logging
 import json
 import re
 import uuid
+import unicodedata
+from io import BytesIO
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -817,6 +819,1792 @@ def build_exam_import_job_preview_rows(import_job: ExamQuestionBankImportJob) ->
 
 
 EXAM_IMPORT_MANUAL_CHOICE_KEYS = ("A", "B", "C", "D")
+PDF_CROP_DEMO_STATE_DIR = "exam_assets/demo_sessions"
+PDF_CROP_DEMO_SUBJECT_CHOICES = ("cpp",)
+PDF_CROP_DEMO_EXAM_TYPE_CHOICES = ("gesp1", "gesp2", "gesp3", "gesp4", "csp_j", "csp_s")
+PDF_CROP_DEMO_QUESTION_TYPE_CHOICES = ("single_choice", "judgment", "programming")
+PDF_CROP_DEMO_EXPECTED_QUESTION_COUNT = 27
+
+
+def infer_pdf_crop_demo_metadata_from_filename(filename: str) -> dict[str, str]:
+    stem = Path(filename or "").stem.strip()
+    compact = re.sub(r"\s+", "", stem)
+    lower_compact = compact.lower()
+    year_match = re.search(r"(20\d{2})", compact)
+    month_match = re.search(r"20\d{2}[_\-.年]*(1[0-2]|0?[1-9])", compact)
+    if month_match is None:
+        month_match = re.search(r"年\s*(1[0-2]|0?[1-9])\s*月", compact)
+
+    subject = "cpp" if any(token in lower_compact for token in ("c++", "cpp", "c语言")) else "cpp"
+    exam_type = ""
+    if "csp-j" in lower_compact or "cspj" in lower_compact:
+        exam_type = "csp_j"
+    elif "csp-s" in lower_compact or "csps" in lower_compact:
+        exam_type = "csp_s"
+    else:
+        gesp_match = re.search(r"gesp\s*([1-8])", lower_compact)
+        chinese_level_match = re.search(r"([1-8])\s*级", compact)
+        level_match = gesp_match or chinese_level_match
+        if level_match:
+            exam_type = f"gesp{level_match.group(1)}"
+
+    return {
+        "subject": subject,
+        "exam_type": exam_type,
+        "year": year_match.group(1) if year_match else "",
+        "month": f"{int(month_match.group(1)):02d}" if month_match else "",
+    }
+
+
+def normalize_pdf_crop_demo_month(value: object) -> str:
+    month = normalize_positive_int(value, default=0, minimum=1)
+    if month < 1 or month > 12:
+        return ""
+    return f"{month:02d}"
+
+
+def normalize_pdf_crop_demo_scale(value: object) -> int:
+    scale = normalize_positive_int(value, default=2, minimum=2)
+    return 3 if scale == 3 else 2
+
+
+def get_pdf_crop_demo_state_path(session_id: str) -> str:
+    safe_session_id = re.sub(r"[^0-9A-Za-z_-]", "", str(session_id or ""))
+    return f"{PDF_CROP_DEMO_STATE_DIR}/{safe_session_id}.json"
+
+
+def get_pdf_crop_demo_state(session_id: str) -> dict[str, object] | None:
+    state_path = get_pdf_crop_demo_state_path(session_id)
+    if not default_storage.exists(state_path):
+        return None
+    try:
+        with default_storage.open(state_path, "r") as state_file:
+            state = json.load(state_file)
+    except Exception:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def save_pdf_crop_demo_state(session_id: str, state: dict[str, object]) -> None:
+    state_path = get_pdf_crop_demo_state_path(session_id)
+    payload = json.dumps(state, ensure_ascii=False, indent=2)
+    if default_storage.exists(state_path):
+        default_storage.delete(state_path)
+    default_storage.save(state_path, ContentFile(payload.encode("utf-8")))
+
+
+def get_pdf_crop_demo_question_type(question_no: int) -> str:
+    if 1 <= question_no <= 15:
+        return "single_choice"
+    if 16 <= question_no <= 25:
+        return "judgment"
+    return "programming"
+
+
+def get_pdf_crop_demo_section_no(question_no: int) -> int:
+    if 1 <= question_no <= 15:
+        return 1
+    if 16 <= question_no <= 25:
+        return 2
+    return 3
+
+
+def get_pdf_crop_demo_default_score(question_no: int) -> str:
+    return "25" if question_no >= 26 else "2"
+
+
+def get_csp_j_round1_question_score(question_no: int, question_type: object) -> str:
+    if 1 <= question_no <= 15:
+        return "2"
+    if str(question_type or "") == "judgment":
+        return "1.5"
+    return "3"
+
+
+def map_course_title_to_pdf_crop_demo_subject(course_title: object) -> str:
+    normalized = str(course_title or "").strip().lower()
+    if normalized in {"c++", "cpp"} or "c++" in normalized or "cpp" in normalized:
+        return "cpp"
+    return ""
+
+
+def map_level_code_to_pdf_crop_demo_exam_type(level_code: object) -> str:
+    value = str(level_code or "").strip().lower().replace("-", "_")
+    if value.startswith("gesp") and value[4:].isdigit():
+        exam_type = f"gesp{int(value[4:])}"
+    elif value in {"csp_j", "cspj"}:
+        exam_type = "csp_j"
+    elif value in {"csp_s", "csps"}:
+        exam_type = "csp_s"
+    else:
+        exam_type = ""
+    return exam_type if exam_type in PDF_CROP_DEMO_EXAM_TYPE_CHOICES else ""
+
+
+def should_use_csp_j_round1_crop_mode(*, subject: str, exam_type: str, title: object, filename: object) -> bool:
+    text = unicodedata.normalize("NFKC", f"{title or ''} {filename or ''}")
+    compact = re.sub(r"\s+", "", text).lower()
+    round1_markers = (
+        "初赛",
+        "第一轮",
+        "round1",
+        "csp-j1",
+        "csp_j1",
+        "cspj1",
+    )
+    return subject == "cpp" and exam_type == "csp_j" and any(marker in compact for marker in round1_markers)
+
+
+def extract_pdf_demo_text_lines(document: object) -> list[dict[str, object]]:
+    lines: list[dict[str, object]] = []
+    for page_index in range(document.page_count):
+        page = document.load_page(page_index)
+        text_dict = page.get_text("dict")
+        for block in text_dict.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                text = "".join(str(span.get("text") or "") for span in line.get("spans", [])).strip()
+                if not text:
+                    continue
+                bbox = line.get("bbox") or [0, 0, 0, 0]
+                lines.append(
+                    {
+                        "page_no": page_index + 1,
+                        "text": text,
+                        "x0": float(bbox[0]),
+                        "y0": float(bbox[1]),
+                        "x1": float(bbox[2]),
+                        "y1": float(bbox[3]),
+                    }
+                )
+    lines.sort(key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])))
+    return lines
+
+
+def build_pdf_demo_page_metrics(document: object, pages: list[dict[str, object]], lines: list[dict[str, object]]) -> dict[int, dict[str, float]]:
+    line_map: dict[int, list[dict[str, object]]] = {}
+    for line in lines:
+        line_map.setdefault(int(line["page_no"]), []).append(line)
+    page_by_no = {int(page["page_no"]): page for page in pages}
+    metrics: dict[int, dict[str, float]] = {}
+    for page_index in range(document.page_count):
+        page_no = page_index + 1
+        page = document.load_page(page_index)
+        rendered_page = page_by_no.get(page_no, {})
+        footer_lines = [
+            line for line in line_map.get(page_no, [])
+            if re.search(r"第\s*\d+\s*页\s*/\s*共\s*\d+\s*页", str(line.get("text") or ""))
+        ]
+        if footer_lines:
+            bottom_pt = min(float(line["y0"]) for line in footer_lines) - 4
+        else:
+            bottom_pt = float(page.rect.height) - 22
+        metrics[page_no] = {
+            "width_pt": float(page.rect.width),
+            "height_pt": float(page.rect.height),
+            "width_px": float(rendered_page.get("width") or 0),
+            "height_px": float(rendered_page.get("height") or 0),
+            "top_pt": 28.0,
+            "bottom_pt": max(60.0, bottom_pt),
+        }
+    return metrics
+
+
+def parse_pdf_demo_local_question_no(text: object) -> int:
+    raw_text = str(text or "").strip()
+    if not raw_text:
+        return 0
+    normalized_text = unicodedata.normalize("NFKC", raw_text)
+    compact = re.sub(r"\s+", "", normalized_text)
+    if any(token in compact for token in ("题号", "答案")):
+        return 0
+
+    digit_question_match = re.search(r"第\s*(\d{1,2})\s*题", normalized_text)
+    if digit_question_match:
+        return int(digit_question_match.group(1))
+
+    chinese_number_map = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+        "十一": 11,
+        "十二": 12,
+        "十三": 13,
+        "十四": 14,
+        "十五": 15,
+    }
+    chinese_question_match = re.search(r"第\s*([一二三四五六七八九十]{1,3})\s*题", normalized_text)
+    if chinese_question_match:
+        return chinese_number_map.get(chinese_question_match.group(1), 0)
+
+    numbered_question_match = re.match(r"^\s*(\d{1,2})\s*[.、]\s*(?!\d)", normalized_text)
+    if numbered_question_match:
+        return int(numbered_question_match.group(1))
+    return 0
+
+
+def detect_pdf_demo_anchors(lines: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[int, str]]:
+    anchors: list[dict[str, object]] = []
+    boundaries: list[dict[str, object]] = []
+    answer_sections: dict[str, list[dict[str, object]]] = {"single_choice": [], "judgment": []}
+    current_section = ""
+    first_question_seen: dict[str, bool] = {"single_choice": False, "judgment": False}
+
+    for line in lines:
+        text = str(line.get("text") or "").strip()
+        section_changed = False
+        if "单选题" in text:
+            current_section = "single_choice"
+            section_changed = True
+        elif "判断题" in text:
+            current_section = "judgment"
+            section_changed = True
+        elif "编程题" in text and "每题" in text:
+            current_section = "programming"
+            section_changed = True
+        if section_changed and current_section in {"single_choice", "judgment", "programming"}:
+            boundaries.append({**line, "boundary_type": current_section})
+        if current_section == "programming" and ("参考程序" in text or "参考代码" in text):
+            boundaries.append({**line, "boundary_type": f"{current_section}_reference"})
+
+        if current_section in answer_sections and not first_question_seen[current_section]:
+            answer_sections[current_section].append(line)
+
+        local_question_no = parse_pdf_demo_local_question_no(text)
+        if local_question_no and current_section in {"single_choice", "judgment"}:
+            local_no = local_question_no
+            if current_section == "single_choice" and 1 <= local_no <= 15:
+                question_no = local_no
+            elif current_section == "judgment" and 1 <= local_no <= 10:
+                question_no = 15 + local_no
+            else:
+                question_no = 0
+            if question_no:
+                first_question_seen[current_section] = True
+                anchors.append({**line, "question_no": question_no, "question_type": get_pdf_crop_demo_question_type(question_no)})
+            continue
+
+        normalized_programming_text = text.replace("．", ".")
+        programming_match = (
+            re.search(r"(?:^|\s)3\s*\.\s*([12])\s*编程题(?:\s*([12]))?", normalized_programming_text)
+            or re.search(r"(?:^|\s)编程题\s*([12])(?:\s|$)", normalized_programming_text)
+            or (
+                re.search(r"(?:^|\s)3\s*\.\s*([12])\s*(?:\.\s*\d+)?\s*(?:题目描述|试题名称)", normalized_programming_text)
+                if current_section == "programming"
+                else None
+            )
+        )
+        if programming_match:
+            explicit_local_no = programming_match.group(2) if (programming_match.lastindex or 0) >= 2 else ""
+            local_no = int(explicit_local_no or programming_match.group(1))
+            question_no = 25 + local_no
+            anchors.append({**line, "question_no": question_no, "question_type": "programming"})
+
+    anchors_by_no: dict[int, dict[str, object]] = {}
+    for anchor in anchors:
+        question_no = int(anchor["question_no"])
+        anchors_by_no.setdefault(question_no, anchor)
+    ordered_anchors = sorted(anchors_by_no.values(), key=lambda item: int(item["question_no"]))
+    answers = parse_pdf_demo_answers(answer_sections)
+    return ordered_anchors, boundaries, answers
+
+
+def parse_pdf_demo_answers(answer_sections: dict[str, list[dict[str, object]]]) -> dict[int, str]:
+    answers: dict[int, str] = {}
+
+    def extract_choice_answer_tokens(text: str) -> list[str]:
+        normalized_text = unicodedata.normalize("NFKC", str(text or "")).upper()
+        return re.findall(r"[A-D]", normalized_text)
+
+    def extract_judgment_answer_tokens(text: str) -> list[str]:
+        normalized_text = unicodedata.normalize("NFKC", str(text or "")).upper()
+        raw_tokens = re.findall(r"正确|错误|√|×|✓|✕|(?<![A-Z0-9_])X(?![A-Z0-9_])|对|错", normalized_text)
+        normalized_tokens = []
+        for token in raw_tokens:
+            if token in {"√", "✓", "正确", "对"}:
+                normalized_tokens.append("√")
+            elif token in {"×", "✕", "X", "错误", "错"}:
+                normalized_tokens.append("×")
+        return normalized_tokens
+
+    def extract_answer_tokens(text: str, *, answer_kind: str) -> list[str]:
+        if answer_kind == "judgment":
+            return extract_judgment_answer_tokens(text)
+        return extract_choice_answer_tokens(text)
+
+    def extract_question_numbers(text: str, *, max_count: int) -> list[int]:
+        normalized_text = unicodedata.normalize("NFKC", str(text or ""))
+        numbers = []
+        for raw_number in re.findall(r"\d{1,2}", normalized_text):
+            number = int(raw_number)
+            if 1 <= number <= max_count and number not in numbers:
+                numbers.append(number)
+        return numbers
+
+    def parse_section_answer_map(section_lines: list[dict[str, object]], *, max_count: int, answer_kind: str) -> dict[int, str]:
+        rows = [
+            {
+                **line,
+                "text": str(line.get("text") or "").strip(),
+                "x0": float(line.get("x0") or 0),
+                "y0": float(line.get("y0") or 0),
+                "y1": float(line.get("y1") or line.get("y0") or 0),
+            }
+            for line in section_lines
+            if str(line.get("text") or "").strip()
+        ]
+        texts = [str(row["text"]) for row in rows]
+        question_numbers: list[int] = []
+        answer_tokens: list[str] = []
+        question_row_seen = False
+        answer_line_seen = False
+
+        def row_center_y(row: dict[str, object]) -> float:
+            return (float(row.get("y0") or 0) + float(row.get("y1") or row.get("y0") or 0)) / 2
+
+        def is_same_text_row(row: dict[str, object], target_row: dict[str, object], *, tolerance: float) -> bool:
+            return abs(row_center_y(row) - row_center_y(target_row)) <= tolerance
+
+        def collect_by_geometry(label: str) -> list[str]:
+            label_rows = [row for row in rows if label in re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(row["text"])))]
+            if not label_rows:
+                return []
+            line_heights = [max(1.0, float(row["y1"]) - float(row["y0"])) for row in rows if float(row["y1"]) >= float(row["y0"])]
+            tolerance = max(3.0, (sorted(line_heights)[len(line_heights) // 2] if line_heights else 8.0) * 0.8)
+            tokens: list[str] = []
+            for label_row in label_rows:
+                same_row = sorted(
+                    [row for row in rows if is_same_text_row(row, label_row, tolerance=tolerance)],
+                    key=lambda row: float(row.get("x0") or 0),
+                )
+                for row in same_row:
+                    text = str(row["text"])
+                    compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
+                    if re.search(r"第\s*\d{1,2}\s*题", text):
+                        continue
+                    if label == "题号":
+                        tokens.extend(str(number) for number in extract_question_numbers(text, max_count=max_count))
+                    elif "答案" in compact:
+                        after_answer = re.split(r"答案\s*[:：|]?", text, maxsplit=1)
+                        tokens.extend(extract_answer_tokens(after_answer[1] if len(after_answer) > 1 else "", answer_kind=answer_kind))
+                    else:
+                        tokens.extend(extract_answer_tokens(text, answer_kind=answer_kind))
+                if tokens:
+                    return tokens
+            return tokens
+
+        geometry_question_numbers = [int(token) for token in collect_by_geometry("题号") if str(token).isdigit()]
+        geometry_answer_tokens = collect_by_geometry("答案")
+        if geometry_answer_tokens:
+            mapped_answers: dict[int, str] = {}
+            if geometry_question_numbers and len(geometry_question_numbers) == len(geometry_answer_tokens):
+                for question_no, token in zip(geometry_question_numbers, geometry_answer_tokens, strict=False):
+                    mapped_answers[question_no] = token
+                return mapped_answers
+            for index, token in enumerate(geometry_answer_tokens[:max_count], start=1):
+                mapped_answers[index] = token
+            return mapped_answers
+
+        for text in texts:
+            normalized_text = unicodedata.normalize("NFKC", text)
+            compact = re.sub(r"\s+", "", normalized_text)
+            if re.search(r"第\s*\d{1,2}\s*题", text):
+                continue
+            if "题号" in compact:
+                question_row_seen = True
+                question_numbers.extend(
+                    number for number in extract_question_numbers(normalized_text, max_count=max_count) if number not in question_numbers
+                )
+                continue
+            if "答案" in compact:
+                answer_line_seen = True
+                question_row_seen = False
+                after_answer = re.split(r"答案\s*[:：|]?", text, maxsplit=1)
+                answer_text = after_answer[1] if len(after_answer) > 1 else text
+                answer_tokens.extend(extract_answer_tokens(answer_text, answer_kind=answer_kind))
+                continue
+            if question_row_seen and not answer_line_seen:
+                question_numbers.extend(
+                    number for number in extract_question_numbers(normalized_text, max_count=max_count) if number not in question_numbers
+                )
+                continue
+            if answer_line_seen:
+                # Some PDFs expose table cells as separate text lines. Once the
+                # answer row has started, keep consuming answer-like tokens until
+                # the first question anchor closes the answer section.
+                answer_tokens.extend(extract_answer_tokens(normalized_text, answer_kind=answer_kind))
+
+        if not answer_tokens:
+            section_text = " ".join(texts)
+            answer_match = re.search(r"答案\s*[:：|]?\s*(.+)", section_text)
+            if answer_match:
+                answer_tokens = extract_answer_tokens(answer_match.group(1), answer_kind=answer_kind)
+
+        mapped_answers: dict[int, str] = {}
+        if question_numbers and len(question_numbers) == len(answer_tokens):
+            for question_no, token in zip(question_numbers, answer_tokens, strict=False):
+                mapped_answers[question_no] = token
+            return mapped_answers
+
+        for index, token in enumerate(answer_tokens[:max_count], start=1):
+            mapped_answers[index] = token
+        return mapped_answers
+
+    for local_no, token in parse_section_answer_map(answer_sections.get("single_choice", []), max_count=15, answer_kind="choice").items():
+        answers[local_no] = token
+    for local_no, token in parse_section_answer_map(answer_sections.get("judgment", []), max_count=10, answer_kind="judgment").items():
+        answers[15 + local_no] = token
+    return answers
+
+
+def infer_pdf_demo_visual_judgment_answers(
+    *,
+    pages: list[dict[str, object]],
+    lines: list[dict[str, object]],
+    page_metrics: dict[int, dict[str, float]],
+) -> dict[int, str]:
+    from PIL import Image
+
+    judgment_heading: dict[str, object] | None = None
+    first_judgment_question: dict[str, object] | None = None
+    for line in lines:
+        text = str(line.get("text") or "").strip()
+        if judgment_heading is None and "判断题" in text:
+            judgment_heading = line
+            continue
+        if judgment_heading is not None and re.search(r"第\s*1\s*题", text):
+            if (
+                int(line.get("page_no") or 0) > int(judgment_heading.get("page_no") or 0)
+                or float(line.get("y0") or 0) > float(judgment_heading.get("y0") or 0)
+            ):
+                first_judgment_question = line
+                break
+    if not judgment_heading or not first_judgment_question:
+        return {}
+
+    page_no = int(first_judgment_question.get("page_no") or judgment_heading.get("page_no") or 0)
+    if page_no != int(judgment_heading.get("page_no") or 0):
+        return {}
+    page = next((item for item in pages if isinstance(item, dict) and int(item.get("page_no") or 0) == page_no), None)
+    metric = page_metrics.get(page_no)
+    if not page or not metric or not metric.get("width_px") or not metric.get("height_px"):
+        return {}
+    image_path = str(page.get("image_path") or "").strip()
+    if not image_path or not default_storage.exists(image_path):
+        return {}
+
+    scale_x = float(metric["width_px"]) / max(1.0, float(metric["width_pt"]))
+    scale_y = float(metric["height_px"]) / max(1.0, float(metric["height_pt"]))
+    x1 = max(0, int(float(metric["width_px"]) * 0.12))
+    x2 = min(int(metric["width_px"]), int(float(metric["width_px"]) * 0.92))
+    y1 = max(0, int((float(judgment_heading.get("y1") or judgment_heading.get("y0") or 0) + 2) * scale_y))
+    y2 = min(int(metric["height_px"]), int((float(first_judgment_question.get("y0") or 0) - 2) * scale_y))
+    if y2 <= y1 + 8:
+        return {}
+
+    try:
+        with default_storage.open(image_path, "rb") as image_file:
+            image = Image.open(image_file).convert("RGB")
+            red_points: list[tuple[int, int]] = []
+            for y in range(y1, y2):
+                for x in range(x1, x2):
+                    red, green, blue = image.getpixel((x, y))
+                    if red > 175 and green < 165 and blue < 165 and red > green * 1.25 and red > blue * 1.25:
+                        red_points.append((x, y))
+    except Exception:
+        return {}
+    if not red_points:
+        return {}
+
+    x_values = sorted({x for x, _ in red_points})
+    x_groups: list[list[int]] = []
+    max_gap = max(4, int(5 * scale_x))
+    for x in x_values:
+        if not x_groups or x > x_groups[-1][1] + max_gap:
+            x_groups.append([x, x])
+        else:
+            x_groups[-1][1] = x
+
+    components: list[dict[str, int]] = []
+    for group_x1, group_x2 in x_groups:
+        points = [(x, y) for x, y in red_points if group_x1 <= x <= group_x2]
+        if not points:
+            continue
+        component = {
+            "x1": min(x for x, _ in points),
+            "y1": min(y for _, y in points),
+            "x2": max(x for x, _ in points),
+            "y2": max(y for _, y in points),
+            "count": len(points),
+        }
+        width = component["x2"] - component["x1"] + 1
+        height = component["y2"] - component["y1"] + 1
+        if component["count"] >= 5 and width >= 3 and height >= 3:
+            components.append(component)
+
+    if len(components) < 10:
+        return {}
+    components = sorted(components, key=lambda item: (item["x1"], -item["count"]))[:10]
+    heights = sorted(component["y2"] - component["y1"] + 1 for component in components)
+    median_height = heights[len(heights) // 2] if heights else 0
+    answers: dict[int, str] = {}
+    for index, component in enumerate(components, start=16):
+        width = component["x2"] - component["x1"] + 1
+        height = component["y2"] - component["y1"] + 1
+        answers[index] = "×" if median_height and height <= median_height * 0.75 and width <= median_height * 0.9 else "√"
+    return answers
+
+
+def build_pdf_demo_source_regions(
+    *,
+    anchors: list[dict[str, object]],
+    boundaries: list[dict[str, object]],
+    page_metrics: dict[int, dict[str, float]],
+) -> dict[int, list[dict[str, object]]]:
+    cut_points = sorted(
+        [*anchors, *boundaries],
+        key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])),
+    )
+    regions_by_question: dict[int, list[dict[str, object]]] = {}
+    max_page_no = max(page_metrics) if page_metrics else 0
+
+    for anchor in anchors:
+        question_no = int(anchor["question_no"])
+        anchor_position = (int(anchor["page_no"]), float(anchor["y0"]), float(anchor["x0"]))
+        next_cut = next(
+            (
+                item for item in cut_points
+                if (int(item["page_no"]), float(item["y0"]), float(item["x0"])) > anchor_position
+            ),
+            None,
+        )
+        start_page = int(anchor["page_no"])
+        end_page = int(next_cut["page_no"]) if next_cut else max_page_no
+        question_regions: list[dict[str, object]] = []
+        for page_no in range(start_page, end_page + 1):
+            metric = page_metrics.get(page_no)
+            if not metric or not metric["width_px"] or not metric["height_px"]:
+                continue
+            y1_pt = max(metric["top_pt"], float(anchor["y0"]) - 6) if page_no == start_page else metric["top_pt"]
+            if next_cut and page_no == int(next_cut["page_no"]):
+                y2_pt = min(metric["bottom_pt"], float(next_cut["y0"]) - 6)
+            else:
+                y2_pt = metric["bottom_pt"]
+            if y2_pt <= y1_pt + 8:
+                continue
+            scale_x = metric["width_px"] / metric["width_pt"]
+            scale_y = metric["height_px"] / metric["height_pt"]
+            x1_px = int(24 * scale_x)
+            x2_px = int((metric["width_pt"] - 24) * scale_x)
+            y1_px = int(y1_pt * scale_y)
+            y2_px = int(y2_pt * scale_y)
+            question_regions.append(
+                {
+                    "page_no": page_no,
+                    "bbox": [
+                        max(0, min(int(metric["width_px"]), x1_px)),
+                        max(0, min(int(metric["height_px"]), y1_px)),
+                        max(0, min(int(metric["width_px"]), x2_px)),
+                        max(0, min(int(metric["height_px"]), y2_px)),
+                    ],
+                }
+            )
+        regions_by_question[question_no] = question_regions
+    return regions_by_question
+
+
+def build_pdf_demo_fallback_regions(pages: list[dict[str, object]]) -> dict[int, list[dict[str, object]]]:
+    if not pages:
+        return {}
+    regions: dict[int, list[dict[str, object]]] = {}
+    questions_per_page = max(1, (PDF_CROP_DEMO_EXPECTED_QUESTION_COUNT + len(pages) - 1) // len(pages))
+    question_no = 1
+    for page in pages:
+        if question_no > PDF_CROP_DEMO_EXPECTED_QUESTION_COUNT:
+            break
+        width = int(page.get("width") or 0)
+        height = int(page.get("height") or 0)
+        if width <= 0 or height <= 0:
+            continue
+        top = max(40, int(height * 0.04))
+        bottom = max(top + 100, int(height * 0.96))
+        page_question_count = min(questions_per_page, PDF_CROP_DEMO_EXPECTED_QUESTION_COUNT - question_no + 1)
+        block = (bottom - top) / max(page_question_count, 1)
+        for index in range(page_question_count):
+            y1 = int(top + block * index)
+            y2 = int(min(bottom, y1 + block * 0.92))
+            regions[question_no] = [
+                {
+                    "page_no": int(page["page_no"]),
+                    "bbox": [int(width * 0.04), y1, int(width * 0.96), y2],
+                }
+            ]
+            question_no += 1
+    return regions
+
+
+def build_pdf_demo_section_fallback_regions(
+    *,
+    boundaries: list[dict[str, object]],
+    page_metrics: dict[int, dict[str, float]],
+    answers: dict[int, str],
+) -> dict[int, list[dict[str, object]]]:
+    section_specs = [
+        ("single_choice", 1, 15),
+        ("judgment", 16, 25),
+        ("programming", 26, 27),
+    ]
+    boundaries_by_type: dict[str, list[dict[str, object]]] = {}
+    for boundary in boundaries:
+        boundary_type = str(boundary.get("boundary_type") or "")
+        boundaries_by_type.setdefault(boundary_type, []).append(boundary)
+
+    section_boundaries: list[dict[str, object]] = []
+    for boundary_type, _, _ in section_specs:
+        candidates = boundaries_by_type.get(boundary_type) or []
+        if candidates:
+            section_boundaries.append(min(candidates, key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"]))))
+    if len(section_boundaries) < 2:
+        return {}
+    section_boundaries.sort(key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])))
+
+    regions: dict[int, list[dict[str, object]]] = {}
+    for section_type, start_question_no, end_question_no in section_specs:
+        start_candidates = boundaries_by_type.get(section_type) or []
+        if not start_candidates:
+            continue
+        start_boundary = min(start_candidates, key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])))
+        next_section = next(
+            (
+                boundary
+                for boundary in section_boundaries
+                if (int(boundary["page_no"]), float(boundary["y0"]), float(boundary["x0"]))
+                > (int(start_boundary["page_no"]), float(start_boundary["y0"]), float(start_boundary["x0"]))
+            ),
+            None,
+        )
+        reference_boundary = next(
+            (
+                boundary
+                for boundary in sorted(
+                    boundaries_by_type.get(f"{section_type}_reference") or [],
+                    key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])),
+                )
+                if (int(boundary["page_no"]), float(boundary["y0"]), float(boundary["x0"]))
+                > (int(start_boundary["page_no"]), float(start_boundary["y0"]), float(start_boundary["x0"]))
+            ),
+            None,
+        )
+        end_boundary = min(
+            [boundary for boundary in (next_section, reference_boundary) if boundary],
+            key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])),
+            default=None,
+        )
+        if not end_boundary and section_type != "programming":
+            continue
+
+        question_numbers = list(range(start_question_no, end_question_no + 1))
+        if section_type == "single_choice" and not any(question_no in answers for question_no in question_numbers):
+            continue
+        if section_type == "judgment" and not any(question_no in answers for question_no in question_numbers):
+            continue
+
+        spans: list[dict[str, float]] = []
+        start_page = int(start_boundary["page_no"])
+        end_page = int(end_boundary["page_no"]) if end_boundary else max(page_metrics)
+        for page_no in range(start_page, end_page + 1):
+            metric = page_metrics.get(page_no)
+            if not metric or not metric["width_px"] or not metric["height_px"]:
+                continue
+            top_pt = metric["top_pt"]
+            bottom_pt = metric["bottom_pt"]
+            if page_no == start_page:
+                heading_padding = 44.0 if section_type in {"single_choice", "judgment"} else 8.0
+                top_pt = max(top_pt, float(start_boundary.get("y1") or start_boundary.get("y0") or 0) + heading_padding)
+            if end_boundary and page_no == int(end_boundary["page_no"]):
+                bottom_pt = min(bottom_pt, float(end_boundary.get("y0") or 0) - 6)
+            if bottom_pt <= top_pt + 8:
+                continue
+            spans.append({"page_no": float(page_no), "top_pt": top_pt, "bottom_pt": bottom_pt, "height_pt": bottom_pt - top_pt})
+        total_height = sum(span["height_pt"] for span in spans)
+        if total_height <= 0:
+            continue
+
+        block_height = total_height / len(question_numbers)
+        for index, question_no in enumerate(question_numbers):
+            segment_start = block_height * index
+            segment_end = block_height * (index + 0.92)
+            consumed = 0.0
+            question_regions: list[dict[str, object]] = []
+            for span in spans:
+                span_start = consumed
+                span_end = consumed + span["height_pt"]
+                overlap_start = max(segment_start, span_start)
+                overlap_end = min(segment_end, span_end)
+                consumed = span_end
+                if overlap_end <= overlap_start + 4:
+                    continue
+                page_no = int(span["page_no"])
+                metric = page_metrics.get(page_no)
+                if not metric:
+                    continue
+                local_y1_pt = span["top_pt"] + (overlap_start - span_start)
+                local_y2_pt = span["top_pt"] + (overlap_end - span_start)
+                scale_x = metric["width_px"] / metric["width_pt"]
+                scale_y = metric["height_px"] / metric["height_pt"]
+                question_regions.append(
+                    {
+                        "page_no": page_no,
+                        "bbox": [
+                            max(0, min(int(metric["width_px"]), int(24 * scale_x))),
+                            max(0, min(int(metric["height_px"]), int(local_y1_pt * scale_y))),
+                            max(0, min(int(metric["width_px"]), int((metric["width_pt"] - 24) * scale_x))),
+                            max(0, min(int(metric["height_px"]), int(local_y2_pt * scale_y))),
+                        ],
+                    }
+                )
+            if question_regions:
+                regions[question_no] = question_regions
+    return regions
+
+
+def is_pdf_demo_csp_j_material_anchor(text: object) -> bool:
+    normalized = unicodedata.normalize("NFKC", str(text or "")).strip()
+    return bool(re.match(r"^[（(]\s*\d{1,2}\s*[）)]", normalized))
+
+
+def detect_csp_j_round1_anchors(lines: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
+    question_anchors: list[dict[str, object]] = []
+    material_anchors: list[dict[str, object]] = []
+    boundaries: list[dict[str, object]] = []
+    current_section = ""
+    material_group_no = 0
+
+    for line in lines:
+        text = str(line.get("text") or "").strip()
+        compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
+        if "单项选择题" in compact or "单项选择" in compact:
+            current_section = "single_choice"
+            boundaries.append({**line, "boundary_type": current_section})
+            continue
+        if "阅读程序" in compact:
+            current_section = "reading"
+            boundaries.append({**line, "boundary_type": current_section})
+            continue
+        if "完善程序" in compact:
+            current_section = "completion"
+            boundaries.append({**line, "boundary_type": current_section})
+            continue
+        if current_section in {"reading", "completion"} and is_pdf_demo_csp_j_material_anchor(text):
+            material_group_no += 1
+            material_anchors.append(
+                {
+                    **line,
+                    "material_group_no": material_group_no,
+                    "section_type": current_section,
+                }
+            )
+            continue
+
+        question_no = parse_pdf_demo_local_question_no(text)
+        if not question_no:
+            continue
+        if current_section == "single_choice" and 1 <= question_no <= 15:
+            section_no = 1
+        elif current_section == "reading" and question_no >= 16:
+            section_no = 2
+        elif current_section == "completion" and question_no >= 16:
+            section_no = 3
+        else:
+            continue
+        question_anchors.append(
+            {
+                **line,
+                "question_no": question_no,
+                "section_no": section_no,
+                "section_type": current_section,
+            }
+        )
+
+    anchors_by_no: dict[int, dict[str, object]] = {}
+    for anchor in question_anchors:
+        anchors_by_no.setdefault(int(anchor["question_no"]), anchor)
+    ordered_questions = sorted(anchors_by_no.values(), key=lambda item: int(item["question_no"]))
+    material_anchors.sort(key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])))
+    boundaries.sort(key=lambda item: (int(item["page_no"]), float(item["y0"]), float(item["x0"])))
+    return ordered_questions, material_anchors, boundaries
+
+
+def pdf_demo_position(item: dict[str, object]) -> tuple[int, float, float]:
+    return int(item.get("page_no") or 0), float(item.get("y0") or 0), float(item.get("x0") or 0)
+
+
+def convert_pdf_demo_pt_span_to_regions(
+    *,
+    start_item: dict[str, object],
+    end_item: dict[str, object] | None,
+    page_metrics: dict[int, dict[str, float]],
+    top_padding: float = 4.0,
+    bottom_padding: float = 6.0,
+) -> list[dict[str, object]]:
+    if not page_metrics:
+        return []
+    start_page = int(start_item.get("page_no") or 0)
+    end_page = int(end_item.get("page_no") or max(page_metrics)) if end_item else max(page_metrics)
+    regions: list[dict[str, object]] = []
+    for page_no in range(start_page, end_page + 1):
+        metric = page_metrics.get(page_no)
+        if not metric or not metric["width_px"] or not metric["height_px"]:
+            continue
+        y1_pt = metric["top_pt"]
+        y2_pt = metric["bottom_pt"]
+        if page_no == start_page:
+            y1_pt = max(metric["top_pt"], float(start_item.get("y0") or 0) - top_padding)
+        if end_item and page_no == int(end_item.get("page_no") or 0):
+            y2_pt = min(metric["bottom_pt"], float(end_item.get("y0") or 0) - bottom_padding)
+        if y2_pt <= y1_pt + 8:
+            continue
+        scale_x = metric["width_px"] / metric["width_pt"]
+        scale_y = metric["height_px"] / metric["height_pt"]
+        regions.append(
+            {
+                "page_no": page_no,
+                "bbox": [
+                    max(0, min(int(metric["width_px"]), int(24 * scale_x))),
+                    max(0, min(int(metric["height_px"]), int(y1_pt * scale_y))),
+                    max(0, min(int(metric["width_px"]), int((metric["width_pt"] - 24) * scale_x))),
+                    max(0, min(int(metric["height_px"]), int(y2_pt * scale_y))),
+                ],
+            }
+        )
+    return regions
+
+
+def infer_csp_j_round1_question_type(
+    *,
+    question_anchor: dict[str, object],
+    next_cut: dict[str, object] | None,
+    lines: list[dict[str, object]],
+) -> str:
+    section_type = str(question_anchor.get("section_type") or "")
+    if section_type in {"single_choice", "completion"}:
+        return "single_choice"
+    start_position = pdf_demo_position(question_anchor)
+    end_position = pdf_demo_position(next_cut) if next_cut else (10**6, 10**6, 10**6)
+    section_lines = [
+        line
+        for line in lines
+        if start_position < pdf_demo_position(line) < end_position
+    ]
+    for line in section_lines:
+        text = unicodedata.normalize("NFKC", str(line.get("text") or "")).strip()
+        if re.match(r"^[A-D][.．、]", text):
+            return "single_choice"
+    return "judgment"
+
+
+def build_csp_j_round1_auto_crops(
+    *,
+    state: dict[str, object],
+    document: object,
+    pages: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    lines = extract_pdf_demo_text_lines(document)
+    page_metrics = build_pdf_demo_page_metrics(document, pages, lines)
+    question_anchors, material_anchors, boundaries = detect_csp_j_round1_anchors(lines)
+    if not question_anchors:
+        return [], {
+            "crop_mode": "csp_j_round1",
+            "anchor_count": 0,
+            "material_count": 0,
+            "crop_count": 0,
+            "fallback_used": True,
+            "requires_manual_crop": True,
+        }
+
+    cuts = sorted([*question_anchors, *material_anchors, *boundaries], key=pdf_demo_position)
+    material_by_group: dict[int, dict[str, object]] = {}
+    for index, material_anchor in enumerate(material_anchors):
+        group_no = int(material_anchor.get("material_group_no") or 0)
+        next_question = next((anchor for anchor in question_anchors if pdf_demo_position(anchor) > pdf_demo_position(material_anchor)), None)
+        next_material = next((anchor for anchor in material_anchors if pdf_demo_position(anchor) > pdf_demo_position(material_anchor)), None)
+        end_item = min(
+            [item for item in (next_question, next_material) if item],
+            key=pdf_demo_position,
+            default=None,
+        )
+        regions = convert_pdf_demo_pt_span_to_regions(start_item=material_anchor, end_item=end_item, page_metrics=page_metrics)
+        records: list[dict[str, object]] = []
+        for part_index, region in enumerate(regions, start=1):
+            bbox = region.get("bbox") if isinstance(region, dict) else None
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            try:
+                crop_result = crop_pdf_demo_material_image(
+                    state=state,
+                    page_no=int(region.get("page_no") or 0),
+                    crop_box=[float(value) for value in bbox],
+                    material_group_no=group_no,
+                    part_no=part_index,
+                )
+            except ValidationError:
+                continue
+            records.append(
+                {
+                    "material_group_no": group_no,
+                    "part_no": part_index,
+                    "page_no": crop_result["page_no"],
+                    "crop_box": crop_result["crop_box"],
+                    "image_path": crop_result["image_path"],
+                    "image_url": crop_result["image_url"],
+                }
+            )
+        material_by_group[group_no] = {
+            "material_group_no": group_no,
+            "section_type": str(material_anchor.get("section_type") or ""),
+            "records": records,
+            "anchor": material_anchor,
+        }
+
+    crops: list[dict[str, object]] = []
+    for question_anchor in question_anchors:
+        question_no = int(question_anchor["question_no"])
+        next_cut = next((item for item in cuts if pdf_demo_position(item) > pdf_demo_position(question_anchor)), None)
+        regions = convert_pdf_demo_pt_span_to_regions(start_item=question_anchor, end_item=next_cut, page_metrics=page_metrics)
+        question_type = infer_csp_j_round1_question_type(question_anchor=question_anchor, next_cut=next_cut, lines=lines)
+        material_anchor = next(
+            (
+                anchor for anchor in reversed(material_anchors)
+                if pdf_demo_position(anchor) < pdf_demo_position(question_anchor)
+                and str(anchor.get("section_type") or "") == str(question_anchor.get("section_type") or "")
+            ),
+            None,
+        )
+        material_group_no = int(material_anchor.get("material_group_no") or 0) if material_anchor else 0
+        material_records = material_by_group.get(material_group_no, {}).get("records") if material_group_no else []
+        material_records = material_records if isinstance(material_records, list) else []
+        material_image_paths = [str(record.get("image_path") or "") for record in material_records if isinstance(record, dict) and record.get("image_path")]
+        material_image_urls = [str(record.get("image_url") or "") for record in material_records if isinstance(record, dict) and record.get("image_url")]
+        for part_index, region in enumerate(regions, start=1):
+            bbox = region.get("bbox") if isinstance(region, dict) else None
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            try:
+                crop_result = crop_pdf_demo_question_image(
+                    state=state,
+                    page_no=int(region.get("page_no") or 0),
+                    crop_box=[float(value) for value in bbox],
+                    section_no=int(question_anchor.get("section_no") or 1),
+                    question_no=question_no,
+                    part_no=part_index,
+                )
+            except ValidationError:
+                continue
+            crops.append(
+                {
+                    "subject": state.get("subject"),
+                    "exam_type": state.get("exam_type"),
+                    "year": state.get("year"),
+                    "month": state.get("month"),
+                    "section_no": int(question_anchor.get("section_no") or 1),
+                    "question_no": question_no,
+                    "part_no": part_index,
+                    "question_type": question_type,
+                    "answer": "",
+                    "score": get_csp_j_round1_question_score(question_no, question_type),
+                    "page_no": crop_result["page_no"],
+                    "crop_box": crop_result["crop_box"],
+                    "image_path": crop_result["image_path"],
+                    "image_url": crop_result["image_url"],
+                    "display_mode": "grouped_material" if material_group_no else "single",
+                    "material_group_no": material_group_no,
+                    "material_image_paths": material_image_paths,
+                    "material_image_urls": material_image_urls,
+                    "needs_review": False,
+                }
+            )
+    summary = {
+        "crop_mode": "csp_j_round1",
+        "anchor_count": len(question_anchors),
+        "material_count": len(material_by_group),
+        "crop_count": len(crops),
+        "fallback_used": False,
+        "requires_manual_crop": False,
+    }
+    return crops, summary
+
+
+def build_pdf_demo_auto_crops(
+    *,
+    state: dict[str, object],
+    document: object,
+    pages: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    if str(state.get("crop_mode") or "") == "csp_j_round1":
+        return build_csp_j_round1_auto_crops(state=state, document=document, pages=pages)
+
+    lines = extract_pdf_demo_text_lines(document)
+    page_metrics = build_pdf_demo_page_metrics(document, pages, lines)
+    anchors, boundaries, answers = detect_pdf_demo_anchors(lines)
+    visual_judgment_answers = infer_pdf_demo_visual_judgment_answers(pages=pages, lines=lines, page_metrics=page_metrics)
+    for question_no, answer in visual_judgment_answers.items():
+        answers.setdefault(question_no, answer)
+    fallback_used = not anchors or len(anchors) < max(3, PDF_CROP_DEMO_EXPECTED_QUESTION_COUNT // 2)
+    regions_by_question = (
+        build_pdf_demo_section_fallback_regions(boundaries=boundaries, page_metrics=page_metrics, answers=answers)
+        if fallback_used
+        else build_pdf_demo_source_regions(anchors=anchors, boundaries=boundaries, page_metrics=page_metrics)
+    )
+    crops: list[dict[str, object]] = []
+    for question_no in sorted(regions_by_question):
+        question_type = get_pdf_crop_demo_question_type(question_no)
+        for part_index, region in enumerate(regions_by_question[question_no], start=1):
+            bbox = region.get("bbox") if isinstance(region, dict) else None
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            try:
+                crop_result = crop_pdf_demo_question_image(
+                    state=state,
+                    page_no=int(region.get("page_no") or 0),
+                    crop_box=[float(value) for value in bbox],
+                    section_no=get_pdf_crop_demo_section_no(question_no),
+                    question_no=question_no,
+                    part_no=part_index,
+                )
+            except ValidationError:
+                continue
+            crops.append(
+                {
+                    "subject": state.get("subject"),
+                    "exam_type": state.get("exam_type"),
+                    "year": state.get("year"),
+                    "month": state.get("month"),
+                    "section_no": get_pdf_crop_demo_section_no(question_no),
+                    "question_no": question_no,
+                    "part_no": part_index,
+                    "question_type": question_type,
+                    "answer": answers.get(question_no, ""),
+                    "score": get_pdf_crop_demo_default_score(question_no),
+                    "page_no": crop_result["page_no"],
+                    "crop_box": crop_result["crop_box"],
+                    "image_path": crop_result["image_path"],
+                    "image_url": crop_result["image_url"],
+                    "needs_review": fallback_used,
+                }
+            )
+    summary = {
+        "anchor_count": len(anchors),
+        "boundary_count": len(boundaries),
+        "answer_count": len(answers),
+        "visual_judgment_answer_count": len(visual_judgment_answers),
+        "crop_count": len(crops),
+        "fallback_used": fallback_used,
+        "requires_manual_crop": fallback_used and not crops,
+    }
+    return crops, summary
+
+
+def render_pdf_crop_demo_pages(
+    *,
+    uploaded_file: UploadedFile,
+    session_id: str,
+    scale: int,
+    subject: str,
+    exam_type: str,
+    year: str,
+    month: str,
+    crop_mode: str = "",
+) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, object]]:
+    try:
+        import fitz  # type: ignore
+    except ImportError as exc:
+        raise ValidationError("PDF 截图切题 Demo 需要安装 PyMuPDF：pip install PyMuPDF Pillow。") from exc
+
+    try:
+        pdf_bytes = uploaded_file.read()
+        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        raise ValidationError("PDF 渲染失败，请确认上传的是有效 PDF 文件。") from exc
+
+    pages: list[dict[str, object]] = []
+    try:
+        if document.page_count <= 0:
+            raise ValidationError("PDF 中没有可渲染页面。")
+        matrix = fitz.Matrix(scale, scale)
+        for index in range(document.page_count):
+            page = document.load_page(index)
+            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+            relative_path = f"exam_assets/demo_pages/{session_id}/page_{index + 1:03d}.png"
+            if default_storage.exists(relative_path):
+                default_storage.delete(relative_path)
+            saved_path = default_storage.save(relative_path, ContentFile(pixmap.tobytes("png")))
+            pages.append(
+                {
+                    "page_no": index + 1,
+                    "image_path": saved_path,
+                    "image_url": build_media_relative_url(saved_path),
+                    "width": int(pixmap.width),
+                    "height": int(pixmap.height),
+                }
+            )
+        state_stub = {
+            "subject": subject,
+            "exam_type": exam_type,
+            "year": year,
+            "month": month,
+            "pages": pages,
+            "crop_mode": crop_mode,
+        }
+        crops, summary = build_pdf_demo_auto_crops(state=state_stub, document=document, pages=pages)
+    finally:
+        document.close()
+    return pages, crops, summary
+
+
+def create_pdf_crop_demo_session_from_upload(
+    *,
+    uploaded_file: UploadedFile,
+    subject: str,
+    exam_type: str,
+    year: int,
+    month: str,
+    scale: int,
+    crop_mode: str = "",
+) -> str:
+    session_id = timezone.localtime(timezone.now()).strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    if hasattr(uploaded_file, "seek"):
+        uploaded_file.seek(0)
+    pages, crops, auto_summary = render_pdf_crop_demo_pages(
+        uploaded_file=uploaded_file,
+        session_id=session_id,
+        scale=scale,
+        subject=subject,
+        exam_type=exam_type,
+        year=str(year),
+        month=month,
+        crop_mode=crop_mode,
+    )
+    state = {
+        "session_id": session_id,
+        "subject": subject,
+        "exam_type": exam_type,
+        "year": str(year),
+        "month": month,
+        "scale": scale,
+        "crop_mode": crop_mode,
+        "source_filename": uploaded_file.name,
+        "pages": pages,
+        "crops": crops,
+        "auto_summary": auto_summary,
+        "created_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    save_pdf_crop_demo_state(session_id, state)
+    return session_id
+
+
+def parse_pdf_crop_demo_number(value: object, *, field_label: str) -> float:
+    try:
+        return float(str(value or "").strip())
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{field_label} 坐标无效，请重新框选。") from exc
+
+
+def crop_pdf_demo_question_image(
+    *,
+    state: dict[str, object],
+    page_no: int,
+    crop_box: list[float],
+    section_no: int,
+    question_no: int,
+    part_no: int,
+) -> dict[str, object]:
+    from PIL import Image
+
+    pages = state.get("pages") if isinstance(state.get("pages"), list) else []
+    page = next((item for item in pages if isinstance(item, dict) and int(item.get("page_no") or 0) == page_no), None)
+    if not page:
+        raise ValidationError("未找到当前 PDF 页面，请重新上传 PDF。")
+    image_path = str(page.get("image_path") or "").strip()
+    if not image_path:
+        raise ValidationError("当前页面图路径为空，请重新上传 PDF。")
+
+    subject = str(state.get("subject") or "").strip()
+    exam_type = str(state.get("exam_type") or "").strip()
+    year = str(state.get("year") or "").strip()
+    month = str(state.get("month") or "").strip()
+    output_dir = f"exam_assets/demo_questions/{subject}/{exam_type}/{year}_{month}"
+    output_name = f"{subject}_{exam_type}_{year}_{month}_s{section_no:02d}_q{question_no:03d}_p{part_no:02d}.png"
+    output_path = f"{output_dir}/{output_name}"
+
+    try:
+        with default_storage.open(image_path, "rb") as image_file:
+            image = Image.open(image_file)
+            image.load()
+    except Exception as exc:
+        raise ValidationError("读取 PDF 页面图失败，请重新上传 PDF。") from exc
+
+    width, height = image.size
+    x1, y1, x2, y2 = crop_box
+    left = max(0, min(width, int(round(min(x1, x2)))))
+    right = max(0, min(width, int(round(max(x1, x2)))))
+    top = max(0, min(height, int(round(min(y1, y2)))))
+    bottom = max(0, min(height, int(round(max(y1, y2)))))
+    if right - left < 8 or bottom - top < 8:
+        raise ValidationError("框选区域太小，请重新框选题目区域。")
+
+    cropped = image.crop((left, top, right, bottom))
+    buffer = BytesIO()
+    cropped.save(buffer, format="PNG")
+    if default_storage.exists(output_path):
+        default_storage.delete(output_path)
+    saved_path = default_storage.save(output_path, ContentFile(buffer.getvalue()))
+    return {
+        "page_no": page_no,
+        "crop_box": [left, top, right, bottom],
+        "image_path": saved_path,
+        "image_url": build_media_relative_url(saved_path),
+    }
+
+
+def crop_pdf_demo_material_image(
+    *,
+    state: dict[str, object],
+    page_no: int,
+    crop_box: list[float],
+    material_group_no: int,
+    part_no: int,
+) -> dict[str, object]:
+    from PIL import Image
+
+    pages = state.get("pages") if isinstance(state.get("pages"), list) else []
+    page = next((item for item in pages if isinstance(item, dict) and int(item.get("page_no") or 0) == page_no), None)
+    if not page:
+        raise ValidationError("未找到当前 PDF 页面，请重新上传 PDF。")
+    image_path = str(page.get("image_path") or "").strip()
+    if not image_path:
+        raise ValidationError("当前页面图路径为空，请重新上传 PDF。")
+
+    subject = str(state.get("subject") or "").strip()
+    exam_type = str(state.get("exam_type") or "").strip()
+    year = str(state.get("year") or "").strip()
+    month = str(state.get("month") or "").strip()
+    output_dir = f"exam_assets/demo_questions/{subject}/{exam_type}/{year}_{month}"
+    output_name = f"{subject}_{exam_type}_{year}_{month}_g{material_group_no:03d}_material_p{part_no:02d}.png"
+    output_path = f"{output_dir}/{output_name}"
+
+    try:
+        with default_storage.open(image_path, "rb") as image_file:
+            image = Image.open(image_file)
+            image.load()
+    except Exception as exc:
+        raise ValidationError("读取 PDF 页面图失败，请重新上传 PDF。") from exc
+
+    width, height = image.size
+    x1, y1, x2, y2 = crop_box
+    left = max(0, min(width, int(round(min(x1, x2)))))
+    right = max(0, min(width, int(round(max(x1, x2)))))
+    top = max(0, min(height, int(round(min(y1, y2)))))
+    bottom = max(0, min(height, int(round(max(y1, y2)))))
+    if right - left < 8 or bottom - top < 8:
+        raise ValidationError("公共材料区域太小，请重新框选。")
+
+    cropped = image.crop((left, top, right, bottom))
+    buffer = BytesIO()
+    cropped.save(buffer, format="PNG")
+    if default_storage.exists(output_path):
+        default_storage.delete(output_path)
+    saved_path = default_storage.save(output_path, ContentFile(buffer.getvalue()))
+    return {
+        "page_no": page_no,
+        "crop_box": [left, top, right, bottom],
+        "image_path": saved_path,
+        "image_url": build_media_relative_url(saved_path),
+    }
+
+
+def build_pdf_demo_crop_question_groups(crops: list[object]) -> list[dict[str, object]]:
+    groups_by_question: dict[int, dict[str, object]] = {}
+    for crop in crops:
+        if not isinstance(crop, dict):
+            continue
+        question_no = normalize_positive_int(crop.get("question_no"), default=0, minimum=1)
+        if not question_no:
+            continue
+        group = groups_by_question.setdefault(
+            question_no,
+            {
+                "section_no": normalize_positive_int(crop.get("section_no"), default=get_pdf_crop_demo_section_no(question_no), minimum=1),
+                "question_no": question_no,
+                "question_type": str(crop.get("question_type") or get_pdf_crop_demo_question_type(question_no)),
+                "answer": str(crop.get("answer") or ""),
+                "score": str(crop.get("score") or get_pdf_crop_demo_default_score(question_no)),
+                "display_mode": str(crop.get("display_mode") or ""),
+                "material_group_no": normalize_positive_int(crop.get("material_group_no"), default=0, minimum=1),
+                "material_image_paths": crop.get("material_image_paths") if isinstance(crop.get("material_image_paths"), list) else [],
+                "material_image_urls": crop.get("material_image_urls") if isinstance(crop.get("material_image_urls"), list) else [],
+                "records": [],
+                "next_part_no": 1,
+            },
+        )
+        if not group.get("material_image_paths") and isinstance(crop.get("material_image_paths"), list):
+            group["material_image_paths"] = crop.get("material_image_paths")
+        if not group.get("material_image_urls") and isinstance(crop.get("material_image_urls"), list):
+            group["material_image_urls"] = crop.get("material_image_urls")
+        group_records = group["records"] if isinstance(group["records"], list) else []
+        group_records.append(crop)
+        group["records"] = group_records
+        part_no = normalize_positive_int(crop.get("part_no"), default=0, minimum=1)
+        group["next_part_no"] = max(int(group.get("next_part_no") or 1), part_no + 1)
+
+    groups = sorted(groups_by_question.values(), key=lambda item: (int(item["section_no"]), int(item["question_no"])))
+    for group in groups:
+        records = group["records"] if isinstance(group["records"], list) else []
+        records.sort(key=lambda item: normalize_positive_int(item.get("part_no") if isinstance(item, dict) else 0, default=1, minimum=1))
+    return groups
+
+
+def normalize_pdf_demo_quick_answer(*, question_no: int, answer: object) -> str:
+    value = unicodedata.normalize("NFKC", str(answer or "")).strip().upper()
+    if not value:
+        return ""
+    if 1 <= question_no <= 15:
+        return value if value in {"A", "B", "C", "D"} else value
+    if 16 <= question_no <= 25:
+        if value in {"√", "✓", "对", "正确", "TRUE", "T"}:
+            return "√"
+        if value in {"×", "✕", "X", "错", "错误", "FALSE", "F"}:
+            return "×"
+    return value
+
+
+def build_pdf_demo_quick_answer_cells(crops: list[object]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    answers_by_question: dict[int, str] = {}
+    for crop in crops:
+        if not isinstance(crop, dict):
+            continue
+        question_no = normalize_positive_int(crop.get("question_no"), default=0, minimum=1)
+        if not question_no or question_no in answers_by_question:
+            continue
+        answers_by_question[question_no] = str(crop.get("answer") or "")
+    choice_cells = [
+        {
+            "question_no": question_no,
+            "label": str(question_no),
+            "field_name": f"quick_answer_{question_no}",
+            "value": answers_by_question.get(question_no, ""),
+        }
+        for question_no in range(1, 16)
+    ]
+    judgment_cells = [
+        {
+            "question_no": question_no,
+            "label": str(question_no - 15),
+            "field_name": f"quick_answer_{question_no}",
+            "value": answers_by_question.get(question_no, ""),
+        }
+        for question_no in range(16, 26)
+    ]
+    return choice_cells, judgment_cells
+
+
+def map_pdf_crop_demo_exam_type_to_level(exam_type: object) -> str:
+    value = str(exam_type or "").strip().lower()
+    if value.startswith("gesp") and value[4:].isdigit():
+        return f"GESP{int(value[4:])}"
+    if value == "csp_j":
+        return "CSP-J"
+    if value == "csp_s":
+        return "CSP-S"
+    return value.upper() or "GESP1"
+
+
+def map_pdf_crop_demo_question_type_to_bank(question_type: object) -> str:
+    value = str(question_type or "").strip()
+    if value == "judgment":
+        return ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE
+    if value == "programming":
+        return ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING
+    return ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE
+
+
+def get_pdf_demo_image_dimensions(relative_path: object) -> tuple[int | None, int | None]:
+    from PIL import Image
+
+    path = str(relative_path or "").strip()
+    if not path:
+        return None, None
+    try:
+        with default_storage.open(path, "rb") as image_file:
+            image = Image.open(image_file)
+            image.load()
+            return int(image.width), int(image.height)
+    except Exception:
+        return None, None
+
+
+@transaction.atomic
+def confirm_pdf_crop_demo_to_bank_paper(*, state: dict[str, object], teacher: PortalUser) -> ExamQuestionBankPaper:
+    crops = state.get("crops") if isinstance(state.get("crops"), list) else []
+    groups = build_pdf_demo_crop_question_groups(crops)
+    if not groups:
+        raise ValidationError("当前预览没有可确认的题目截图。")
+
+    subject = str(state.get("subject") or "cpp").strip()
+    exam_type = str(state.get("exam_type") or "gesp1").strip()
+    year = normalize_positive_int(state.get("year"), default=0, minimum=2000)
+    month = normalize_positive_int(state.get("month"), default=0, minimum=1)
+    if not year or month < 1 or month > 12:
+        raise ValidationError("试卷年份或月份无效，请重新上传。")
+
+    level = map_pdf_crop_demo_exam_type_to_level(exam_type)
+    session_id = str(state.get("session_id") or uuid.uuid4().hex[:12]).strip()
+    source_pdf_id = f"pdf_crop_{subject}_{exam_type}_{year}_{month:02d}_{session_id}"
+    title = f"{level} {year}年{month:02d}月截图试卷"
+    source_filename = str(state.get("source_filename") or "").strip()
+
+    paper, _ = ExamQuestionBankPaper.objects.update_or_create(
+        source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+        source_pdf_id=source_pdf_id,
+        defaults={
+            "level": level,
+            "year": year,
+            "month": month,
+            "source_file": source_filename,
+            "title": title,
+            "import_batch_uid": session_id,
+            "is_active": True,
+        },
+    )
+
+    for group in groups:
+        question_no = int(group["question_no"])
+        question_type = map_pdf_crop_demo_question_type_to_bank(group.get("question_type"))
+        answer = str(group.get("answer") or "").strip()
+        score = str(group.get("score") or get_pdf_crop_demo_default_score(question_no)).strip()
+        records = [record for record in group.get("records", []) if isinstance(record, dict) and record.get("image_path")]
+        material_image_paths = [
+            str(path or "").strip()
+            for path in (group.get("material_image_paths") if isinstance(group.get("material_image_paths"), list) else [])
+            if str(path or "").strip()
+        ]
+        question_image_paths = [str(record.get("image_path") or "").strip() for record in records if str(record.get("image_path") or "").strip()]
+        image_paths = [*material_image_paths, *question_image_paths]
+        question_uid = f"{source_pdf_id}_q{question_no:03d}"
+        bank_question, _ = ExamQuestionBankQuestion.objects.update_or_create(
+            paper=paper,
+            question_no=question_no,
+            defaults={
+                "question_uid": question_uid,
+                "question_type": question_type,
+                "stem_md": f"第 {question_no} 题（见截图）",
+                "answer_json": {"correct_answer": answer} if answer else {},
+                "analysis_md": "",
+                "programming_json": {},
+                "full_json": {
+                    "source": "pdf_crop_demo",
+                    "subject": subject,
+                    "exam_type": exam_type,
+                    "session_id": session_id,
+                    "score": score,
+                    "image_paths": image_paths,
+                    "question_image_paths": question_image_paths,
+                    "material_group_no": int(group.get("material_group_no") or 0),
+                    "material_image_paths": material_image_paths,
+                    "display_mode": str(group.get("display_mode") or ""),
+                    "crop_records": records,
+                    "confirmed_by": teacher.username,
+                },
+            },
+        )
+        if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE:
+            for index, option_key in enumerate(("A", "B", "C", "D"), start=1):
+                ExamQuestionBankOption.objects.update_or_create(
+                    question=bank_question,
+                    option_key=option_key,
+                    defaults={"option_text_md": option_key, "sort_order": index},
+                )
+        elif question_type == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE:
+            ExamQuestionBankOption.objects.update_or_create(
+                question=bank_question,
+                option_key="A",
+                defaults={"option_text_md": "正确", "sort_order": 1},
+            )
+            ExamQuestionBankOption.objects.update_or_create(
+                question=bank_question,
+                option_key="B",
+                defaults={"option_text_md": "错误", "sort_order": 2},
+            )
+
+        existing_paths = set()
+        for material_index, relative_path in enumerate(material_image_paths, start=1):
+            if not relative_path:
+                continue
+            existing_paths.add(relative_path)
+            width, height = get_pdf_demo_image_dimensions(relative_path)
+            ExamQuestionBankAsset.objects.update_or_create(
+                question=bank_question,
+                asset_role="content",
+                relative_path=relative_path,
+                defaults={
+                    "asset_uid": f"{question_uid}_material_p{material_index:02d}",
+                    "asset_type": "material_crop",
+                    "public_url": "",
+                    "alt": f"第 {question_no} 题公共材料 {material_index}",
+                    "width": width,
+                    "height": height,
+                },
+            )
+        for record in records:
+            relative_path = str(record.get("image_path") or "").strip()
+            if not relative_path:
+                continue
+            existing_paths.add(relative_path)
+            part_no = normalize_positive_int(record.get("part_no"), default=1, minimum=1)
+            width, height = get_pdf_demo_image_dimensions(relative_path)
+            ExamQuestionBankAsset.objects.update_or_create(
+                question=bank_question,
+                asset_role="content",
+                relative_path=relative_path,
+                defaults={
+                    "asset_uid": f"{question_uid}_p{part_no:02d}",
+                    "asset_type": "question_crop",
+                    "public_url": "",
+                    "alt": f"第 {question_no} 题截图 {part_no}",
+                    "width": width,
+                    "height": height,
+                },
+            )
+        bank_question.assets.filter(asset_role="content").exclude(relative_path__in=existing_paths).delete()
+
+    paper.questions.exclude(question_no__in=[int(group["question_no"]) for group in groups]).delete()
+    return paper
+
+
+@role_required("teacher")
+def teacher_exam_pdf_crop_demo_upload(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return redirect(f"{reverse('teacher-exam-paper-new')}#exam-paper-upload")
+
+    scale = normalize_pdf_crop_demo_scale(request.POST.get("demo_scale"))
+    pdf_file = request.FILES.get("demo_pdf")
+    inferred_metadata = infer_pdf_crop_demo_metadata_from_filename(pdf_file.name if pdf_file else "")
+    subject = str(request.POST.get("demo_subject") or inferred_metadata.get("subject") or "").strip()
+    exam_type = str(request.POST.get("demo_exam_type") or inferred_metadata.get("exam_type") or "").strip()
+    year = normalize_positive_int(request.POST.get("demo_year") or inferred_metadata.get("year"), default=0, minimum=2000)
+    month = normalize_pdf_crop_demo_month(request.POST.get("demo_month") or inferred_metadata.get("month"))
+
+    def redirect_with_error(message: str) -> HttpResponse:
+        return redirect(
+            build_redirect_with_query(
+                reverse("teacher-exam-paper-new"),
+                params={"op": "pdf_crop_demo_error", "message": message},
+                anchor="exam-paper-upload",
+            )
+        )
+
+    if subject not in PDF_CROP_DEMO_SUBJECT_CHOICES:
+        return redirect_with_error("PDF 截图切题 Demo 当前只支持 cpp。")
+    if exam_type not in PDF_CROP_DEMO_EXAM_TYPE_CHOICES:
+        return redirect_with_error("请选择有效的考试类型。")
+    if not year:
+        return redirect_with_error("请填写有效年份。")
+    if not month:
+        return redirect_with_error("请填写有效月份。")
+    if not pdf_file:
+        return redirect_with_error("请先选择 PDF 文件。")
+    if not str(pdf_file.name or "").lower().endswith(".pdf"):
+        return redirect_with_error("PDF 截图切题 Demo 只接受 PDF 文件。")
+
+    try:
+        session_id = create_pdf_crop_demo_session_from_upload(
+            uploaded_file=pdf_file,
+            subject=subject,
+            exam_type=exam_type,
+            year=year,
+            month=month,
+            scale=scale,
+        )
+    except ValidationError as exc:
+        message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+        return redirect_with_error(message or "PDF 渲染失败。")
+
+    return redirect(reverse("teacher-exam-pdf-crop-demo", args=[session_id]))
+
+
+@role_required("teacher")
+def teacher_exam_pdf_crop_demo(request: HttpRequest, session_id: str) -> HttpResponse:
+    state = get_pdf_crop_demo_state(session_id)
+    if state is None:
+        raise Http404("未找到 PDF 截图切题 Demo 会话")
+
+    error_message = ""
+    success_message = ""
+    if request.method == "POST":
+        form_action = str(request.POST.get("form_action") or "add_pdf_crop_demo_part").strip()
+        if form_action == "update_pdf_crop_demo_answers":
+            crops = state.get("crops") if isinstance(state.get("crops"), list) else []
+            updated_questions: set[int] = set()
+            for record in crops:
+                if not isinstance(record, dict):
+                    continue
+                question_no = normalize_positive_int(record.get("question_no"), default=0, minimum=1)
+                if not question_no:
+                    continue
+                answer_key = f"answer_{question_no}"
+                score_key = f"score_{question_no}"
+                question_type_key = f"question_type_{question_no}"
+                answer = str(request.POST.get(answer_key) if answer_key in request.POST else record.get("answer") or "").strip()
+                score = str(request.POST.get(score_key) if score_key in request.POST else record.get("score") or "").strip()
+                question_type = str(
+                    request.POST.get(question_type_key) if question_type_key in request.POST else record.get("question_type") or ""
+                ).strip()
+                if question_type and question_type not in PDF_CROP_DEMO_QUESTION_TYPE_CHOICES:
+                    error_message = "请选择有效题型。"
+                    break
+                record["answer"] = answer
+                record["score"] = score
+                if question_type:
+                    record["question_type"] = question_type
+                updated_questions.add(question_no)
+            if not error_message:
+                state["crops"] = crops
+                save_pdf_crop_demo_state(session_id, state)
+                success_message = f"已更新 {len(updated_questions)} 道题的答案/题型/分值。"
+        elif form_action == "bulk_update_pdf_crop_demo_answers":
+            crops = state.get("crops") if isinstance(state.get("crops"), list) else []
+            quick_answers: dict[int, str] = {}
+            for question_no in range(1, 26):
+                field_name = f"quick_answer_{question_no}"
+                if field_name not in request.POST:
+                    continue
+                answer = normalize_pdf_demo_quick_answer(question_no=question_no, answer=request.POST.get(field_name))
+                if answer:
+                    quick_answers[question_no] = answer
+            updated_questions: set[int] = set()
+            for record in crops:
+                if not isinstance(record, dict):
+                    continue
+                question_no = normalize_positive_int(record.get("question_no"), default=0, minimum=1)
+                if question_no in quick_answers:
+                    record["answer"] = quick_answers[question_no]
+                    updated_questions.add(question_no)
+            state["crops"] = crops
+            save_pdf_crop_demo_state(session_id, state)
+            success_message = f"已快速填入 {len(updated_questions)} 道客观题答案。"
+        elif form_action == "confirm_pdf_crop_demo_to_bank":
+            try:
+                paper = confirm_pdf_crop_demo_to_bank_paper(
+                    state=state,
+                    teacher=get_portal_user_from_request(request),
+                )
+            except ValidationError as exc:
+                error_message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            else:
+                state["confirmed_bank_paper_id"] = paper.id
+                state["confirmed_at"] = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S")
+                save_pdf_crop_demo_state(session_id, state)
+                return redirect(
+                    build_redirect_with_query(
+                        reverse("teacher-exam-paper-new"),
+                        params={"op": "pdf_crop_demo_confirmed", "paper_id": paper.id},
+                        anchor="confirmed-bank-papers",
+                    )
+                )
+        else:
+            page_no = normalize_positive_int(request.POST.get("page_no"), default=0, minimum=1)
+            section_no = normalize_positive_int(request.POST.get("section_no"), default=1, minimum=1)
+            question_no = normalize_positive_int(request.POST.get("question_no"), default=1, minimum=1)
+            part_no = normalize_positive_int(request.POST.get("part_no"), default=1, minimum=1)
+            question_type = str(request.POST.get("question_type") or "").strip()
+            answer = str(request.POST.get("answer") or "").strip()
+            score = str(request.POST.get("score") or "").strip()
+            try:
+                if question_type not in PDF_CROP_DEMO_QUESTION_TYPE_CHOICES:
+                    raise ValidationError("请选择有效题型。")
+                crop_box = [
+                    parse_pdf_crop_demo_number(request.POST.get("x1"), field_label="x1"),
+                    parse_pdf_crop_demo_number(request.POST.get("y1"), field_label="y1"),
+                    parse_pdf_crop_demo_number(request.POST.get("x2"), field_label="x2"),
+                    parse_pdf_crop_demo_number(request.POST.get("y2"), field_label="y2"),
+                ]
+                crop_result = crop_pdf_demo_question_image(
+                    state=state,
+                    page_no=page_no,
+                    crop_box=crop_box,
+                    section_no=section_no,
+                    question_no=question_no,
+                    part_no=part_no,
+                )
+            except ValidationError as exc:
+                error_message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            else:
+                record = {
+                    "subject": state.get("subject"),
+                    "exam_type": state.get("exam_type"),
+                    "year": state.get("year"),
+                    "month": state.get("month"),
+                    "section_no": section_no,
+                    "question_no": question_no,
+                    "part_no": part_no,
+                    "question_type": question_type,
+                    "answer": answer,
+                    "score": score,
+                    "page_no": crop_result["page_no"],
+                    "crop_box": crop_result["crop_box"],
+                    "image_path": crop_result["image_path"],
+                    "image_url": crop_result["image_url"],
+                }
+                crops = state.get("crops") if isinstance(state.get("crops"), list) else []
+                replaced_existing = False
+                for index, existing_record in enumerate(crops):
+                    if not isinstance(existing_record, dict):
+                        continue
+                    if (
+                        normalize_positive_int(existing_record.get("question_no"), default=0, minimum=1) == question_no
+                        and normalize_positive_int(existing_record.get("part_no"), default=0, minimum=1) == part_no
+                    ):
+                        crops[index] = record
+                        replaced_existing = True
+                        break
+                if not replaced_existing:
+                    crops.append(record)
+                state["crops"] = crops
+                save_pdf_crop_demo_state(session_id, state)
+                action_text = "已替换" if replaced_existing else "已生成"
+                success_message = f"{action_text}第 {section_no} 大题第 {question_no} 题第 {part_no} 张截图。"
+
+    pages = state.get("pages") if isinstance(state.get("pages"), list) else []
+    crops = state.get("crops") if isinstance(state.get("crops"), list) else []
+    quick_choice_answer_cells, quick_judgment_answer_cells = build_pdf_demo_quick_answer_cells(crops)
+    context = {
+        "page_title": "PDF 截图切题 Demo",
+        "page_description": "手动框选 PDF 页面区域，生成题目截图并预览考试展示效果。",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "新增试卷", "href": reverse("teacher-exam-paper-new")},
+            {"label": "PDF 截图切题 Demo"},
+        ],
+        "session_id": session_id,
+        "demo_state": state,
+        "pages": pages,
+        "crops": crops,
+        "crop_question_groups": build_pdf_demo_crop_question_groups(crops),
+        "quick_choice_answer_cells": quick_choice_answer_cells,
+        "quick_judgment_answer_cells": quick_judgment_answer_cells,
+        "question_type_options": PDF_CROP_DEMO_QUESTION_TYPE_CHOICES,
+        "error_message": error_message,
+        "success_message": success_message,
+        "back_href": f"{reverse('teacher-exam-paper-new')}#exam-paper-upload",
+    }
+    return render_shell_page(request, "teacher", "entry/teacher_exam_pdf_crop_demo.html", context)
 
 
 def is_manual_choice_review_import(import_job: ExamQuestionBankImportJob) -> bool:
@@ -2352,12 +4140,12 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
 
 def exam_bank_paper_has_exam_management_record(bank_paper_id: int) -> bool:
     marker = build_exam_bank_paper_publish_marker(bank_paper_id)
-    return ExamPaper.objects.filter(description__contains=marker).exists()
+    return ExamPaper.objects.filter(description__contains=marker, is_active=True).exists()
 
 
 def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
     bank_paper_ids: set[int] = set()
-    descriptions = ExamPaper.objects.exclude(description="").values_list("description", flat=True)
+    descriptions = ExamPaper.objects.filter(is_active=True).exclude(description="").values_list("description", flat=True)
     for description in descriptions:
         bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
         if bank_paper_id:
@@ -2537,16 +4325,29 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
             ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
             ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
         }
-        if is_choice_like and (not options or correct_answer not in options):
+        full_json = bank_question.full_json if isinstance(bank_question.full_json, dict) else {}
+        is_pdf_crop_demo_question = full_json.get("source") == "pdf_crop_demo"
+        if is_choice_like and not is_pdf_crop_demo_question and (not options or correct_answer not in options):
             continue
-        first_asset = next(
-            (
-                asset
-                for asset in bank_question.assets.filter(asset_role="content").order_by("id")
-                if asset.asset_role == "content" and asset.relative_path
-            ),
-            None,
-        )
+        content_assets = [
+            asset
+            for asset in bank_question.assets.filter(asset_role="content").order_by("id")
+            if asset.asset_role == "content" and asset.relative_path
+        ]
+        first_asset = content_assets[0] if content_assets else None
+        image_paths = [asset.relative_path for asset in content_assets if asset.relative_path]
+        material_image_paths = [
+            str(path or "").strip()
+            for path in (full_json.get("material_image_paths") if isinstance(full_json.get("material_image_paths"), list) else [])
+            if str(path or "").strip()
+        ]
+        question_image_paths = [
+            str(path or "").strip()
+            for path in (full_json.get("question_image_paths") if isinstance(full_json.get("question_image_paths"), list) else [])
+            if str(path or "").strip()
+        ]
+        bank_score = str(full_json.get("score") or "").strip()
+        default_non_choice_score = "25.00" if is_pdf_crop_demo_question else "0.00"
         stem = clean_bank_question_stem_for_exam(
             bank_question,
             bank_paper,
@@ -2561,7 +4362,7 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                 "options_json": options,
                 "correct_answer": correct_answer,
                 "analysis": bank_question.analysis_md,
-                "score": "2.00" if is_choice_like else "0.00",
+                "score": bank_score or ("2.00" if is_choice_like else default_non_choice_score),
                 "wrong_point_label": bank_paper.level,
                 "image_path": first_asset.relative_path if first_asset else "",
                 "source_snapshot_json": {
@@ -2573,6 +4374,11 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                     "level_code": bank_paper.level,
                     "knowledge_point": bank_paper.title,
                     "question_type": bank_question.question_type,
+                    "image_paths": image_paths,
+                    "material_image_paths": material_image_paths,
+                    "question_image_paths": question_image_paths,
+                    "display_mode": str(full_json.get("display_mode") or ""),
+                    "material_group_no": int(full_json.get("material_group_no") or 0),
                 },
                 "is_active": True,
             },
@@ -2755,6 +4561,10 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).first()
             success_message = f"{paper.title} 已进入可用试卷列表。" if paper else "试卷已进入可用试卷列表。"
+        elif op == "pdf_crop_demo_confirmed":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).first()
+            success_message = f"{paper.title} 已由截图预览确认，进入可发布试卷列表。" if paper else "截图试卷已进入可发布试卷列表。"
         elif op == "bank_paper_deleted":
             delete_mode = str(request.GET.get("mode") or "").strip()
             success_message = "未发布试卷已硬删除。" if delete_mode == "hard" else "可用试卷已删除。"
@@ -2771,6 +4581,8 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).only("title", "access_code").first()
             success_message = f"{paper.title} 已发布并开始考试，口令：{paper.access_code}。" if paper else "考试已发布并开始。"
+        elif op == "pdf_crop_demo_error":
+            error_message = str(request.GET.get("message") or "PDF 截图切题 Demo 处理失败。").strip()
         context = build_teacher_exam_page_context(
             portal_user,
             form_values=form_values,
@@ -2962,6 +4774,12 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
         upload_success_message = f"已恢复 {restored_count} 张试卷。"
     elif feedback_op == "restore_available":
         upload_success_message = "这份文件对应的试卷已入库但当前处于已删除状态，请在下方“已删除试卷”中点击恢复。"
+    elif feedback_op == "pdf_crop_demo_confirmed":
+        paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+        paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).first()
+        upload_success_message = f"{paper.title} 已确认入库，已进入已入库试卷列表。" if paper else "截图试卷已确认入库。"
+    elif feedback_op == "pdf_crop_demo_error":
+        upload_error_message = str(request.GET.get("message") or "PDF 截图切题处理失败。").strip()
     elif feedback_job_id and feedback_op in {"queued", "existing"}:
         feedback_job = (
             ExamQuestionBankImportJob.objects.filter(teacher=portal_user, is_active=True, id=feedback_job_id)
@@ -3084,104 +4902,161 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
             if not source_type:
                 upload_error_message = "当前新增试卷入口支持 pdf / png / jpg / webp / txt / md / json / html / docx 文件。"
             else:
+                use_qwen_ocr = request.POST.get("use_qwen_ocr") == "on"
                 selected_course = Course.objects.filter(id=selected_course_id).first()
                 if selected_course is None:
                     upload_error_message = "请选择所属学科。"
                 elif not selected_level_code:
                     upload_error_message = "请选择所属级别/类别。"
                 else:
-                    source_sha256 = compute_uploaded_file_sha256(source_file)
-                    today = timezone.localdate()
-                    file_stem_slug = slugify(Path(source_file.name).stem) or re.sub(
-                        r"[^0-9a-zA-Z_]+",
-                        "_",
-                        Path(source_file.name).stem,
-                    ).strip("_").lower()
-                    metadata_has_date = bool(uploaded_pdf_metadata["year"] and uploaded_pdf_metadata["month"])
-                    uploaded_pdf_metadata["year"] = uploaded_pdf_metadata["year"] or str(today.year)
-                    uploaded_pdf_metadata["month"] = uploaded_pdf_metadata["month"] or str(today.month)
-                    if not metadata_has_date:
-                        uploaded_pdf_metadata["source_pdf_id"] = ""
-                    uploaded_pdf_metadata["source_pdf_id"] = uploaded_pdf_metadata["source_pdf_id"] or "_".join(
-                        [
-                            uploaded_pdf_metadata["year"],
-                            uploaded_pdf_metadata["month"],
-                            file_stem_slug[:64] or source_sha256[:12],
+                    if source_type == "pdf" and not use_qwen_ocr:
+                        today = timezone.localdate()
+                        subject = map_course_title_to_pdf_crop_demo_subject(selected_course.title)
+                        exam_type = map_level_code_to_pdf_crop_demo_exam_type(selected_level_code)
+                        metadata_year = normalize_positive_int(uploaded_pdf_metadata.get("year"), default=today.year, minimum=2000)
+                        metadata_month = normalize_pdf_crop_demo_month(uploaded_pdf_metadata.get("month") or today.month)
+                        restore_source_pdf_id = str(uploaded_pdf_metadata.get("source_pdf_id") or "").strip()
+                        if restore_source_pdf_id:
+                            inactive_bank_paper = ExamQuestionBankPaper.objects.filter(
+                                source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+                                source_pdf_id=restore_source_pdf_id,
+                                is_active=False,
+                            ).first()
+                            if inactive_bank_paper is not None and exam_bank_paper_has_exam_management_record(inactive_bank_paper.id):
+                                return redirect(
+                                    build_redirect_with_query(
+                                        reverse("teacher-exam-paper-new"),
+                                        params={"op": "restore_available", "paper_id": inactive_bank_paper.id},
+                                        anchor="deleted-bank-papers",
+                                    )
+                                )
+                        if subject not in PDF_CROP_DEMO_SUBJECT_CHOICES:
+                            upload_error_message = "截图切题当前只支持 C++ 学科；其他学科请勾选 Qwen OCR 识别。"
+                        elif not exam_type:
+                            upload_error_message = "截图切题当前支持 C++ 的 GESP1-4 / CSP-J / CSP-S；其他级别请勾选 Qwen OCR 识别。"
+                        elif not metadata_month:
+                            upload_error_message = "无法识别有效月份，请调整文件名后重新上传。"
+                        else:
+                            try:
+                                upload_title = str(request.POST.get("title") or uploaded_pdf_metadata["title"] or source_file.name).strip()
+                                crop_mode = (
+                                    "csp_j_round1"
+                                    if should_use_csp_j_round1_crop_mode(
+                                        subject=subject,
+                                        exam_type=exam_type,
+                                        title=upload_title,
+                                        filename=source_file.name,
+                                    )
+                                    else ""
+                                )
+                                session_id = create_pdf_crop_demo_session_from_upload(
+                                    uploaded_file=source_file,
+                                    subject=subject,
+                                    exam_type=exam_type,
+                                    year=metadata_year,
+                                    month=metadata_month,
+                                    scale=normalize_pdf_crop_demo_scale(request.POST.get("demo_scale")),
+                                    crop_mode=crop_mode,
+                                )
+                            except ValidationError as exc:
+                                upload_error_message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+                            else:
+                                return redirect(reverse("teacher-exam-pdf-crop-demo", args=[session_id]))
+                    if upload_error_message:
+                        pass
+                    else:
+                        source_sha256 = compute_uploaded_file_sha256(source_file)
+                        today = timezone.localdate()
+                        file_stem_slug = slugify(Path(source_file.name).stem) or re.sub(
+                            r"[^0-9a-zA-Z_]+",
+                            "_",
+                            Path(source_file.name).stem,
+                        ).strip("_").lower()
+                        metadata_has_date = bool(uploaded_pdf_metadata["year"] and uploaded_pdf_metadata["month"])
+                        uploaded_pdf_metadata["year"] = uploaded_pdf_metadata["year"] or str(today.year)
+                        uploaded_pdf_metadata["month"] = uploaded_pdf_metadata["month"] or str(today.month)
+                        if not metadata_has_date:
+                            uploaded_pdf_metadata["source_pdf_id"] = ""
+                        uploaded_pdf_metadata["source_pdf_id"] = uploaded_pdf_metadata["source_pdf_id"] or "_".join(
+                            [
+                                uploaded_pdf_metadata["year"],
+                                uploaded_pdf_metadata["month"],
+                                file_stem_slug[:64] or source_sha256[:12],
+                            ]
+                        )
+                        reusable_statuses = [
+                            ExamQuestionBankImportJob.STATUS_UPLOADED,
+                            ExamQuestionBankImportJob.STATUS_RENDERING,
+                            ExamQuestionBankImportJob.STATUS_OCR_RUNNING,
+                            ExamQuestionBankImportJob.STATUS_OCR_DONE,
+                            ExamQuestionBankImportJob.STATUS_IMPORTED,
                         ]
-                    )
-                    reusable_statuses = [
-                        ExamQuestionBankImportJob.STATUS_UPLOADED,
-                        ExamQuestionBankImportJob.STATUS_RENDERING,
-                        ExamQuestionBankImportJob.STATUS_OCR_RUNNING,
-                        ExamQuestionBankImportJob.STATUS_OCR_DONE,
-                        ExamQuestionBankImportJob.STATUS_IMPORTED,
-                    ]
-                    existing_job = (
-                        ExamQuestionBankImportJob.objects.filter(
+                        existing_job = (
+                            ExamQuestionBankImportJob.objects.filter(
+                                teacher=portal_user,
+                                course=selected_course,
+                                level_code__iexact=selected_level_code,
+                                source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
+                                source_sha256=source_sha256,
+                                is_active=True,
+                                status__in=reusable_statuses,
+                            )
+                            .order_by("-created_at", "-id")
+                            .first()
+                        )
+                        if existing_job is not None:
+                            inactive_bank_paper = ExamQuestionBankPaper.objects.filter(
+                                source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+                                source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
+                                is_active=False,
+                            ).first()
+                            if inactive_bank_paper is not None and exam_bank_paper_has_exam_management_record(inactive_bank_paper.id):
+                                return redirect(
+                                    build_redirect_with_query(
+                                        reverse("teacher-exam-paper-new"),
+                                        params={"op": "restore_available", "paper_id": inactive_bank_paper.id},
+                                        anchor="deleted-bank-papers",
+                                    )
+                                )
+                            if inactive_bank_paper is not None:
+                                ExamQuestionBankImportJob.objects.filter(id=existing_job.id).update(
+                                    is_active=False,
+                                    updated_at=timezone.now(),
+                                )
+                            else:
+                                return redirect(
+                                    build_redirect_with_query(
+                                        reverse("teacher-exam-paper-new"),
+                                        params={"op": "existing", "job_id": existing_job.id},
+                                        anchor="recent-import-jobs",
+                                    )
+                                )
+                        import_job = ExamQuestionBankImportJob.objects.create(
                             teacher=portal_user,
                             course=selected_course,
-                            level_code__iexact=selected_level_code,
+                            level_code=selected_level_code,
+                            title=str(request.POST.get("title") or uploaded_pdf_metadata["title"] or source_file.name).strip(),
+                            year=int(uploaded_pdf_metadata["year"]),
+                            month=int(uploaded_pdf_metadata["month"]),
                             source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
+                            source_pdf=source_file,
+                            source_filename=source_file.name,
                             source_sha256=source_sha256,
-                            is_active=True,
-                            status__in=reusable_statuses,
+                            status=ExamQuestionBankImportJob.STATUS_UPLOADED,
+                            status_notes="文件已上传，等待后台处理。",
+                            qwen_model=str(getattr(settings, "QWEN_OCR_MODEL", "") or getattr(settings, "HOMEWORK_LLM_MODEL", "") or ""),
+                            qwen_base_url=str(getattr(settings, "QWEN_BASE_URL", "") or getattr(settings, "HOMEWORK_LLM_API_URL", "") or ""),
                         )
-                        .order_by("-created_at", "-id")
-                        .first()
-                    )
-                    if existing_job is not None:
-                        inactive_bank_paper = ExamQuestionBankPaper.objects.filter(
-                            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
-                            source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
-                            is_active=False,
-                        ).first()
-                        if inactive_bank_paper is not None and exam_bank_paper_has_exam_management_record(inactive_bank_paper.id):
-                            return redirect(
-                                build_redirect_with_query(
-                                    reverse("teacher-exam-paper-new"),
-                                    params={"op": "restore_available", "paper_id": inactive_bank_paper.id},
-                                    anchor="deleted-bank-papers",
-                                )
+                        route_note = "文本类文件将直接本地转换为 Markdown。" if source_type not in {"pdf", "image"} else "后台将渲染截图并调用 Qwen OCR。"
+                        import_job.status_notes = f"文件已上传，等待后台处理。{route_note}"
+                        import_job.save(update_fields=["status_notes", "updated_at"])
+                        return redirect(
+                            build_redirect_with_query(
+                                reverse("teacher-exam-paper-new"),
+                                params={"op": "queued", "job_id": import_job.id},
+                                anchor="recent-import-jobs",
                             )
-                        if inactive_bank_paper is not None:
-                            ExamQuestionBankImportJob.objects.filter(id=existing_job.id).update(
-                                is_active=False,
-                                updated_at=timezone.now(),
-                            )
-                        else:
-                            return redirect(
-                                build_redirect_with_query(
-                                    reverse("teacher-exam-paper-new"),
-                                    params={"op": "existing", "job_id": existing_job.id},
-                                    anchor="recent-import-jobs",
-                                )
-                            )
-                    import_job = ExamQuestionBankImportJob.objects.create(
-                        teacher=portal_user,
-                        course=selected_course,
-                        level_code=selected_level_code,
-                        title=str(request.POST.get("title") or uploaded_pdf_metadata["title"] or source_file.name).strip(),
-                        year=int(uploaded_pdf_metadata["year"]),
-                        month=int(uploaded_pdf_metadata["month"]),
-                        source_pdf_id=uploaded_pdf_metadata["source_pdf_id"],
-                        source_pdf=source_file,
-                        source_filename=source_file.name,
-                        source_sha256=source_sha256,
-                        status=ExamQuestionBankImportJob.STATUS_UPLOADED,
-                        status_notes="文件已上传，等待后台处理。",
-                        qwen_model=str(getattr(settings, "QWEN_OCR_MODEL", "") or getattr(settings, "HOMEWORK_LLM_MODEL", "") or ""),
-                        qwen_base_url=str(getattr(settings, "QWEN_BASE_URL", "") or getattr(settings, "HOMEWORK_LLM_API_URL", "") or ""),
-                    )
-                    route_note = "文本类文件将直接本地转换为 Markdown。" if source_type not in {"pdf", "image"} else "后台将渲染截图并调用 Qwen OCR。"
-                    import_job.status_notes = f"文件已上传，等待后台处理。{route_note}"
-                    import_job.save(update_fields=["status_notes", "updated_at"])
-                    return redirect(
-                        build_redirect_with_query(
-                            reverse("teacher-exam-paper-new"),
-                            params={"op": "queued", "job_id": import_job.id},
-                            anchor="recent-import-jobs",
                         )
-                    )
 
     courses = list(Course.objects.order_by("title", "id").values("id", "title"))
     levels = list(

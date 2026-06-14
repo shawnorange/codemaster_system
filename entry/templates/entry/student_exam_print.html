@@ -169,9 +169,9 @@
                         <span>{{ question.question_type_text }} · {{ question.score }} 分</span>
                     </div>
                     <div class="exam-markdown-body">{{ question.stem_html }}</div>
-                    {% if question.image_path %}
-                        <img class="exam-print-image" src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片">
-                    {% endif %}
+                    {% for image_path in question.image_paths %}
+                        <img class="exam-print-image" src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}">
+                    {% endfor %}
                     {% if question.option_items %}
                         <div class="exam-print-options">
                             {% for option in question.option_items %}

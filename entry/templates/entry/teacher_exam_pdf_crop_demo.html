@@ -1,0 +1,861 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}PDF 截图切题 Demo | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .pdf-demo-shell {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 150px minmax(0, 1fr) 280px;
+        }
+
+        .pdf-demo-pages,
+        .pdf-demo-side {
+            display: grid;
+            gap: 10px;
+            align-content: flex-start;
+        }
+
+        .pdf-demo-page-button {
+            border: 1px solid rgba(30, 94, 150, 0.18);
+            border-radius: 8px;
+            background: #fff;
+            color: #16508c;
+            cursor: pointer;
+            font-weight: 700;
+            padding: 10px 12px;
+            text-align: left;
+        }
+
+        .pdf-demo-page-button.is-active {
+            background: #e9f5ff;
+            border-color: rgba(30, 94, 150, 0.36);
+        }
+
+        .pdf-demo-canvas-panel {
+            min-width: 0;
+        }
+
+        .pdf-demo-toolbar {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .pdf-demo-image-wrap {
+            background: #f7fbff;
+            border: 1px solid rgba(30, 94, 150, 0.14);
+            border-radius: 8px;
+            max-height: 760px;
+            overflow: auto;
+            padding: 12px;
+        }
+
+        .pdf-demo-image-stage {
+            display: inline-block;
+            line-height: 0;
+            position: relative;
+        }
+
+        .pdf-demo-page-image {
+            display: block;
+            max-width: none;
+            transform-origin: left top;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        .pdf-demo-selection {
+            background: rgba(0, 139, 255, 0.12);
+            border: 2px solid #0f73c7;
+            box-sizing: border-box;
+            display: none;
+            pointer-events: none;
+            position: absolute;
+        }
+
+        .pdf-demo-coordinate {
+            color: #4c719c;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            margin-top: 10px;
+            word-break: break-word;
+        }
+
+        .pdf-demo-side .portal-filter-unit {
+            margin: 0;
+        }
+
+        .pdf-demo-result-grid,
+        .pdf-demo-exam-preview {
+            display: grid;
+            gap: 12px;
+        }
+
+        .pdf-demo-result-card {
+            border: 1px solid rgba(30, 94, 150, 0.14);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .pdf-demo-result-card img {
+            border: 1px solid rgba(30, 94, 150, 0.12);
+            border-radius: 6px;
+            display: block;
+            margin-top: 8px;
+            max-width: 100%;
+        }
+
+        .pdf-demo-quick-answer {
+            border: 1px solid rgba(30, 94, 150, 0.14);
+            border-radius: 8px;
+            display: grid;
+            gap: 12px;
+            margin-bottom: 14px;
+            overflow-x: auto;
+            padding: 12px;
+        }
+
+        .pdf-demo-answer-row {
+            align-items: end;
+            display: grid;
+            gap: 8px;
+        }
+
+        .pdf-demo-answer-row--choice {
+            grid-template-columns: 88px repeat(15, minmax(44px, 1fr));
+        }
+
+        .pdf-demo-answer-row--judgment {
+            grid-template-columns: 88px repeat(10, minmax(44px, 1fr)) 148px;
+        }
+
+        .pdf-demo-answer-cell {
+            display: grid;
+            gap: 4px;
+            min-width: 44px;
+        }
+
+        .pdf-demo-answer-cell span {
+            color: #4c719c;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .pdf-demo-answer-cell input {
+            box-sizing: border-box;
+            min-width: 44px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .pdf-demo-preview-layout {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .pdf-demo-question-nav {
+            display: grid;
+            gap: 10px;
+            align-content: flex-start;
+        }
+
+        .pdf-demo-question-nav-group {
+            border: 1px solid rgba(30, 94, 150, 0.12);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .pdf-demo-question-nav-group strong {
+            color: #16508c;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .pdf-demo-question-button {
+            border: 1px solid rgba(30, 94, 150, 0.18);
+            border-radius: 999px;
+            background: #fff;
+            color: #16508c;
+            cursor: pointer;
+            font-weight: 700;
+            margin: 0 6px 6px 0;
+            padding: 6px 10px;
+        }
+
+        .pdf-demo-question-button.is-active {
+            background: #16508c;
+            color: #fff;
+        }
+
+        .pdf-demo-preview-paper {
+            border: 1px solid rgba(30, 94, 150, 0.14);
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            height: 760px;
+            min-height: 760px;
+            padding: 16px;
+        }
+
+        .pdf-demo-preview-images {
+            display: grid;
+            gap: 12px;
+            flex: 1 1 auto;
+            margin: 12px 0;
+            min-height: 0;
+            overflow: auto;
+            padding-right: 6px;
+        }
+
+        .pdf-demo-preview-images img {
+            border: 1px solid rgba(30, 94, 150, 0.12);
+            border-radius: 6px;
+            max-width: 100%;
+        }
+
+        .pdf-demo-answer-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 12px 0;
+        }
+
+        .pdf-demo-answer-options button {
+            border: 1px solid rgba(30, 94, 150, 0.18);
+            border-radius: 8px;
+            background: #fff;
+            color: #16508c;
+            font-weight: 700;
+            padding: 8px 12px;
+        }
+
+        .pdf-demo-code-input {
+            box-sizing: border-box;
+            min-height: 150px;
+            width: 100%;
+        }
+
+        .pdf-demo-preview-footer {
+            display: grid;
+            flex: 0 0 auto;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 12px;
+        }
+
+        .pdf-demo-preview-footer .teacher-anchor-link,
+        .pdf-demo-preview-footer .login-button {
+            box-sizing: border-box;
+            justify-content: center;
+            margin: 0;
+            text-align: center;
+            width: 100%;
+        }
+
+        @media (max-width: 1100px) {
+            .pdf-demo-shell,
+            .pdf-demo-preview-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .pdf-demo-pages {
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">PDF Crop Demo</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Demo Session</p>
+            <h3>{{ demo_state.source_filename }}</h3>
+            <p>{{ demo_state.subject }} / {{ demo_state.exam_type }} / {{ demo_state.year }}_{{ demo_state.month }} / {{ demo_state.scale }}x · session {{ session_id }}</p>
+        </div>
+
+        {% if pages %}
+            <div class="pdf-demo-shell">
+                <aside class="pdf-demo-pages" aria-label="PDF 页码列表">
+                    {% for page in pages %}
+                        <button
+                            type="button"
+                            class="pdf-demo-page-button{% if forloop.first %} is-active{% endif %}"
+                            data-page-button
+                            data-page-no="{{ page.page_no }}"
+                            data-image-url="{{ page.image_url }}"
+                            data-width="{{ page.width }}"
+                            data-height="{{ page.height }}"
+                        >
+                            page {{ page.page_no }}
+                        </button>
+                    {% endfor %}
+                </aside>
+
+                <main class="pdf-demo-canvas-panel">
+                    <div class="pdf-demo-toolbar">
+                        <div>
+                            <strong id="pdf-demo-current-page">page 1</strong>
+                            <div class="pdf-demo-coordinate" id="pdf-demo-coordinate">系统已按 PDF 文本层题号锚点自动切题；左侧可切换整页图核对。</div>
+                        </div>
+                        <label class="portal-filter-unit" for="pdf-demo-zoom">
+                            <span class="portal-filter-label">缩放显示</span>
+                            <select id="pdf-demo-zoom" class="portal-filter-control">
+                                <option value="0.5">50%</option>
+                                <option value="0.75">75%</option>
+                                <option value="1" selected>100%</option>
+                                <option value="1.25">125%</option>
+                                <option value="1.5">150%</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="pdf-demo-image-wrap">
+                        <div class="pdf-demo-image-stage" id="pdf-demo-stage">
+                            <img class="pdf-demo-page-image" id="pdf-demo-image" alt="PDF 页面图">
+                            <div class="pdf-demo-selection" id="pdf-demo-selection"></div>
+                        </div>
+                    </div>
+                </main>
+
+                <aside class="pdf-demo-side">
+                    <div class="entry-hint-bar">
+                        <strong>自动切题结果</strong>
+                        <div>题号锚点：{{ demo_state.auto_summary.anchor_count|default:0 }}</div>
+                        <div>分区边界：{{ demo_state.auto_summary.boundary_count|default:0 }}</div>
+                        <div>答案识别：{{ demo_state.auto_summary.answer_count|default:0 }}</div>
+                        <div>截图数量：{{ demo_state.auto_summary.crop_count|default:0 }}</div>
+                        {% if demo_state.auto_summary.requires_manual_crop %}
+                            <div>定位方式：未识别到题号锚点，已停止自动切题</div>
+                            <div>处理建议：请手动框选题目，或使用带文本题号锚点的 PDF</div>
+                        {% elif demo_state.auto_summary.fallback_used %}
+                            <div>定位方式：按分区粗切，需人工复核</div>
+                        {% else %}
+                            <div>定位方式：PDF 文本层题号锚点</div>
+                        {% endif %}
+                    </div>
+                    <form method="post" class="record-form" id="pdf-demo-crop-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="form_action" value="add_pdf_crop_demo_part">
+                        <input type="hidden" name="page_no" id="pdf-demo-page-no" value="1">
+                        <input type="hidden" name="x1" id="pdf-demo-x1">
+                        <input type="hidden" name="y1" id="pdf-demo-y1">
+                        <input type="hidden" name="x2" id="pdf-demo-x2">
+                        <input type="hidden" name="y2" id="pdf-demo-y2">
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">第一大题编号</span>
+                            <input class="portal-filter-control" type="number" name="section_no" id="pdf-demo-section-no" min="1" value="1">
+                        </label>
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">小题编号</span>
+                            <input class="portal-filter-control" type="number" name="question_no" id="pdf-demo-question-no" min="1" value="1">
+                        </label>
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">第几张截图</span>
+                            <input class="portal-filter-control" type="number" name="part_no" id="pdf-demo-part-no" min="1" value="1">
+                        </label>
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">题型</span>
+                            <select class="portal-filter-control" name="question_type" id="pdf-demo-question-type">
+                                {% for option in question_type_options %}
+                                    <option value="{{ option }}">{{ option }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">答案</span>
+                            <input class="portal-filter-control" type="text" name="answer" id="pdf-demo-answer" placeholder="A / √ / 代码题可空">
+                        </label>
+                        <label class="portal-filter-unit">
+                            <span class="portal-filter-label">分值</span>
+                            <input class="portal-filter-control" type="text" name="score" id="pdf-demo-score" value="2">
+                        </label>
+                        <button type="submit" class="login-button">添加截图范围</button>
+                    </form>
+                </aside>
+            </div>
+        {% else %}
+            <div class="entry-hint-bar">当前 Demo 没有可显示的 PDF 页面。</div>
+        {% endif %}
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Crop Results</p>
+            <h3>自动截图结果列表</h3>
+        </div>
+        {% if crop_question_groups %}
+            <form method="post" class="pdf-demo-quick-answer">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="bulk_update_pdf_crop_demo_answers">
+                <div class="pdf-demo-answer-row pdf-demo-answer-row--choice">
+                    <strong>选择题</strong>
+                    {% for cell in quick_choice_answer_cells %}
+                        <label class="pdf-demo-answer-cell">
+                            <span>{{ cell.label }}</span>
+                            <input class="portal-filter-control" type="text" name="{{ cell.field_name }}" value="{{ cell.value }}" maxlength="4">
+                        </label>
+                    {% endfor %}
+                </div>
+                <div class="pdf-demo-answer-row pdf-demo-answer-row--judgment">
+                    <strong>判断题</strong>
+                    {% for cell in quick_judgment_answer_cells %}
+                        <label class="pdf-demo-answer-cell">
+                            <span>{{ cell.label }}</span>
+                            <input class="portal-filter-control" type="text" name="{{ cell.field_name }}" value="{{ cell.value }}" maxlength="4">
+                        </label>
+                    {% endfor %}
+                    <button type="submit" class="login-button">确认填入答案</button>
+                </div>
+            </form>
+            <form method="post" class="record-form">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="update_pdf_crop_demo_answers">
+                <div class="pdf-demo-result-grid">
+                    {% for group in crop_question_groups %}
+                        <article class="pdf-demo-result-card">
+                            <div class="content-access-card__top">
+                                <div>
+                                    <strong>{{ demo_state.subject }}_{{ demo_state.exam_type }}_{{ demo_state.year }}_{{ demo_state.month }} · s{{ group.section_no|stringformat:"02d" }} q{{ group.question_no|stringformat:"03d" }}</strong>
+                                    <p>共 {{ group.records|length }} 张截图；下一张 p{{ group.next_part_no|stringformat:"02d" }}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="teacher-anchor-link"
+                                    data-adjust-crop
+                                    data-section-no="{{ group.section_no }}"
+                                    data-question-no="{{ group.question_no }}"
+                                    data-part-no="{{ group.next_part_no }}"
+                                    data-question-type="{{ group.question_type }}"
+                                    data-answer="{{ group.answer }}"
+                                    data-score="{{ group.score }}"
+                                >调整截图</button>
+                            </div>
+                            <div class="portal-filters portal-grid-filters">
+                                <label class="portal-filter-unit portal-grid-filter-unit">
+                                    <span class="portal-filter-label portal-grid-filter-label">题型</span>
+                                    <select class="portal-filter-control portal-grid-filter-control" name="question_type_{{ group.question_no }}">
+                                        {% for option in question_type_options %}
+                                            <option value="{{ option }}"{% if option == group.question_type %} selected{% endif %}>{{ option }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <label class="portal-filter-unit portal-grid-filter-unit">
+                                    <span class="portal-filter-label portal-grid-filter-label">答案</span>
+                                    <input class="portal-filter-control portal-grid-filter-control" type="text" name="answer_{{ group.question_no }}" value="{{ group.answer }}" placeholder="允许手动修改">
+                                </label>
+                                <label class="portal-filter-unit portal-grid-filter-unit">
+                                    <span class="portal-filter-label portal-grid-filter-label">分值</span>
+                                    <input class="portal-filter-control portal-grid-filter-control" type="text" name="score_{{ group.question_no }}" value="{{ group.score }}">
+                                </label>
+                            </div>
+                            {% if group.material_image_urls %}
+                                <div class="entry-hint-bar">
+                                    <strong>公共材料</strong>
+                                    <span>题组 {{ group.material_group_no }} · 共 {{ group.material_image_urls|length }} 张材料截图</span>
+                                </div>
+                                {% for material_image_url in group.material_image_urls %}
+                                    <img src="{{ material_image_url }}" alt="第 {{ group.question_no }} 题公共材料 {{ forloop.counter }}">
+                                {% endfor %}
+                            {% endif %}
+                            {% for record in group.records %}
+                                <p>p{{ record.part_no|stringformat:"02d" }} · page {{ record.page_no }} · {{ record.image_path }}{% if record.needs_review %} · 需复核{% endif %}</p>
+                                <img src="{{ record.image_url }}" alt="第 {{ group.question_no }} 题截图 {{ record.part_no }}">
+                            {% endfor %}
+                        </article>
+                    {% endfor %}
+                </div>
+                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                    <button type="submit" class="login-button">保存答案修改</button>
+                </div>
+            </form>
+            <form method="post" class="topic-access-modal__footer topic-access-modal__footer--course">
+                {% csrf_token %}
+                <input type="hidden" name="form_action" value="confirm_pdf_crop_demo_to_bank">
+                <button type="submit" class="login-button">确认入库并查看已入库试卷</button>
+            </form>
+        {% elif crops %}
+            <div class="pdf-demo-result-grid">
+                {% for record in crops %}
+                    <article class="pdf-demo-result-card">
+                        <strong>{{ record.subject }}_{{ record.exam_type }}_{{ record.year }}_{{ record.month }} · s{{ record.section_no|stringformat:"02d" }} q{{ record.question_no|stringformat:"03d" }} p{{ record.part_no|stringformat:"02d" }}</strong>
+                        <p>题型：{{ record.question_type }}；答案：{{ record.answer|default:"未识别" }}；分值：{{ record.score|default:"未填" }}；page {{ record.page_no }}{% if record.needs_review %}；需复核{% endif %}</p>
+                        <p>{{ record.image_path }}</p>
+                        <img src="{{ record.image_url }}" alt="题目截图预览">
+                    </article>
+                {% endfor %}
+            </div>
+        {% else %}
+                <div class="entry-hint-bar">还没有生成题目截图。请确认 PDF 有可读取文本层，或后续接入 OCR 定位兜底。</div>
+        {% endif %}
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Exam Preview</p>
+            <h3>考试预览</h3>
+        </div>
+        <div class="pdf-demo-exam-preview" id="pdf-demo-exam-preview">
+            {% if crops %}
+                <div class="pdf-demo-preview-layout">
+                    <nav class="pdf-demo-question-nav" id="pdf-demo-question-nav" aria-label="题号导航"></nav>
+                    <article class="pdf-demo-preview-paper">
+                        <div class="content-access-card__top">
+                            <div>
+                                <h5 id="pdf-demo-preview-title">请选择题目</h5>
+                                <p id="pdf-demo-preview-meta"></p>
+                            </div>
+                        </div>
+                        <div class="pdf-demo-preview-images" id="pdf-demo-preview-images"></div>
+                        <div id="pdf-demo-answer-area"></div>
+                        <div class="topic-access-modal__footer topic-access-modal__footer--course pdf-demo-preview-footer">
+                            <button type="button" class="teacher-anchor-link" id="pdf-demo-prev-question">上一题</button>
+                            <button type="button" class="login-button" id="pdf-demo-next-question">下一题</button>
+                        </div>
+                    </article>
+                </div>
+            {% else %}
+                <div class="entry-hint-bar">生成题目截图后，这里会按大题和题号展示考试预览。</div>
+            {% endif %}
+        </div>
+        <div class="topic-access-modal__footer topic-access-modal__footer--course">
+            <a class="teacher-anchor-link" href="{{ back_href }}">返回考试管理</a>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ crops|json_script:"pdf-demo-crops-data" }}
+    <script>
+        (function () {
+            const pageButtons = Array.from(document.querySelectorAll("[data-page-button]"));
+            const image = document.getElementById("pdf-demo-image");
+            const stage = document.getElementById("pdf-demo-stage");
+            const selection = document.getElementById("pdf-demo-selection");
+            const zoomSelect = document.getElementById("pdf-demo-zoom");
+            const coordinate = document.getElementById("pdf-demo-coordinate");
+            const pageNoInput = document.getElementById("pdf-demo-page-no");
+            const currentPage = document.getElementById("pdf-demo-current-page");
+            const cropForm = document.getElementById("pdf-demo-crop-form");
+            const sectionNoInput = document.getElementById("pdf-demo-section-no");
+            const questionNoInput = document.getElementById("pdf-demo-question-no");
+            const partNoInput = document.getElementById("pdf-demo-part-no");
+            const questionTypeInput = document.getElementById("pdf-demo-question-type");
+            const answerInput = document.getElementById("pdf-demo-answer");
+            const scoreInput = document.getElementById("pdf-demo-score");
+            const cropInputs = {
+                x1: document.getElementById("pdf-demo-x1"),
+                y1: document.getElementById("pdf-demo-y1"),
+                x2: document.getElementById("pdf-demo-x2"),
+                y2: document.getElementById("pdf-demo-y2"),
+            };
+            let activePage = null;
+            let dragStart = null;
+            let currentCrop = null;
+
+            function setCoordinateText(crop) {
+                if (!coordinate) return;
+                if (!crop) {
+                    coordinate.textContent = "系统已按 PDF 文本层题号锚点自动切题；左侧可切换整页图核对。";
+                    return;
+                }
+                coordinate.textContent = "当前坐标：["
+                    + [crop.x1, crop.y1, crop.x2, crop.y2].map((value) => Math.round(value)).join(", ")
+                    + "]，基于原始高清页面图。";
+            }
+
+            function updateSelectionBox(displayCrop) {
+                if (!selection || !displayCrop) return;
+                const left = Math.min(displayCrop.x1, displayCrop.x2);
+                const top = Math.min(displayCrop.y1, displayCrop.y2);
+                const width = Math.abs(displayCrop.x2 - displayCrop.x1);
+                const height = Math.abs(displayCrop.y2 - displayCrop.y1);
+                selection.style.display = "block";
+                selection.style.left = left + "px";
+                selection.style.top = top + "px";
+                selection.style.width = width + "px";
+                selection.style.height = height + "px";
+            }
+
+            function resetCrop() {
+                currentCrop = null;
+                Object.values(cropInputs).forEach((input) => {
+                    if (input) input.value = "";
+                });
+                if (selection) selection.style.display = "none";
+                setCoordinateText(null);
+            }
+
+            function applyZoom() {
+                if (!image || !activePage) return;
+                const zoom = Number(zoomSelect ? zoomSelect.value : "1") || 1;
+                image.style.width = Math.round(Number(activePage.width) * zoom) + "px";
+                image.style.height = "auto";
+                resetCrop();
+            }
+
+            function activatePage(button) {
+                if (!button || !image) return;
+                pageButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+                activePage = {
+                    pageNo: Number(button.dataset.pageNo || "1"),
+                    imageUrl: button.dataset.imageUrl || "",
+                    width: Number(button.dataset.width || "0"),
+                    height: Number(button.dataset.height || "0"),
+                };
+                image.src = activePage.imageUrl;
+                image.width = activePage.width;
+                image.height = activePage.height;
+                if (pageNoInput) pageNoInput.value = String(activePage.pageNo);
+                if (currentPage) currentPage.textContent = "page " + activePage.pageNo;
+                applyZoom();
+            }
+
+            function getPointerPosition(event) {
+                if (!image || !activePage) return null;
+                const rect = image.getBoundingClientRect();
+                const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+                const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+                const scaleX = activePage.width / rect.width;
+                const scaleY = activePage.height / rect.height;
+                return {
+                    displayX: x,
+                    displayY: y,
+                    originalX: x * scaleX,
+                    originalY: y * scaleY,
+                    scaleX: scaleX,
+                    scaleY: scaleY,
+                };
+            }
+
+            pageButtons.forEach((button) => {
+                button.addEventListener("click", function () {
+                    activatePage(button);
+                });
+            });
+
+            if (zoomSelect) {
+                zoomSelect.addEventListener("change", applyZoom);
+            }
+
+            if (stage && image && cropForm) {
+                stage.addEventListener("mousedown", function (event) {
+                    const point = getPointerPosition(event);
+                    if (!point) return;
+                    dragStart = point;
+                    currentCrop = null;
+                    updateSelectionBox({ x1: point.displayX, y1: point.displayY, x2: point.displayX, y2: point.displayY });
+                    event.preventDefault();
+                });
+                window.addEventListener("mousemove", function (event) {
+                    if (!dragStart) return;
+                    const point = getPointerPosition(event);
+                    if (!point) return;
+                    updateSelectionBox({ x1: dragStart.displayX, y1: dragStart.displayY, x2: point.displayX, y2: point.displayY });
+                });
+                window.addEventListener("mouseup", function (event) {
+                    if (!dragStart) return;
+                    const point = getPointerPosition(event);
+                    if (!point) {
+                        dragStart = null;
+                        return;
+                    }
+                    currentCrop = {
+                        x1: dragStart.originalX,
+                        y1: dragStart.originalY,
+                        x2: point.originalX,
+                        y2: point.originalY,
+                    };
+                    if (cropInputs.x1) cropInputs.x1.value = String(currentCrop.x1);
+                    if (cropInputs.y1) cropInputs.y1.value = String(currentCrop.y1);
+                    if (cropInputs.x2) cropInputs.x2.value = String(currentCrop.x2);
+                    if (cropInputs.y2) cropInputs.y2.value = String(currentCrop.y2);
+                    setCoordinateText(currentCrop);
+                    dragStart = null;
+                });
+            }
+
+            if (cropForm) {
+                cropForm.addEventListener("submit", function (event) {
+                    if (!currentCrop) {
+                        event.preventDefault();
+                        setCoordinateText(null);
+                        window.alert("请先在 PDF 页面图上框选题目区域。");
+                    }
+                });
+            }
+
+            Array.from(document.querySelectorAll("[data-adjust-crop]")).forEach((button) => {
+                button.addEventListener("click", function () {
+                    if (sectionNoInput) sectionNoInput.value = button.dataset.sectionNo || "1";
+                    if (questionNoInput) questionNoInput.value = button.dataset.questionNo || "1";
+                    if (partNoInput) partNoInput.value = button.dataset.partNo || "1";
+                    if (questionTypeInput) questionTypeInput.value = button.dataset.questionType || "single_choice";
+                    if (answerInput) answerInput.value = button.dataset.answer || "";
+                    if (scoreInput) scoreInput.value = button.dataset.score || "";
+                    resetCrop();
+                    if (cropForm) {
+                        cropForm.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                    if (coordinate) {
+                        coordinate.textContent = "请在中间完整 PDF 页面图上重新框选第 "
+                            + (button.dataset.questionNo || "1")
+                            + " 题的截图范围，可重复添加多张。";
+                    }
+                });
+            });
+
+            if (pageButtons.length) {
+                activatePage(pageButtons[0]);
+            }
+
+            function readCrops() {
+                const dataElement = document.getElementById("pdf-demo-crops-data");
+                if (!dataElement) return [];
+                try {
+                    const parsed = JSON.parse(dataElement.textContent || "[]");
+                    return Array.isArray(parsed) ? parsed : [];
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            const crops = readCrops();
+            const grouped = [];
+            const groupMap = new Map();
+            crops.forEach((record) => {
+                const key = String(record.section_no) + ":" + String(record.question_no);
+                if (!groupMap.has(key)) {
+                    const item = {
+                        sectionNo: Number(record.section_no || 1),
+                        questionNo: Number(record.question_no || 1),
+                        questionType: record.question_type || "single_choice",
+                        answer: record.answer || "",
+                        score: record.score || "",
+                        materialImageUrls: Array.isArray(record.material_image_urls) ? record.material_image_urls : [],
+                        records: [],
+                    };
+                    groupMap.set(key, item);
+                    grouped.push(item);
+                }
+                groupMap.get(key).records.push(record);
+            });
+            grouped.sort((a, b) => (a.sectionNo - b.sectionNo) || (a.questionNo - b.questionNo));
+            grouped.forEach((item) => {
+                item.records.sort((a, b) => Number(a.part_no || 1) - Number(b.part_no || 1));
+            });
+
+            const nav = document.getElementById("pdf-demo-question-nav");
+            const title = document.getElementById("pdf-demo-preview-title");
+            const meta = document.getElementById("pdf-demo-preview-meta");
+            const images = document.getElementById("pdf-demo-preview-images");
+            const answerArea = document.getElementById("pdf-demo-answer-area");
+            const prevButton = document.getElementById("pdf-demo-prev-question");
+            const nextButton = document.getElementById("pdf-demo-next-question");
+            let activeIndex = 0;
+
+            function renderAnswerArea(question) {
+                if (!answerArea) return;
+                if (question.questionType === "programming") {
+                    answerArea.innerHTML = '<textarea class="portal-filter-control pdf-demo-code-input" placeholder="Demo 编程题代码输入框"></textarea>';
+                    return;
+                }
+                const labels = question.questionType === "judgment" ? ["正确", "错误"] : ["A", "B", "C", "D"];
+                answerArea.innerHTML = '<div class="pdf-demo-answer-options">'
+                    + labels.map((label) => '<button type="button">' + label + '</button>').join("")
+                    + '</div>';
+            }
+
+            function renderPreview(index) {
+                if (!grouped.length || !title || !meta || !images) return;
+                activeIndex = Math.max(0, Math.min(grouped.length - 1, index));
+                const question = grouped[activeIndex];
+                title.textContent = "第 " + question.sectionNo + " 大题 · 第 " + question.questionNo + " 题";
+                meta.textContent = question.questionType + " / 答案 " + (question.answer || "未填") + " / 分值 " + (question.score || "未填");
+                images.innerHTML = question.records.map((record) => {
+                    return '<img src="' + String(record.image_url || "") + '" alt="题目截图 p' + String(record.part_no || "") + '">';
+                }).join("");
+                if (question.materialImageUrls && question.materialImageUrls.length) {
+                    images.innerHTML = '<div class="entry-hint-bar"><strong>公共材料</strong><span>点击同组小题时保持显示</span></div>'
+                        + question.materialImageUrls.map((imageUrl, imageIndex) => {
+                            return '<img src="' + String(imageUrl || "") + '" alt="公共材料 ' + String(imageIndex + 1) + '">';
+                        }).join("")
+                        + images.innerHTML;
+                }
+                renderAnswerArea(question);
+                Array.from(document.querySelectorAll("[data-preview-question]")).forEach((button) => {
+                    button.classList.toggle("is-active", Number(button.dataset.previewQuestion || "0") === activeIndex);
+                });
+            }
+
+            function renderNav() {
+                if (!nav || !grouped.length) return;
+                const bySection = new Map();
+                grouped.forEach((question, index) => {
+                    if (!bySection.has(question.sectionNo)) bySection.set(question.sectionNo, []);
+                    bySection.get(question.sectionNo).push({ question, index });
+                });
+                nav.innerHTML = Array.from(bySection.entries()).map(([sectionNo, items]) => {
+                    return '<div class="pdf-demo-question-nav-group"><strong>第 ' + sectionNo + ' 大题</strong>'
+                        + items.map(({ question, index }) => {
+                            return '<button type="button" class="pdf-demo-question-button" data-preview-question="' + index + '">第 ' + question.questionNo + ' 题</button>';
+                        }).join("")
+                        + '</div>';
+                }).join("");
+                nav.addEventListener("click", function (event) {
+                    const button = event.target.closest("[data-preview-question]");
+                    if (!button) return;
+                    renderPreview(Number(button.dataset.previewQuestion || "0"));
+                });
+            }
+
+            if (grouped.length) {
+                renderNav();
+                renderPreview(0);
+                if (prevButton) {
+                    prevButton.addEventListener("click", function () {
+                        renderPreview(activeIndex - 1);
+                    });
+                }
+                if (nextButton) {
+                    nextButton.addEventListener("click", function () {
+                        renderPreview(activeIndex + 1);
+                    });
+                }
+            }
+        })();
+    </script>
+{% endblock %}

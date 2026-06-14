@@ -2872,7 +2872,7 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
 
 def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
     bank_paper_ids: set[int] = set()
-    descriptions = ExamPaper.objects.exclude(description="").values_list("description", flat=True)
+    descriptions = ExamPaper.objects.filter(is_active=True).exclude(description="").values_list("description", flat=True)
     for description in descriptions:
         bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
         if bank_paper_id:
@@ -3100,6 +3100,25 @@ def serialize_exam_question(
         getattr(ExamQuestion, "QUESTION_TYPE_PROGRAMMING", "programming"): "编程题",
     }.get(question.question_type, "考试题")
     is_gradable = is_auto_gradable_exam_question(question)
+    snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+    raw_image_paths = snapshot.get("image_paths") if isinstance(snapshot.get("image_paths"), list) else []
+    image_paths = [
+        str(path or "").strip()
+        for path in raw_image_paths
+        if str(path or "").strip()
+    ]
+    if question.image_path and question.image_path not in image_paths:
+        image_paths.insert(0, question.image_path)
+    material_image_paths = [
+        str(path or "").strip()
+        for path in (snapshot.get("material_image_paths") if isinstance(snapshot.get("material_image_paths"), list) else [])
+        if str(path or "").strip()
+    ]
+    question_image_paths = [
+        str(path or "").strip()
+        for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
+        if str(path or "").strip()
+    ]
     return {
         "id": question.id,
         "question_no": question.question_no,
@@ -3121,6 +3140,11 @@ def serialize_exam_question(
         "score": format_exam_score(question.score),
         "wrong_point_label": question.wrong_point_label or "未标注",
         "image_path": question.image_path,
+        "image_paths": image_paths,
+        "material_image_paths": material_image_paths,
+        "question_image_paths": question_image_paths,
+        "display_mode": str(snapshot.get("display_mode") or ""),
+        "material_group_no": int(snapshot.get("material_group_no") or 0),
         "student_answer": selected_answer,
         "student_answer_text": selected_answer or "未作答",
         "student_explanation": student_explanation,

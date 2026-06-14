@@ -104,9 +104,9 @@
                         {% endif %}
                     </div>
                     <div class="exam-markdown-body">{{ question.stem_html }}</div>
-                    {% if question.image_path %}
-                        <img src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
-                    {% endif %}
+                    {% for image_path in question.image_paths %}
+                        <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                    {% endfor %}
                     {% if question.is_important %}
                         <div class="exam-important-note">
                             <strong>老师标记重点</strong>

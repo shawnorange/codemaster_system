@@ -6,6 +6,7 @@ livekit-api>=1.0,<2
 psycopg2-binary>=2.9,<2.10
 pypdf>=5.0,<7
 pypdfium2>=4.30,<6
+PyMuPDF>=1.24,<1.27
 Pillow>=10.4,<13
 requests>=2.32,<3
 certifi>=2024.0.0

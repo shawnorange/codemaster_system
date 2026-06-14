@@ -76,6 +76,8 @@ from .views import (
     teacher_exam_paper_import_jobs_status,
     teacher_exam_paper_import_job_detail,
     teacher_exam_paper_new,
+    teacher_exam_pdf_crop_demo,
+    teacher_exam_pdf_crop_demo_upload,
     teacher_homework_stats,
     teacher_homework_stats_lesson_feedback,
     teacher_homework_stats_lesson_feedback_save,
@@ -216,6 +218,8 @@ urlpatterns = [
     ),
     path("teacher/students", teacher_students, name="teacher-students"),
     path("teacher/exams", teacher_exams, name="teacher-exams"),
+    path("teacher/exams/pdf-crop-demo", teacher_exam_pdf_crop_demo_upload, name="teacher-exam-pdf-crop-demo-upload"),
+    path("teacher/exams/pdf-crop-demo/<slug:session_id>", teacher_exam_pdf_crop_demo, name="teacher-exam-pdf-crop-demo"),
     path("teacher/exams/papers/new", teacher_exam_paper_new, name="teacher-exam-paper-new"),
     path(
         "teacher/exams/bank-papers/<int:paper_id>/preview",

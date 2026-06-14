@@ -121,6 +121,57 @@
         .exam-important-note strong {
             color: #8a5700;
         }
+
+        .teacher-exam-question-review {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .teacher-exam-question-review__nav {
+            align-content: flex-start;
+            display: grid;
+            gap: 8px;
+        }
+
+        .teacher-exam-question-review__button {
+            background: #fff;
+            border: 1px solid rgba(30, 94, 150, 0.16);
+            border-radius: 8px;
+            color: #16508c;
+            cursor: pointer;
+            display: grid;
+            font: inherit;
+            font-weight: 700;
+            gap: 4px;
+            padding: 10px 12px;
+            text-align: left;
+        }
+
+        .teacher-exam-question-review__button span {
+            color: #4c719c;
+            font-size: 0.86rem;
+            font-weight: 600;
+        }
+
+        .teacher-exam-question-review__button.is-active {
+            background: #e9f5ff;
+            border-color: rgba(30, 94, 150, 0.36);
+        }
+
+        .teacher-exam-question-review__panel {
+            min-width: 0;
+        }
+
+        .teacher-exam-question-card[hidden] {
+            display: none;
+        }
+
+        @media (max-width: 920px) {
+            .teacher-exam-question-review {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 {% endblock %}
 
@@ -230,79 +281,95 @@
             <h3>试卷内容与逐题统计</h3>
             <p>按错误率从高到低展示；错误率相同时，按题号自然升序展示。</p>
         </div>
-        <div class="content-access-list">
-            {% for question in question_rows %}
-                <article class="content-access-card content-access-card--trial teacher-exam-question-card" id="exam-question-{{ question.id }}" data-question-no="{{ question.question_no }}" data-wrong-rate="{{ question.wrong_rate_value }}">
-                    <div class="content-access-card__top">
-                        <div>
-                            <h5>第 {{ question.question_no }} 题</h5>
-                            <p>{{ question.question_type_text }} · {{ question.score }} 分 · 错误率 {{ question.wrong_rate_text }} · {{ question.wrong_point_label }}</p>
-                        </div>
-                        <div class="portal-action-row portal-action-row--leading">
-                            <span class="state-pill state-pill--open">对 {{ question.correct_count }}</span>
-                            <span class="state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</span>
-                            <details class="teacher-exam-important">
-                                <summary class="teacher-exam-important__summary state-pill state-pill--future">
-                                    {% if question.is_important %}已标重点{% else %}标记重点{% endif %}
-                                </summary>
-                                <form class="teacher-exam-important__panel" method="post">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="form_action" value="mark_exam_question_important">
-                                    <input type="hidden" name="question_id" value="{{ question.id }}">
-                                    <label>
-                                        <span class="section-heading__eyebrow">重点说明（可选）</span>
-                                        <textarea name="important_note" placeholder="可以留空直接提交。">{{ question.important_note }}</textarea>
-                                    </label>
-                                    <div class="teacher-exam-important__actions">
-                                        <button type="submit" class="login-button">提交</button>
-                                    </div>
-                                </form>
-                            </details>
-                        </div>
-                    </div>
-                    {% if question.is_important %}
-                        <div class="exam-important-note">
-                            <strong>老师标记重点</strong>
-                            {% if question.important_note_html %}
-                                <div class="exam-markdown-body">{{ question.important_note_html }}</div>
-                            {% else %}
-                                <span>这道题已被老师标记为重点题。</span>
-                            {% endif %}
-                        </div>
-                    {% endif %}
-                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
-                    {% if question.image_path %}
-                        <img src="/media/{{ question.image_path }}" alt="第 {{ question.question_no }} 题图片" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
-                    {% endif %}
-                    <div class="record-form">
-                        {% for option in question.option_items %}
-                            <div class="topic-access-option teacher-exam-question-option">
-                                <div class="topic-access-option__content">
-                                    <div class="topic-access-option__header">
-                                            <div>
-                                                <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
-                                                <div class="exam-markdown-body">{{ option.display_html }}</div>
+        {% if question_rows %}
+            <div class="teacher-exam-question-review" id="teacher-exam-question-review">
+                <nav class="teacher-exam-question-review__nav" aria-label="逐题统计题号导航">
+                    {% for question in question_rows %}
+                        <button
+                            type="button"
+                            class="teacher-exam-question-review__button{% if forloop.first %} is-active{% endif %}"
+                            data-teacher-exam-question-button="{{ question.id }}"
+                        >
+                            第 {{ question.question_no }} 题
+                            <span>错误率 {{ question.wrong_rate_text }}</span>
+                        </button>
+                    {% endfor %}
+                </nav>
+                <div class="teacher-exam-question-review__panel">
+                    {% for question in question_rows %}
+                        <article class="content-access-card content-access-card--trial teacher-exam-question-card" id="exam-question-{{ question.id }}" data-question-card="{{ question.id }}" data-question-no="{{ question.question_no }}" data-wrong-rate="{{ question.wrong_rate_value }}"{% if not forloop.first %} hidden{% endif %}>
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>第 {{ question.question_no }} 题</h5>
+                                    <p>{{ question.question_type_text }} · {{ question.score }} 分 · 错误率 {{ question.wrong_rate_text }} · {{ question.wrong_point_label }}</p>
+                                </div>
+                                <div class="portal-action-row portal-action-row--leading">
+                                    <span class="state-pill state-pill--open">对 {{ question.correct_count }}</span>
+                                    <span class="state-pill state-pill--locked">错 {{ question.wrong_summary_text }}</span>
+                                    <details class="teacher-exam-important">
+                                        <summary class="teacher-exam-important__summary state-pill state-pill--future">
+                                            {% if question.is_important %}已标重点{% else %}标记重点{% endif %}
+                                        </summary>
+                                        <form class="teacher-exam-important__panel" method="post">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="form_action" value="mark_exam_question_important">
+                                            <input type="hidden" name="question_id" value="{{ question.id }}">
+                                            <label>
+                                                <span class="section-heading__eyebrow">重点说明（可选）</span>
+                                                <textarea name="important_note" placeholder="可以留空直接提交。">{{ question.important_note }}</textarea>
+                                            </label>
+                                            <div class="teacher-exam-important__actions">
+                                                <button type="submit" class="login-button">提交</button>
                                             </div>
-                                        {% if option.is_correct_answer %}
-                                            <span class="state-pill state-pill--open">正确答案</span>
-                                        {% endif %}
-                                    </div>
+                                        </form>
+                                    </details>
                                 </div>
                             </div>
-                        {% endfor %}
-                    </div>
-                    <div class="record-inline-feedback">
-                        <strong>答案解析</strong>
-                        <div class="exam-markdown-body">
-                            <p class="exam-markdown-body__paragraph">正确答案：{{ question.correct_answer }}。</p>
-                            {{ question.analysis_html }}
-                        </div>
-                    </div>
-                </article>
-            {% empty %}
-                <div class="entry-hint-bar">当前试卷还没有题目。</div>
-            {% endfor %}
-        </div>
+                            {% if question.is_important %}
+                                <div class="exam-important-note">
+                                    <strong>老师标记重点</strong>
+                                    {% if question.important_note_html %}
+                                        <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                                    {% else %}
+                                        <span>这道题已被老师标记为重点题。</span>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                            {% for image_path in question.image_paths %}
+                                <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                            {% endfor %}
+                            <div class="record-form">
+                                {% for option in question.option_items %}
+                                    <div class="topic-access-option teacher-exam-question-option">
+                                        <div class="topic-access-option__content">
+                                            <div class="topic-access-option__header">
+                                                <div>
+                                                    <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                    <div class="exam-markdown-body">{{ option.display_html }}</div>
+                                                </div>
+                                                {% if option.is_correct_answer %}
+                                                    <span class="state-pill state-pill--open">正确答案</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <div class="record-inline-feedback">
+                                <strong>答案解析</strong>
+                                <div class="exam-markdown-body">
+                                    <p class="exam-markdown-body__paragraph">正确答案：{{ question.correct_answer }}。</p>
+                                    {{ question.analysis_html }}
+                                </div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <div class="entry-hint-bar">当前试卷还没有题目。</div>
+        {% endif %}
         <div class="topic-access-modal__footer topic-access-modal__footer--course">
             <a class="teacher-anchor-link" href="{{ back_href }}">返回考试管理</a>
         </div>
@@ -385,6 +452,28 @@
                 fallback.hidden = true;
             }
             applyFilter();
+        })();
+        (function () {
+            const review = document.getElementById("teacher-exam-question-review");
+            if (!review) return;
+            const buttons = Array.from(review.querySelectorAll("[data-teacher-exam-question-button]"));
+            const cards = Array.from(review.querySelectorAll("[data-question-card]"));
+            function activate(questionId) {
+                buttons.forEach((button) => {
+                    button.classList.toggle("is-active", button.dataset.teacherExamQuestionButton === questionId);
+                });
+                cards.forEach((card) => {
+                    card.hidden = card.dataset.questionCard !== questionId;
+                });
+            }
+            buttons.forEach((button) => {
+                button.addEventListener("click", function () {
+                    activate(button.dataset.teacherExamQuestionButton || "");
+                });
+            });
+            if (buttons[0]) {
+                activate(buttons[0].dataset.teacherExamQuestionButton || "");
+            }
         })();
     </script>
 {% endblock %}
