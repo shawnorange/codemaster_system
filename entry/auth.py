@@ -36,7 +36,7 @@ ROLE_CONFIG = {
         "label": "教师",
         "landing_url_name": "teacher-students",
         "page_title": "教师工作台",
-        "page_description": "教师端当前按“学生 / 课程”双入口组织。先从教师首页进入学生或课程，再继续完成专题开放和教学记录操作。",
+        "page_description": "",
     },
     "principal": {
         "label": "校长",

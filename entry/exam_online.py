@@ -8,16 +8,18 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from .homework_online import normalize_candidate_text
+from .exam_analysis import build_question_analysis_markdown
 from .models import (
     Course,
     ExamPaper,
     ExamProctorEvent,
     ExamQuestion,
     ExamQuestionBankItem,
+    ExamRun,
     ExamSession,
     ExamSubmissionAnswer,
     PortalUser,
@@ -128,7 +130,11 @@ def is_exam_practice_session(session: ExamSession) -> bool:
 
 
 def get_exam_session_questions(session: ExamSession) -> list[ExamQuestion]:
-    questions = list(session.paper.questions.filter(is_active=True).order_by("question_no", "id"))
+    questions = list(
+        session.paper.questions.filter(is_active=True)
+        .prefetch_related("analysis_blocks")
+        .order_by("question_no", "id")
+    )
     scope = session.question_scope_json if isinstance(session.question_scope_json, dict) else {}
     question_ids = {
         int(question_id)
@@ -331,15 +337,50 @@ def expire_exam_session(session: ExamSession) -> None:
 def generate_unique_exam_access_code() -> str:
     for _ in range(200):
         code = f"{secrets.randbelow(10 ** EXAM_ACCESS_CODE_LENGTH):0{EXAM_ACCESS_CODE_LENGTH}d}"
-        if not ExamPaper.objects.filter(access_code=code, is_active=True).exists():
+        if not ExamPaper.objects.filter(access_code=code, is_active=True).exists() and not ExamRun.objects.filter(access_code=code, is_active=True).exists():
             return code
     raise ExamError("暂时无法生成唯一考试口令，请稍后重试。")
+
+
+def get_exam_run_window_end(paper: ExamPaper):
+    return get_exam_window_end(paper)
+
+
+def ensure_exam_run_for_paper(*, paper: ExamPaper, teacher: PortalUser | None = None) -> ExamRun | None:
+    if not paper.access_code:
+        return None
+    existing_run = (
+        ExamRun.objects.filter(paper=paper, access_code=paper.access_code, is_active=True)
+        .order_by("-generated_at", "-id")
+        .first()
+    )
+    if existing_run:
+        return existing_run
+    generated_at = paper.access_code_generated_at or timezone.now()
+    return ExamRun.objects.create(
+        paper=paper,
+        access_code=paper.access_code,
+        generated_at=generated_at,
+        starts_at=paper.start_at,
+        ends_at=get_exam_run_window_end(paper),
+        created_by=teacher or paper.teacher,
+        is_active=True,
+    )
 
 
 def activate_exam_access_code(*, paper: ExamPaper, teacher: PortalUser) -> ExamPaper:
     if paper.teacher_id != teacher.id or not paper.is_active:
         raise ExamError("未找到可开始的考试。")
-    if paper.sessions.filter(is_active=True, status=ExamSession.STATUS_IN_PROGRESS).exists():
+    now = timezone.now()
+    window_end = get_exam_window_end(paper)
+    running_exam_sessions = paper.sessions.filter(
+        is_active=True,
+        session_type=ExamSession.SESSION_TYPE_EXAM,
+        status=ExamSession.STATUS_IN_PROGRESS,
+    )
+    if window_end and now > window_end:
+        running_exam_sessions.update(status=ExamSession.STATUS_EXPIRED, updated_at=now)
+    elif running_exam_sessions.exists():
         raise ExamError("当前正在考试中，不允许重新生成口令。")
     if not paper.questions.filter(is_active=True).exists():
         raise ExamError("当前试卷还没有题目，不能开始考试。")
@@ -350,14 +391,26 @@ def activate_exam_access_code(*, paper: ExamPaper, teacher: PortalUser) -> ExamP
             .select_related("teacher")
             .get(id=paper.id, teacher=teacher, is_active=True)
         )
-        if locked_paper.sessions.filter(is_active=True, status=ExamSession.STATUS_IN_PROGRESS).exists():
+        now = timezone.now()
+        window_end = get_exam_window_end(locked_paper)
+        running_exam_sessions = locked_paper.sessions.filter(
+            is_active=True,
+            session_type=ExamSession.SESSION_TYPE_EXAM,
+            status=ExamSession.STATUS_IN_PROGRESS,
+        )
+        if window_end and now > window_end:
+            running_exam_sessions.update(status=ExamSession.STATUS_EXPIRED, updated_at=now)
+        elif running_exam_sessions.exists():
             raise ExamError("当前正在考试中，不允许重新生成口令。")
         if not locked_paper.questions.filter(is_active=True).exists():
             raise ExamError("当前试卷还没有题目，不能开始考试。")
         locked_paper.access_code = generate_unique_exam_access_code()
-        locked_paper.access_code_generated_at = timezone.now()
+        locked_paper.access_code_generated_at = now
+        locked_paper.start_at = now
+        locked_paper.end_at = now + timedelta(minutes=int(locked_paper.duration_minutes or 60))
         locked_paper.status = ExamPaper.STATUS_PUBLISHED
-        locked_paper.save(update_fields=["access_code", "access_code_generated_at", "status", "updated_at"])
+        locked_paper.save(update_fields=["access_code", "access_code_generated_at", "start_at", "end_at", "status", "updated_at"])
+        ensure_exam_run_for_paper(paper=locked_paper, teacher=teacher)
         return locked_paper
 
 
@@ -383,33 +436,39 @@ def create_or_get_exam_session_by_access_code(*, student: Student, access_code: 
         raise ExamError("当前考试不在你的负责课程范围内。")
     if not paper.questions.filter(is_active=True).exists():
         raise ExamError("当前考试还没有题目。")
+    current_run = ensure_exam_run_for_paper(paper=paper, teacher=paper.teacher)
 
-    existing_open_session = (
-        ExamSession.objects.filter(
-            paper=paper,
-            student=student,
-            is_active=True,
-            status__in=[ExamSession.STATUS_ASSIGNED, ExamSession.STATUS_IN_PROGRESS],
-        )
-        .order_by("-attempt_no", "-id")
-        .first()
+    existing_open_session_query = ExamSession.objects.filter(
+        paper=paper,
+        student=student,
+        is_active=True,
+        status__in=[ExamSession.STATUS_ASSIGNED, ExamSession.STATUS_IN_PROGRESS],
     )
+    if current_run:
+        existing_open_session_query = existing_open_session_query.filter(Q(exam_run=current_run) | Q(exam_run__isnull=True))
+    existing_open_session = existing_open_session_query.order_by("-attempt_no", "-id").first()
     if existing_open_session:
+        if current_run and existing_open_session.exam_run_id is None:
+            existing_open_session.exam_run = current_run
+            existing_open_session.save(update_fields=["exam_run", "updated_at"])
         return existing_open_session
 
     with transaction.atomic():
         locked_paper = ExamPaper.objects.select_for_update().get(id=paper.id, is_active=True)
-        existing_open_session = (
-            ExamSession.objects.filter(
-                paper=locked_paper,
-                student=student,
-                is_active=True,
-                status__in=[ExamSession.STATUS_ASSIGNED, ExamSession.STATUS_IN_PROGRESS],
-            )
-            .order_by("-attempt_no", "-id")
-            .first()
+        current_run = ensure_exam_run_for_paper(paper=locked_paper, teacher=paper.teacher)
+        existing_open_session_query = ExamSession.objects.filter(
+            paper=locked_paper,
+            student=student,
+            is_active=True,
+            status__in=[ExamSession.STATUS_ASSIGNED, ExamSession.STATUS_IN_PROGRESS],
         )
+        if current_run:
+            existing_open_session_query = existing_open_session_query.filter(Q(exam_run=current_run) | Q(exam_run__isnull=True))
+        existing_open_session = existing_open_session_query.order_by("-attempt_no", "-id").first()
         if existing_open_session:
+            if current_run and existing_open_session.exam_run_id is None:
+                existing_open_session.exam_run = current_run
+                existing_open_session.save(update_fields=["exam_run", "updated_at"])
             return existing_open_session
         latest_attempt_no = (
             ExamSession.objects.filter(paper=locked_paper, student=student, is_active=True)
@@ -419,6 +478,7 @@ def create_or_get_exam_session_by_access_code(*, student: Student, access_code: 
         )
         session = ExamSession.objects.create(
             paper=locked_paper,
+            exam_run=current_run,
             student=student,
             assigned_by=paper.teacher,
             attempt_no=int(latest_attempt_no) + 1,
@@ -467,6 +527,7 @@ def create_exam_practice_session(
         now = timezone.now()
         return ExamSession.objects.create(
             paper=locked_paper,
+            exam_run=source_session.exam_run,
             student=student,
             assigned_by=source_session.assigned_by or locked_paper.teacher,
             attempt_no=int(latest_attempt_no) + 1,
@@ -553,6 +614,7 @@ def create_exam_for_students(
             status=ExamPaper.STATUS_PUBLISHED,
             is_active=True,
         )
+        run = ensure_exam_run_for_paper(paper=paper, teacher=teacher)
         for question_payload in normalized_questions:
             question = ExamQuestion(
                 paper=paper,
@@ -577,6 +639,7 @@ def create_exam_for_students(
         sessions = [
             ExamSession(
                 paper=paper,
+                exam_run=run,
                 student=assignment_by_student[student_id].student,
                 assigned_by=teacher,
                 attempt_no=1,
@@ -636,9 +699,11 @@ def start_exam_session(session: ExamSession, *, student: Student) -> ExamSession
 
     if session.status == ExamSession.STATUS_ASSIGNED:
         now = timezone.now()
+        if session.exam_run_id is None:
+            session.exam_run = ensure_exam_run_for_paper(paper=session.paper, teacher=session.assigned_by or session.paper.teacher)
         session.status = ExamSession.STATUS_IN_PROGRESS
         session.started_at = now
-        session.save(update_fields=["status", "started_at", "updated_at"])
+        session.save(update_fields=["exam_run", "status", "started_at", "updated_at"])
     return session
 
 
@@ -713,7 +778,7 @@ def grade_exam_session(
                 is_correct=is_correct,
                 score=score.quantize(Decimal("0.01")),
                 correct_answer_snapshot=question.correct_answer,
-                analysis_snapshot=question.analysis,
+                analysis_snapshot=build_question_analysis_markdown(question),
             )
 
         now = timezone.now()
@@ -774,7 +839,7 @@ def recalculate_exam_session_score(session: ExamSession) -> ExamSession:
                 answer.is_correct = is_correct
                 answer.score = score.quantize(Decimal("0.01"))
                 answer.correct_answer_snapshot = normalize_exam_answer(question.correct_answer)
-                answer.analysis_snapshot = question.analysis
+                answer.analysis_snapshot = build_question_analysis_markdown(question)
                 answer.save(
                     update_fields=[
                         "selected_answer",
@@ -794,7 +859,7 @@ def recalculate_exam_session_score(session: ExamSession) -> ExamSession:
                     is_correct=False,
                     score=Decimal("0.00"),
                     correct_answer_snapshot=normalize_exam_answer(question.correct_answer),
-                    analysis_snapshot=question.analysis,
+                    analysis_snapshot=build_question_analysis_markdown(question),
                 )
 
         locked_session.total_count = len(gradable_questions)

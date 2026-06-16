@@ -34,16 +34,20 @@ from entry.models import (
     ExamPaper,
     ExamProctorEvent,
     ExamQuestion,
+    ExamQuestionAnalysisBlock,
+    ExamQuestionAnalysisSuggestion,
     ExamQuestionBankAsset,
     ExamQuestionBankImportJob,
     ExamQuestionBankItem,
     ExamQuestionBankOption,
     ExamQuestionBankPaper,
     ExamQuestionBankQuestion,
+    ExamRun,
     ExamSession,
     ExamSubmissionAnswer,
     PortalUser,
     Student,
+    StudentSiteMessage,
     TeacherStudentAssignment,
 )
 from entry.portal_context import normalize_exam_question_no_for_sort, render_exam_markdown_for_display
@@ -54,7 +58,13 @@ class ExamMVPTests(TestCase):
     def setUpClass(cls) -> None:
         super().setUpClass()
         cls._media_root = tempfile.mkdtemp(prefix="codemaster-exam-media-")
-        cls._media_override = override_settings(MEDIA_ROOT=cls._media_root)
+        cls._media_override = override_settings(
+            MEDIA_ROOT=cls._media_root,
+            QWEN_API_KEY="",
+            DASHSCOPE_API_KEY="",
+            QWEN_BASE_URL="",
+            QWEN_OCR_MODEL="",
+        )
         cls._media_override.enable()
 
     @classmethod
@@ -286,7 +296,7 @@ class ExamMVPTests(TestCase):
 
         exam_response = self.client.get(reverse("teacher-exams"))
         self.assertEqual(exam_response.status_code, 200)
-        self.assertContains(exam_response, "发布考试")
+        self.assertContains(exam_response, "试卷管理")
         self.assertContains(exam_response, "可用试卷")
         self.assertContains(exam_response, "试卷名称")
         self.assertContains(exam_response, "新增试卷")
@@ -1729,6 +1739,156 @@ class ExamMVPTests(TestCase):
         self.assertContains(updated_exam_page_response, "GESP2")
         self.assertContains(updated_exam_page_response, "未开始")
 
+    def test_publish_screenshot_bank_paper_does_not_generate_ai_analysis_block(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2024,
+            month=5,
+            source_pdf_id="ai_analysis_crop_paper",
+            source_file="2024年5月C++1级试题.pdf",
+            title="AI解析截图卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        bank_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="ai-analysis-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列输出正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={"source": "pdf_crop_demo", "score": "2"},
+        )
+        for index, (key, text) in enumerate({"A": "2", "B": "3", "C": "4", "D": "5"}.items(), start=1):
+            ExamQuestionBankOption.objects.create(
+                question=bank_question,
+                option_key=key,
+                option_text_md=text,
+                sort_order=index,
+            )
+        ExamQuestionBankAsset.objects.create(
+            question=bank_question,
+            asset_role="content",
+            asset_type="image/png",
+            relative_path="exam_assets/demo_questions/cpp/gesp1/2024_05/q001.png",
+            alt="第 1 题截图",
+        )
+
+        with patch("entry.views.generate_ai_analysis_for_bank_question") as mock_generate:
+            response = self.client.post(
+                reverse("teacher-exams"),
+                {
+                    "form_action": "create_exam_from_bank_paper",
+                    "bank_paper_id": str(bank_paper.id),
+                    "exam_schedule_mode": "countdown",
+                    "exam_schedule_duration_minutes": "45",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        exam_question = ExamQuestion.objects.get(paper__title="AI解析截图卷", question_no=1)
+        self.assertEqual(mock_generate.call_count, 0)
+        self.assertFalse(
+            ExamQuestionAnalysisBlock.objects.filter(
+                question=exam_question,
+                source_type=ExamQuestionAnalysisBlock.SOURCE_AI,
+                is_visible=True,
+            ).exists()
+        )
+        self.assertEqual(exam_question.analysis, "")
+
+    def test_teacher_starts_bank_paper_analysis_generation_from_management_grid(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2024,
+            month=5,
+            source_pdf_id="analysis_button_paper",
+            source_file="analysis-button.pdf",
+            title="待生成解析试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+
+        exam_page_response = self.client.get(reverse("teacher-exams"))
+        self.assertContains(exam_page_response, "试卷管理")
+        self.assertContains(exam_page_response, "解析状态")
+        self.assertContains(exam_page_response, "增加解析")
+
+        with patch("entry.views.start_exam_bank_paper_analysis_generation", return_value=True) as mock_start:
+            response = self.client.post(
+                reverse("teacher-exams"),
+                {
+                    "form_action": "generate_bank_paper_analysis",
+                    "bank_paper_id": str(bank_paper.id),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=bank_paper_analysis_started", response["Location"])
+        self.assertIn("#available-exam-papers", response["Location"])
+        mock_start.assert_called_once_with(bank_paper.id)
+
+    def test_bank_paper_analysis_generation_updates_snapshot_and_published_exam(self) -> None:
+        from entry.views import run_exam_bank_paper_analysis_generation
+
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2024,
+            month=5,
+            source_pdf_id="analysis_background_paper",
+            source_file="analysis-background.pdf",
+            title="后台解析试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+            analysis_generation_status=ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING,
+        )
+        bank_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="analysis-background-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列输出正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={"source": "pdf_crop_demo", "score": "2"},
+        )
+        for index, (key, text) in enumerate({"A": "2", "B": "3", "C": "4", "D": "5"}.items(), start=1):
+            ExamQuestionBankOption.objects.create(
+                question=bank_question,
+                option_key=key,
+                option_text_md=text,
+                sort_order=index,
+            )
+        start_at = timezone.now() + timedelta(minutes=10)
+        self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "create_exam_from_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+                "exam_schedule_mode": "scheduled",
+                "exam_schedule_start_at": self.format_datetime_local(start_at),
+                "exam_schedule_end_at": self.format_datetime_local(start_at + timedelta(minutes=45)),
+            },
+        )
+
+        with patch("entry.views.generate_ai_analysis_for_bank_question") as mock_generate:
+            mock_generate.return_value = "因为输出结果是 2。\n\n**此解析由 AI 生成，你要挑战吗？**"
+            run_exam_bank_paper_analysis_generation(bank_paper.id)
+
+        bank_question.refresh_from_db()
+        bank_paper.refresh_from_db()
+        self.assertIn("因为输出结果是 2", bank_question.analysis_md)
+        self.assertEqual(bank_paper.analysis_generation_status, ExamQuestionBankPaper.ANALYSIS_STATUS_COMPLETED)
+        self.assertEqual(bank_paper.analysis_generation_done_count, 1)
+        exam_question = ExamQuestion.objects.get(paper__title="后台解析试卷", question_no=1)
+        self.assertIn("因为输出结果是 2", exam_question.analysis)
+
     def test_deleted_exam_management_record_allows_bank_paper_hard_delete(self) -> None:
         self.sign_in(self.teacher)
         bank_paper = ExamQuestionBankPaper.objects.create(
@@ -2298,6 +2458,24 @@ class ExamMVPTests(TestCase):
         self.assertIn("<pre", rendered_text)
         self.assertIn("tnt += N / 10\n N /= 10", rendered_text)
         self.assertNotIn("```cpp", rendered_text)
+
+    def test_render_exam_markdown_formats_common_analysis_markdown(self) -> None:
+        rendered = render_exam_markdown_for_display(
+            "\n".join(
+                [
+                    "**此解析由 AI 生成，你要挑战吗？**",
+                    "",
+                    "- 先看 `return` 的作用",
+                    "- 再判断分支结构",
+                ]
+            )
+        )
+
+        rendered_text = str(rendered)
+        self.assertIn("<strong>此解析由 AI 生成，你要挑战吗？</strong>", rendered_text)
+        self.assertIn('<code class="exam-markdown-body__inline-code">return</code>', rendered_text)
+        self.assertIn('<ul class="exam-markdown-body__list">', rendered_text)
+        self.assertNotIn("**此解析", rendered_text)
 
     def test_programming_reference_solution_stops_before_next_programming_question(self) -> None:
         markdown_text = "\n".join(
@@ -3174,6 +3352,57 @@ class ExamMVPTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "当前正在考试中，不允许重新生成口令")
 
+    def test_teacher_can_start_new_exam_run_after_previous_run_ended(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        paper = session.paper
+
+        self.sign_in(self.teacher)
+        first_start_response = self.client.post(
+            reverse("teacher-exams"),
+            {"form_action": "start_exam", "paper_id": str(paper.id)},
+        )
+        self.assertEqual(first_start_response.status_code, 302)
+        paper.refresh_from_db()
+        first_access_code = paper.access_code
+        first_run = paper.runs.get(access_code=first_access_code)
+
+        self.sign_in(self.student_user)
+        self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
+        session.refresh_from_db()
+        self.assertEqual(session.status, ExamSession.STATUS_IN_PROGRESS)
+        self.assertEqual(session.exam_run_id, first_run.id)
+
+        paper.end_at = timezone.now() - timedelta(minutes=1)
+        paper.save(update_fields=["end_at", "updated_at"])
+
+        self.sign_in(self.teacher)
+        second_start_response = self.client.post(
+            reverse("teacher-exams"),
+            {"form_action": "start_exam", "paper_id": str(paper.id)},
+        )
+        self.assertEqual(second_start_response.status_code, 302)
+        paper.refresh_from_db()
+        session.refresh_from_db()
+        self.assertRegex(paper.access_code, r"^\d{6}$")
+        self.assertNotEqual(paper.access_code, first_access_code)
+        self.assertEqual(session.status, ExamSession.STATUS_EXPIRED)
+        self.assertEqual(paper.runs.count(), 2)
+        second_run = paper.runs.order_by("-generated_at", "-id").first()
+        self.assertIsNotNone(second_run)
+        self.assertEqual(second_run.access_code, paper.access_code)
+        self.assertGreater(paper.end_at, timezone.now())
+
+        self.sign_in(self.student_user)
+        enter_response = self.client.post(
+            reverse("student-exam-list"),
+            {"form_action": "enter_exam_access_code", "exam_access_code": paper.access_code},
+        )
+        self.assertEqual(enter_response.status_code, 302)
+        new_session = ExamSession.objects.get(paper=paper, student=self.student, attempt_no=2)
+        self.assertEqual(new_session.exam_run_id, second_run.id)
+        self.assertEqual(new_session.status, ExamSession.STATUS_ASSIGNED)
+        self.assertIn(reverse("student-exam-detail", args=[new_session.id]), enter_response["Location"])
+
     def test_teacher_exam_detail_shows_leaderboard_and_question_stats(self) -> None:
         session = self.create_exam_via_teacher_view()
         question = session.paper.questions.get()
@@ -3365,6 +3594,100 @@ class ExamMVPTests(TestCase):
         student_result_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
         self.assertContains(student_result_response, "老师补充解析：选择 B 才符合题意。")
 
+    def test_student_analysis_suggestion_can_be_accepted_by_teacher(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        question = session.paper.questions.get()
+        self.sign_in(self.student_user)
+        self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
+        self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {"form_action": "submit_exam", f"question_{question.id}": "A"},
+        )
+
+        suggestion_response = self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {
+                "form_action": f"submit_analysis_suggestion:{question.id}",
+                f"analysis_suggestion_{question.id}": "我觉得可以这样解释：\n\n```cpp\ncout << 2;\n```",
+            },
+            follow=True,
+        )
+        self.assertContains(suggestion_response, "你的解析挑战已提交")
+        self.assertContains(suggestion_response, "C++代码块")
+        self.assertContains(suggestion_response, 'data-markdown-command="cpp-block"')
+        suggestion = ExamQuestionAnalysisSuggestion.objects.get(question=question, student=self.student)
+        self.assertEqual(suggestion.status, ExamQuestionAnalysisSuggestion.STATUS_PENDING)
+
+        self.sign_in(self.teacher)
+        workbench_response = self.client.get(f"{reverse('teacher-students')}?tab=messages")
+        self.assertEqual(workbench_response.status_code, 200)
+        self.assertContains(workbench_response, "解析挑战消息")
+        self.assertContains(workbench_response, "teacher-tab__badge")
+        self.assertEqual(workbench_response.context["page_shell"]["message_count"], 1)
+        self.assertEqual(workbench_response.context["page_shell"]["message_table_rows"][0]["student_name"], "考试学生")
+        self.assertIn(
+            f"#analysis-suggestion-{suggestion.id}",
+            workbench_response.context["page_shell"]["message_table_rows"][0]["detail_href"],
+        )
+
+        detail_response = self.client.get(reverse("teacher-exam-detail", args=[session.paper_id]))
+        self.assertContains(detail_response, "学生解析建议 1 条")
+        self.assertContains(detail_response, "考试学生")
+        self.assertContains(detail_response, "cout &lt;&lt; 2;")
+
+        accept_response = self.client.post(
+            reverse("teacher-exam-detail", args=[session.paper_id]),
+            {
+                "form_action": "accept_exam_analysis_suggestion",
+                "question_id": str(question.id),
+                "suggestion_id": str(suggestion.id),
+                "accepted_analysis": "学生给出的代码推导更清楚。\n\n```cpp\ncout << 2;\n```",
+            },
+            follow=True,
+        )
+        self.assertContains(accept_response, "已采纳第 1 题的学生解析")
+        suggestion.refresh_from_db()
+        self.assertEqual(suggestion.status, ExamQuestionAnalysisSuggestion.STATUS_ACCEPTED)
+        self.assertTrue(
+            ExamQuestionAnalysisBlock.objects.filter(
+                question=question,
+                source_type=ExamQuestionAnalysisBlock.SOURCE_STUDENT,
+                content_md__contains="---\n\n本解析由 考试学生 同学提供\n\n学生给出的代码推导更清楚。",
+                is_visible=True,
+            ).exists()
+        )
+        cleared_workbench_response = self.client.get(f"{reverse('teacher-students')}?tab=messages")
+        self.assertEqual(cleared_workbench_response.context["page_shell"]["message_count"], 0)
+        message = StudentSiteMessage.objects.get(source_suggestion=suggestion)
+        self.assertFalse(message.is_read)
+        self.assertIn(f"#student-analysis-suggestion-{suggestion.id}", message.target_href)
+
+        self.sign_in(self.student_user)
+        updated_student_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertContains(updated_student_response, "学生给出的代码推导更清楚")
+        self.assertContains(updated_student_response, "本解析由 考试学生 同学提供")
+        self.assertContains(updated_student_response, "你的解析挑战记录")
+        self.assertContains(updated_student_response, "已采纳")
+        self.assertContains(updated_student_response, f'id="student-analysis-suggestion-{suggestion.id}"')
+
+        courses_response = self.client.get(reverse("student-courses"))
+        self.assertContains(courses_response, "消息")
+        self.assertContains(courses_response, "1 条")
+        self.assertContains(courses_response, reverse("student-site-messages"))
+
+        inbox_response = self.client.get(reverse("student-site-messages"))
+        self.assertContains(inbox_response, "站内信")
+        self.assertContains(inbox_response, "解析挑战已采纳")
+        self.assertContains(inbox_response, "查看对应题目")
+
+        open_response = self.client.get(reverse("student-site-message-open", args=[message.id]))
+        self.assertEqual(open_response.status_code, 302)
+        self.assertIn(f"#student-analysis-suggestion-{suggestion.id}", open_response["Location"])
+        message.refresh_from_db()
+        self.assertTrue(message.is_read)
+        read_courses_response = self.client.get(reverse("student-courses"))
+        self.assertEqual(read_courses_response.context["page_shell"]["summary_cards"][3]["value"], "0 条")
+
     def test_teacher_exam_detail_filters_question_stats_by_student_and_shows_wrong_students(self) -> None:
         session = self.create_exam_via_teacher_view()
         first_question = session.paper.questions.get()
@@ -3461,6 +3784,144 @@ class ExamMVPTests(TestCase):
         first_index = content.find('data-question-no="1"')
         self.assertGreaterEqual(second_index, 0)
         self.assertGreater(first_index, second_index)
+
+    def test_teacher_exam_detail_filters_stats_by_exam_run(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        first_question = session.paper.questions.get()
+        second_question = ExamQuestion.objects.create(
+            paper=session.paper,
+            question_no=2,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem="2 + 2 = ?",
+            options_json={"A": "4", "B": "3", "C": "2", "D": "1"},
+            correct_answer="A",
+            analysis="2 加 2 等于 4。",
+            score="2",
+            wrong_point_label="加法基础",
+            is_active=True,
+        )
+        second_user = PortalUser.objects.create(
+            username="exam_run_second_student",
+            role=PortalUser.ROLE_STUDENT,
+            full_name="场次学生二",
+            phone="13810000089",
+        )
+        second_student = Student.objects.create(
+            user=second_user,
+            teacher_user=self.teacher,
+            display_name="场次学生二",
+            grade="五年级",
+            campus="虹桥校区",
+            primary_course_name="Python",
+            primary_track_name="算法",
+            primary_level_name="P1",
+        )
+        now = timezone.now()
+        run_one = ExamRun.objects.create(
+            paper=session.paper,
+            access_code="111111",
+            generated_at=now - timedelta(days=20),
+            starts_at=now - timedelta(days=20),
+            ends_at=now - timedelta(days=19),
+            created_by=self.teacher,
+        )
+        run_two = ExamRun.objects.create(
+            paper=session.paper,
+            access_code="222222",
+            generated_at=now - timedelta(days=1),
+            starts_at=now - timedelta(days=1),
+            ends_at=now + timedelta(hours=1),
+            created_by=self.teacher,
+        )
+        session.exam_run = run_one
+        session.status = ExamSession.STATUS_AUTO_CHECKED
+        session.total_count = 2
+        session.correct_count = 1
+        session.wrong_count = 1
+        session.total_score = "4.00"
+        session.earned_score = "2.00"
+        session.started_at = now - timedelta(days=20, minutes=-1)
+        session.submitted_at = now - timedelta(days=19, hours=12)
+        session.checked_at = session.submitted_at
+        session.save()
+        run_one_second_session = ExamSession.objects.create(
+            paper=session.paper,
+            exam_run=run_one,
+            student=second_student,
+            assigned_by=self.teacher,
+            attempt_no=1,
+            session_type=ExamSession.SESSION_TYPE_EXAM,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+            total_count=2,
+            correct_count=1,
+            wrong_count=1,
+            total_score="4.00",
+            earned_score="2.00",
+            started_at=now - timedelta(days=20),
+            submitted_at=now - timedelta(days=19, hours=11),
+            checked_at=now - timedelta(days=19, hours=11),
+        )
+        run_two_session = ExamSession.objects.create(
+            paper=session.paper,
+            exam_run=run_two,
+            student=self.student,
+            assigned_by=self.teacher,
+            attempt_no=2,
+            session_type=ExamSession.SESSION_TYPE_EXAM,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+            total_count=2,
+            correct_count=0,
+            wrong_count=2,
+            total_score="4.00",
+            earned_score="0.00",
+            started_at=now - timedelta(hours=3),
+            submitted_at=now - timedelta(hours=2),
+            checked_at=now - timedelta(hours=2),
+        )
+        answer_rows = [
+            (session, first_question, "A", True),
+            (session, second_question, "D", False),
+            (run_one_second_session, first_question, "B", False),
+            (run_one_second_session, second_question, "A", True),
+            (run_two_session, first_question, "C", False),
+            (run_two_session, second_question, "D", False),
+        ]
+        for answer_session, question, selected_answer, is_correct in answer_rows:
+            ExamSubmissionAnswer.objects.create(
+                session=answer_session,
+                question=question,
+                selected_answer=selected_answer,
+                is_correct=is_correct,
+                score=question.score if is_correct else "0.00",
+                correct_answer_snapshot=question.correct_answer,
+                analysis_snapshot=question.analysis,
+            )
+
+        self.sign_in(self.teacher)
+        response = self.client.get(
+            reverse("teacher-exam-detail", args=[session.paper_id]) + f"?stats_exam_run_id={run_one.id}"
+        )
+        self.assertContains(response, "考试场次")
+        self.assertContains(response, "场次全部")
+        self.assertContains(response, "场次 1")
+        self.assertContains(response, "口令 111111")
+        self.assertEqual(response.context["selected_stats_exam_run_id"], run_one.id)
+        self.assertEqual(len(response.context["leaderboard_rows"]), 2)
+        self.assertEqual({item["name"] for item in response.context["stats_student_options"]}, {"考试学生", "场次学生二"})
+        rows_by_question_no = {row["question_no"]: row for row in response.context["question_rows"]}
+        self.assertEqual(rows_by_question_no[1]["correct_count"], 1)
+        self.assertEqual(rows_by_question_no[1]["wrong_count"], 1)
+        self.assertEqual(rows_by_question_no[2]["correct_count"], 1)
+        self.assertEqual(rows_by_question_no[2]["wrong_count"], 1)
+
+        run_two_response = self.client.get(
+            reverse("teacher-exam-detail", args=[session.paper_id]) + f"?stats_exam_run_id={run_two.id}"
+        )
+        self.assertEqual(len(run_two_response.context["leaderboard_rows"]), 1)
+        self.assertEqual({item["name"] for item in run_two_response.context["stats_student_options"]}, {"考试学生"})
+        run_two_rows = {row["question_no"]: row for row in run_two_response.context["question_rows"]}
+        self.assertEqual(run_two_rows[1]["wrong_count"], 1)
+        self.assertEqual(run_two_rows[2]["wrong_count"], 1)
 
     def test_teacher_exam_detail_question_no_sort_handles_natural_labels(self) -> None:
         self.assertEqual(normalize_exam_question_no_for_sort("1."), 1)

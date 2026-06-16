@@ -5,19 +5,68 @@
 {% block extra_head %}
     {% if role_key == "teacher" %}
         {% include "entry/includes/teacher_tabulator_head.html" %}
+        <style>
+            .teacher-tab__badge {
+                align-items: center;
+                background: #d92d20;
+                border-radius: 999px;
+                color: #fff;
+                display: inline-flex;
+                font-size: 0.78rem;
+                font-weight: 800;
+                justify-content: center;
+                line-height: 1;
+                margin-left: 6px;
+                min-width: 22px;
+                padding: 4px 7px;
+            }
+
+            .teacher-message-grid-container {
+                display: block;
+                max-width: 100%;
+                overflow-x: auto;
+                width: 100%;
+            }
+
+            .hero-panel--teacher-workbench {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-panel__metrics--teacher-workbench {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .hero-panel__metrics--teacher-workbench .metric-card {
+                min-height: 104px;
+            }
+
+            @media (max-width: 960px) {
+                .hero-panel__metrics--teacher-workbench {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+            }
+
+            @media (max-width: 640px) {
+                .hero-panel__metrics--teacher-workbench {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
     {% endif %}
 {% endblock %}
 
 {% block system_content %}
-    <section class="hero-panel">
+    <section class="hero-panel{% if role_key == 'teacher' %} hero-panel--teacher-workbench{% endif %}">
         <div class="hero-panel__copy">
             <p class="eyebrow">{{ page_shell.hero_eyebrow }}</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
             <h2>{{ page_title }}</h2>
-            <p class="role-description">{{ page_description }}</p>
+            {% if page_description %}
+                <p class="role-description">{{ page_description }}</p>
+            {% endif %}
         </div>
 
-        <div class="hero-panel__metrics">
+        <div class="hero-panel__metrics{% if role_key == 'teacher' %} hero-panel__metrics--teacher-workbench{% endif %}">
             {% for item in page_shell.summary_cards %}
                 <article class="metric-card">
                     <p class="metric-card__label">{{ item.label }}</p>
@@ -33,7 +82,9 @@
             <div class="section-heading">
                 <p class="section-heading__eyebrow">{{ page_shell.section_eyebrow }}</p>
                 <h3>{{ page_shell.section_title }}</h3>
-                <p>{{ page_shell.section_description }}</p>
+                {% if page_shell.section_description %}
+                    <p>{{ page_shell.section_description }}</p>
+                {% endif %}
             </div>
 
             {% if role_key == "student" %}
@@ -280,7 +331,12 @@
                 <div class="portal-workspace-shell teacher-workspace-shell">
                     <nav class="portal-tab-bar teacher-tab-bar" aria-label="教师工作台标签页">
                         {% for tab in page_shell.tabs %}
-                            <a class="portal-tab teacher-tab {{ tab.is_active|yesno:'portal-tab--active teacher-tab--active,' }}" href="{{ tab.href }}">{{ tab.label }}</a>
+                            <a class="portal-tab teacher-tab {{ tab.is_active|yesno:'portal-tab--active teacher-tab--active,' }}" href="{{ tab.href }}">
+                                {{ tab.label }}
+                                {% if tab.badge_count %}
+                                    <span class="teacher-tab__badge">{{ tab.badge_count }}</span>
+                                {% endif %}
+                            </a>
                         {% endfor %}
                     </nav>
 
@@ -317,7 +373,7 @@
                                 <div id="teacher-workbench-students-table" class="portal-grid-container teacher-tabulator-container"></div>
                             </div>
                         </section>
-                    {% else %}
+                    {% elif page_shell.active_tab == "courses" %}
                         <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
                             <div class="section-heading section-heading--compact">
                                 <p class="section-heading__eyebrow">Courses</p>
@@ -336,6 +392,27 @@
                                     </div>
                                 </div>
                                 <div id="teacher-workbench-courses-table" class="portal-grid-container teacher-tabulator-container"></div>
+                            </div>
+                        </section>
+                    {% else %}
+                        <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Messages</p>
+                                <h3>解析挑战消息</h3>
+                                <p>这里只显示还没有处理的学生解析挑战。进入处理后，采纳或忽略都会从待确认消息中移除。</p>
+                            </div>
+
+                            <div class="portal-grid-shell teacher-tabulator-shell">
+                                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                    <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                        <label for="teacher-workbench-message-search">按学生 / 试卷 / 题号 / 内容查找</label>
+                                        <input id="teacher-workbench-message-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入学生姓名、试卷名或解析内容">
+                                    </div>
+                                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                        <span class="portal-grid-note teacher-tabulator-note">当前待处理 {{ page_shell.message_count }} 条</span>
+                                    </div>
+                                </div>
+                                <div id="teacher-workbench-messages-table" class="portal-grid-container teacher-tabulator-container teacher-message-grid-container"></div>
                             </div>
                         </section>
                     {% endif %}
@@ -479,6 +556,7 @@
     {% if role_key == "teacher" %}
         {{ page_shell.student_table_rows|json_script:"teacher-workbench-students-data" }}
         {{ page_shell.course_table_rows|json_script:"teacher-workbench-courses-data" }}
+        {{ page_shell.message_table_rows|json_script:"teacher-workbench-messages-data" }}
         {% include "entry/includes/teacher_tabulator_scripts.html" %}
         <script>
             (function () {
@@ -497,6 +575,13 @@
                         tableId: "teacher-workbench-courses-table",
                         dataScriptId: "teacher-workbench-courses-data",
                         searchInputId: "teacher-workbench-course-search"
+                    });
+                }
+                if ("{{ page_shell.active_tab }}" === "messages") {
+                    window.CodeMasterTeacherTabulator.initTeacherWorkbenchMessages({
+                        tableId: "teacher-workbench-messages-table",
+                        dataScriptId: "teacher-workbench-messages-data",
+                        searchInputId: "teacher-workbench-message-search"
                     });
                 }
             })();

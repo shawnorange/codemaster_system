@@ -73,6 +73,8 @@ from .models import (
     ExamPaper,
     ExamProctorEvent,
     ExamQuestion,
+    ExamQuestionAnalysisBlock,
+    ExamQuestionAnalysisSuggestion,
     ExamQuestionBankItem,
     ExamQuestionBankPaper,
     ExamSession,
@@ -88,6 +90,7 @@ from .models import (
     RewardRecord,
     Student,
     StudentContentAccess,
+    StudentSiteMessage,
     TeacherEvaluation,
     TeacherStudentAssignment,
 )
@@ -1148,7 +1151,7 @@ def format_completion_rate(rate: float) -> str:
     return f"{normalized:.1f}%"
 
 
-def build_teacher_workbench_tabs(active_key: str) -> list[dict[str, object]]:
+def build_teacher_workbench_tabs(active_key: str, *, message_count: int = 0) -> list[dict[str, object]]:
     return [
         {
             "key": "students",
@@ -1161,6 +1164,13 @@ def build_teacher_workbench_tabs(active_key: str) -> list[dict[str, object]]:
             "label": "课程",
             "href": f"{reverse('teacher-students')}?tab=courses",
             "is_active": active_key == "courses",
+        },
+        {
+            "key": "messages",
+            "label": "消息",
+            "href": f"{reverse('teacher-students')}?tab=messages",
+            "is_active": active_key == "messages",
+            "badge_count": message_count,
         },
         {
             "key": "homework-stats",
@@ -2744,6 +2754,25 @@ def strip_exam_display_code_line_numbers(value: object) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
+def render_exam_inline_markdown_for_display(value: object) -> str:
+    escaped_text = escape(normalize_exam_inline_math_for_display(value))
+
+    code_placeholders: list[str] = []
+
+    def stash_inline_code(match: re.Match) -> str:
+        code_placeholders.append(
+            '<code class="exam-markdown-body__inline-code">' + match.group(1).strip() + "</code>"
+        )
+        return f"@@CODE{len(code_placeholders) - 1}@@"
+
+    rendered = re.sub(r"`([^`\n]+)`", stash_inline_code, escaped_text)
+    rendered = re.sub(r"\*\*([^*\n][^*\n]*(?:\*[^*\n]+)*)\*\*", r"<strong>\1</strong>", rendered)
+    rendered = re.sub(r"__([^_\n][^_\n]*(?:_[^_\n]+)*)__", r"<strong>\1</strong>", rendered)
+    for index, code_html in enumerate(code_placeholders):
+        rendered = rendered.replace(f"@@CODE{index}@@", code_html)
+    return rendered
+
+
 def render_exam_markdown_for_display(value: object) -> str:
     text = strip_exam_display_code_line_numbers(value)
     if not text:
@@ -2758,8 +2787,37 @@ def render_exam_markdown_for_display(value: object) -> str:
         nonlocal paragraph_lines
         if not paragraph_lines:
             return
-        escaped_lines = [escape(normalize_exam_inline_math_for_display(line)) for line in paragraph_lines]
-        html_parts.append('<p class="exam-markdown-body__paragraph">' + "<br>".join(escaped_lines) + "</p>")
+        stripped_lines = [line.strip() for line in paragraph_lines]
+        unordered_items = []
+        ordered_items = []
+        for line in stripped_lines:
+            unordered_match = re.match(r"^[-*]\s+(.+)$", line)
+            ordered_match = re.match(r"^\d+[.)]\s+(.+)$", line)
+            if unordered_match:
+                unordered_items.append(unordered_match.group(1))
+            if ordered_match:
+                ordered_items.append(ordered_match.group(1))
+        if unordered_items and len(unordered_items) == len(stripped_lines):
+            html_parts.append(
+                '<ul class="exam-markdown-body__list">'
+                + "".join(
+                    "<li>" + render_exam_inline_markdown_for_display(item) + "</li>"
+                    for item in unordered_items
+                )
+                + "</ul>"
+            )
+        elif ordered_items and len(ordered_items) == len(stripped_lines):
+            html_parts.append(
+                '<ol class="exam-markdown-body__list">'
+                + "".join(
+                    "<li>" + render_exam_inline_markdown_for_display(item) + "</li>"
+                    for item in ordered_items
+                )
+                + "</ol>"
+            )
+        else:
+            rendered_lines = [render_exam_inline_markdown_for_display(line) for line in paragraph_lines]
+            html_parts.append('<p class="exam-markdown-body__paragraph">' + "<br>".join(rendered_lines) + "</p>")
         paragraph_lines = []
 
     def flush_code() -> None:
@@ -2815,7 +2873,7 @@ def render_exam_markdown_for_display(value: object) -> str:
             flush_paragraph()
             html_parts.append(
                 '<h4 class="exam-markdown-body__heading">'
-                + escape(normalize_exam_inline_math_for_display(heading_match.group(2)))
+                + render_exam_inline_markdown_for_display(heading_match.group(2))
                 + "</h4>"
             )
             continue
@@ -3008,6 +3066,21 @@ def serialize_available_exam_bank_paper(
         if published_bank_paper_ids is not None
         else paper.id in get_exam_bank_paper_ids_with_exam_management_records()
     )
+    analysis_status_labels = dict(ExamQuestionBankPaper.ANALYSIS_STATUS_CHOICES)
+    analysis_status = paper.analysis_generation_status or ExamQuestionBankPaper.ANALYSIS_STATUS_NOT_STARTED
+    analysis_total_count = int(paper.analysis_generation_total_count or 0)
+    analysis_done_count = int(paper.analysis_generation_done_count or 0)
+    analysis_failed_count = int(paper.analysis_generation_failed_count or 0)
+    if analysis_status == ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING:
+        analysis_status_text = f"解析中 {analysis_done_count}/{analysis_total_count or '?'}"
+    elif analysis_status == ExamQuestionBankPaper.ANALYSIS_STATUS_COMPLETED:
+        analysis_status_text = "解析完成"
+    elif analysis_status == ExamQuestionBankPaper.ANALYSIS_STATUS_PARTIAL:
+        analysis_status_text = f"部分完成 {analysis_done_count}/{analysis_total_count or '?'}"
+    elif analysis_status == ExamQuestionBankPaper.ANALYSIS_STATUS_FAILED:
+        analysis_status_text = "解析失败"
+    else:
+        analysis_status_text = analysis_status_labels.get(analysis_status, "未生成")
     return {
         "id": paper.id,
         "paper_id": paper.id,
@@ -3019,6 +3092,13 @@ def serialize_available_exam_bank_paper(
         "created_at_value": created_at_value,
         "source_pdf_id": paper.source_pdf_id,
         "source_file": paper.source_file,
+        "analysis_status": analysis_status,
+        "analysis_status_text": analysis_status_text,
+        "analysis_total_count": analysis_total_count,
+        "analysis_done_count": analysis_done_count,
+        "analysis_failed_count": analysis_failed_count,
+        "analysis_error": paper.analysis_generation_error,
+        "can_generate_analysis": analysis_status != ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING,
         "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
         "operation_label": "发布",
@@ -3037,6 +3117,7 @@ def serialize_available_exam_bank_paper(
                 normalized_publisher_name,
                 paper.source_file or "",
                 paper.source_pdf_id or "",
+                analysis_status_text,
             ]
         ).lower(),
     }
@@ -3073,6 +3154,232 @@ def build_exam_option_items(
     return option_items
 
 
+def build_exam_analysis_block_items(question: ExamQuestion) -> list[dict[str, object]]:
+    source_labels = {
+        ExamQuestionAnalysisBlock.SOURCE_AI: "AI 解析",
+        ExamQuestionAnalysisBlock.SOURCE_TEACHER: "老师解析",
+        ExamQuestionAnalysisBlock.SOURCE_STUDENT: "学生贡献",
+        ExamQuestionAnalysisBlock.SOURCE_MERGED: "汇总解析",
+    }
+    blocks = list(question.analysis_blocks.filter(is_visible=True).order_by("sort_order", "id"))
+    if not blocks:
+        legacy_analysis = str(question.analysis or "当前老师没有补充解析。").strip()
+        return [
+            {
+                "id": 0,
+                "source_type": "legacy",
+                "source_label": "解析",
+                "content_md": legacy_analysis,
+                "content_html": render_exam_markdown_for_display(legacy_analysis),
+                "contributors_text": "",
+                "is_ai": False,
+            }
+        ]
+    items = []
+    for block in blocks:
+        contributors = block.contributors_json if isinstance(block.contributors_json, list) else []
+        contributor_names = [
+            str(item.get("name") or "").strip()
+            for item in contributors
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ]
+        items.append(
+            {
+                "id": block.id,
+                "source_type": block.source_type,
+                "source_label": source_labels.get(block.source_type, "解析"),
+                "content_md": block.content_md,
+                "content_html": render_exam_markdown_for_display(block.content_md),
+                "contributors_text": "、".join(contributor_names),
+                "is_ai": block.source_type == ExamQuestionAnalysisBlock.SOURCE_AI,
+            }
+        )
+    return items
+
+
+def build_exam_analysis_html(question: ExamQuestion) -> str:
+    rendered_blocks = [
+        str(block["content_html"])
+        for block in build_exam_analysis_block_items(question)
+        if str(block.get("content_md") or "").strip()
+    ]
+    return mark_safe("\n".join(rendered_blocks))
+
+
+def build_pending_analysis_suggestion_items(question: ExamQuestion) -> list[dict[str, object]]:
+    suggestions = (
+        question.analysis_suggestions.select_related("student")
+        .filter(status=ExamQuestionAnalysisSuggestion.STATUS_PENDING)
+        .order_by("created_at", "id")
+    )
+    return [
+        {
+            "id": suggestion.id,
+            "student_name": suggestion.student.display_name,
+            "content_md": suggestion.content_md,
+            "content_html": render_exam_markdown_for_display(suggestion.content_md),
+            "created_at_text": format_datetime(suggestion.created_at),
+        }
+        for suggestion in suggestions
+    ]
+
+
+def get_exam_analysis_suggestion_status_text(status: str) -> str:
+    return dict(ExamQuestionAnalysisSuggestion.STATUS_CHOICES).get(status, "待审核")
+
+
+def truncate_plain_text(value: str, limit: int = 80) -> str:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: max(limit - 1, 0)]}..."
+
+
+def build_student_analysis_suggestion_items(question: ExamQuestion, student: Student) -> list[dict[str, object]]:
+    suggestions = (
+        question.analysis_suggestions.select_related("reviewed_by")
+        .filter(student=student)
+        .order_by("-created_at", "-id")
+    )
+    return [
+        {
+            "id": suggestion.id,
+            "content_md": suggestion.content_md,
+            "content_html": render_exam_markdown_for_display(suggestion.content_md),
+            "status": suggestion.status,
+            "status_text": get_exam_analysis_suggestion_status_text(suggestion.status),
+            "is_accepted": suggestion.status == ExamQuestionAnalysisSuggestion.STATUS_ACCEPTED,
+            "is_rejected": suggestion.status == ExamQuestionAnalysisSuggestion.STATUS_REJECTED,
+            "created_at_text": format_datetime(suggestion.created_at),
+            "reviewed_at_text": format_datetime(suggestion.reviewed_at) if suggestion.reviewed_at else "",
+        }
+        for suggestion in suggestions
+    ]
+
+
+def build_teacher_analysis_message_rows(portal_user: PortalUser) -> list[dict[str, object]]:
+    suggestions = (
+        ExamQuestionAnalysisSuggestion.objects.select_related(
+            "student",
+            "question",
+            "question__paper",
+            "session",
+        )
+        .filter(
+            question__paper__teacher=portal_user,
+            question__paper__is_active=True,
+            question__is_active=True,
+            status=ExamQuestionAnalysisSuggestion.STATUS_PENDING,
+        )
+        .order_by("-created_at", "-id")
+    )
+    rows = []
+    for suggestion in suggestions:
+        question = suggestion.question
+        paper = question.paper
+        rows.append(
+            {
+                "id": suggestion.id,
+                "student_name": suggestion.student.display_name,
+                "paper_title": paper.title,
+                "question_no": question.question_no,
+                "content_preview": truncate_plain_text(suggestion.content_md, 80),
+                "created_at_text": format_datetime(suggestion.created_at),
+                "detail_href": f"{reverse('teacher-exam-detail', args=[paper.id])}#analysis-suggestion-{suggestion.id}",
+                "search_text": " ".join(
+                    [
+                        suggestion.student.display_name,
+                        paper.title,
+                        str(question.question_no),
+                        suggestion.content_md,
+                        format_datetime(suggestion.created_at),
+                    ]
+                ),
+            }
+        )
+    return rows
+
+
+def build_student_reviewed_analysis_message_rows(student: Student) -> list[dict[str, object]]:
+    suggestions = (
+        ExamQuestionAnalysisSuggestion.objects.select_related(
+            "question",
+            "question__paper",
+            "session",
+        )
+        .filter(
+            student=student,
+            session__is_active=True,
+            question__paper__is_active=True,
+            question__is_active=True,
+            status__in=[
+                ExamQuestionAnalysisSuggestion.STATUS_ACCEPTED,
+                ExamQuestionAnalysisSuggestion.STATUS_REJECTED,
+            ],
+        )
+        .order_by("-reviewed_at", "-updated_at", "-id")
+    )
+    rows = []
+    for suggestion in suggestions:
+        question = suggestion.question
+        paper = question.paper
+        status_text = get_exam_analysis_suggestion_status_text(suggestion.status)
+        rows.append(
+            {
+                "id": suggestion.id,
+                "status": suggestion.status,
+                "status_text": status_text,
+                "paper_title": paper.title,
+                "question_no": question.question_no,
+                "reviewed_at_text": format_datetime(suggestion.reviewed_at or suggestion.updated_at),
+                "detail_href": f"{reverse('student-exam-detail', args=[suggestion.session_id])}#student-analysis-suggestion-{suggestion.id}",
+                "summary": f"{paper.title} · 第 {question.question_no} 题 · {status_text}",
+            }
+        )
+    return rows
+
+
+def build_student_site_message_rows(student: Student) -> list[dict[str, object]]:
+    messages = student.site_messages.select_related("source_suggestion").order_by("-created_at", "-id")
+    return [
+        {
+            "id": message.id,
+            "title": message.title,
+            "body": message.body,
+            "target_href": message.target_href,
+            "open_href": reverse("student-site-message-open", args=[message.id]),
+            "is_read": message.is_read,
+            "status_text": "已读" if message.is_read else "未读",
+            "created_at_text": format_datetime(message.created_at),
+            "read_at_text": format_datetime(message.read_at) if message.read_at else "",
+        }
+        for message in messages
+    ]
+
+
+def build_student_site_message_context(portal_user: PortalUser) -> dict:
+    student = get_student_by_user(portal_user)
+    message_rows = build_student_site_message_rows(student)
+    unread_count = sum(1 for row in message_rows if not row["is_read"])
+    return {
+        "page_title": "消息",
+        "page_description": "老师处理你的解析挑战后，会在这里生成一条站内信。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "消息"},
+        ],
+        "summary_cards": [
+            {"label": "未读消息", "value": f"{unread_count} 条", "hint": "点击消息后自动标记为已读"},
+            {"label": "全部消息", "value": f"{len(message_rows)} 条", "hint": "包含已读和未读"},
+            {"label": "解析挑战", "value": f"{len(message_rows)} 条", "hint": "当前只接入解析挑战处理通知"},
+            {"label": "入口", "value": "站内信", "hint": "每条消息可跳到对应题目"},
+        ],
+        "message_rows": message_rows,
+        "empty_message": "当前还没有站内信。",
+        "back_href": reverse("student-courses"),
+    }
+
+
 def serialize_exam_question(
     question: ExamQuestion,
     *,
@@ -3081,6 +3388,8 @@ def serialize_exam_question(
     requires_explanation: bool = False,
     selected_answer_override: str | None = None,
     student_explanation_override: str | None = None,
+    include_teacher_analysis_suggestions: bool = False,
+    analysis_suggestion_student: Student | None = None,
 ) -> dict:
     options = question.options_json if isinstance(question.options_json, dict) else {}
     selected_answer = (
@@ -3119,6 +3428,17 @@ def serialize_exam_question(
         for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
         if str(path or "").strip()
     ]
+    analysis_blocks = build_exam_analysis_block_items(question)
+    pending_suggestions = (
+        build_pending_analysis_suggestion_items(question)
+        if include_teacher_analysis_suggestions
+        else []
+    )
+    student_analysis_suggestions = (
+        build_student_analysis_suggestion_items(question, analysis_suggestion_student)
+        if analysis_suggestion_student
+        else []
+    )
     return {
         "id": question.id,
         "question_no": question.question_no,
@@ -3132,8 +3452,13 @@ def serialize_exam_question(
             correct_answer=correct_answer if show_feedback else "",
         ),
         "correct_answer": correct_answer if show_feedback and is_gradable else "",
-        "analysis": question.analysis or "当前老师没有补充解析。",
-        "analysis_html": render_exam_markdown_for_display(question.analysis or "当前老师没有补充解析。"),
+        "analysis": question.analysis or "\n\n".join(str(block["content_md"]) for block in analysis_blocks),
+        "analysis_html": mark_safe("\n".join(str(block["content_html"]) for block in analysis_blocks)),
+        "analysis_blocks": analysis_blocks,
+        "pending_analysis_suggestions": pending_suggestions,
+        "pending_analysis_suggestion_count": len(pending_suggestions),
+        "student_analysis_suggestions": student_analysis_suggestions,
+        "student_analysis_suggestion_count": len(student_analysis_suggestions),
         "is_important": question.is_important,
         "important_note": question.important_note.strip(),
         "important_note_html": render_exam_markdown_for_display(question.important_note.strip()) if question.important_note.strip() else "",
@@ -3543,14 +3868,20 @@ def build_teacher_exam_page_context(
     }
 
 
-def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *, selected_student_id: int = 0) -> dict:
+def build_teacher_exam_detail_context(
+    portal_user: PortalUser,
+    paper_id: int,
+    *,
+    selected_student_id: int = 0,
+    selected_exam_run_id: int = 0,
+) -> dict:
     paper = (
         ExamPaper.objects.select_related("teacher", "course")
         .filter(id=paper_id, teacher=portal_user, is_active=True)
         .get()
     )
     all_sessions = list(
-        paper.sessions.select_related("student")
+        paper.sessions.select_related("student", "exam_run")
         .filter(is_active=True)
         .order_by("-earned_score", "submitted_at", "id")
     )
@@ -3570,13 +3901,95 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
             session.id,
         )
     )
-    eligible_exam_session_ids = [session.id for session in eligible_exam_sessions]
+    eligible_exam_run_ids = {
+        int(session.exam_run_id)
+        for session in eligible_exam_sessions
+        if session.exam_run_id
+    }
+    selected_exam_run_id = selected_exam_run_id if selected_exam_run_id in eligible_exam_run_ids else 0
+    stats_exam_sessions = [
+        session
+        for session in eligible_exam_sessions
+        if not selected_exam_run_id or session.exam_run_id == selected_exam_run_id
+    ]
+    eligible_exam_session_ids = [session.id for session in stats_exam_sessions]
     eligible_sessions_by_student_id = {
         session.student_id: session
-        for session in eligible_exam_sessions
+        for session in stats_exam_sessions
     }
     selected_student_id = selected_student_id if selected_student_id in eligible_sessions_by_student_id else 0
     selected_student_session = eligible_sessions_by_student_id.get(selected_student_id)
+    run_option_source_sessions = [
+        session
+        for session in eligible_exam_sessions
+        if not selected_student_id or session.student_id == selected_student_id
+    ]
+    run_sequence_items = {}
+    for session in eligible_exam_sessions:
+        if session.exam_run_id and session.exam_run:
+            run_sequence_items.setdefault(session.exam_run_id, session.exam_run)
+    run_sequence_map = {
+        run_id: index
+        for index, (run_id, _run) in enumerate(
+            sorted(
+                run_sequence_items.items(),
+                key=lambda item: (item[1].generated_at, item[0]),
+            ),
+            start=1,
+        )
+    }
+    run_option_map: dict[int, dict[str, object]] = {}
+    for session in run_option_source_sessions:
+        if not session.exam_run_id or not session.exam_run:
+            continue
+        option = run_option_map.setdefault(
+            session.exam_run_id,
+            {
+                "id": session.exam_run_id,
+                "label": "",
+                "search_text": "",
+                "student_ids": set(),
+                "student_names": [],
+                "submitted_count": 0,
+                "selected": session.exam_run_id == selected_exam_run_id,
+            },
+        )
+        option["submitted_count"] = int(option["submitted_count"]) + 1
+        student_ids = option["student_ids"]
+        if isinstance(student_ids, set):
+            student_ids.add(session.student_id)
+        student_names = option["student_names"]
+        if isinstance(student_names, list) and session.student.display_name not in student_names:
+            student_names.append(session.student.display_name)
+        if not option["label"]:
+            run_no = run_sequence_map.get(session.exam_run_id, 1)
+            generated_text = format_datetime(session.exam_run.generated_at)
+            code_text = session.exam_run.access_code or "无口令"
+            option["label"] = f"场次 {run_no} · {generated_text} · 口令 {code_text}"
+    stats_exam_run_options = []
+    for option in sorted(
+        run_option_map.values(),
+        key=lambda item: str(item["label"]),
+        reverse=True,
+    ):
+        student_names = option["student_names"] if isinstance(option["student_names"], list) else []
+        student_ids = option["student_ids"] if isinstance(option["student_ids"], set) else set()
+        submitted_count = int(option["submitted_count"])
+        label = f"{option['label']} · {submitted_count} 人"
+        stats_exam_run_options.append(
+            {
+                "id": option["id"],
+                "label": label,
+                "selected": option["selected"],
+                "student_ids_text": ",".join(str(student_id) for student_id in sorted(student_ids)),
+                "student_names_text": " ".join(str(name) for name in student_names),
+                "search_text": f"{label} {' '.join(str(name) for name in student_names)}",
+            }
+        )
+    selected_exam_run_label = next(
+        (str(option["label"]) for option in stats_exam_run_options if option["selected"]),
+        "",
+    )
     practice_sessions = [
         session
         for session in all_sessions
@@ -3585,7 +3998,11 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
         and session.submitted_at
     ]
     practice_sessions.sort(key=lambda session: (session.submitted_at, session.id), reverse=True)
-    questions = list(paper.questions.filter(is_active=True).order_by("question_no", "id"))
+    questions = list(
+        paper.questions.filter(is_active=True)
+        .prefetch_related("analysis_blocks", "analysis_suggestions__student")
+        .order_by("question_no", "id")
+    )
     answers = list(
         ExamSubmissionAnswer.objects.select_related("session", "session__student", "question")
         .filter(session_id__in=eligible_exam_session_ids)
@@ -3623,7 +4040,11 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
         answer_count = correct_count + len(wrong_answers)
         wrong_rate_value = len(wrong_answers) / answer_count if answer_count else 0
         wrong_rate_percent = round(wrong_rate_value * 100, 1)
-        serialized_question = serialize_exam_question(question, show_feedback=True)
+        serialized_question = serialize_exam_question(
+            question,
+            show_feedback=True,
+            include_teacher_analysis_suggestions=True,
+        )
         selected_answer = selected_answers_by_question.get(question.id)
         selected_student_answer_text = str(selected_answer.selected_answer or "未作答").strip() if selected_answer else ""
         selected_student_is_wrong = bool(selected_answer and not selected_answer.is_correct)
@@ -3669,7 +4090,7 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
 
     leaderboard_rows = []
     for index, session in enumerate(
-        eligible_exam_sessions[:10],
+        stats_exam_sessions[:10],
         start=1,
     ):
         leaderboard_rows.append(
@@ -3739,7 +4160,7 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
         ],
         "summary_cards": [
             {"label": "考试状态", "value": str(status_summary["text"]), "hint": build_exam_time_rule_text(paper)},
-            {"label": "考试提交", "value": f"{len(eligible_exam_sessions)} 条", "hint": "考试结束前的正式提交"},
+            {"label": "考试提交", "value": f"{len(stats_exam_sessions)} 条", "hint": "当前筛选下考试结束前的正式提交"},
             {"label": "题目数量", "value": f"{len(questions)} 题", "hint": meta["knowledge_text"]},
             {"label": "口令", "value": paper.access_code or "未生成", "hint": "开始考试后生成 6 位口令"},
         ],
@@ -3747,11 +4168,19 @@ def build_teacher_exam_detail_context(portal_user: PortalUser, paper_id: int, *,
         "leaderboard_rows": leaderboard_rows,
         "practice_session_rows": practice_session_rows,
         "question_rows": question_rows,
+        "stats_exam_run_options": stats_exam_run_options,
+        "selected_stats_exam_run_id": selected_exam_run_id,
+        "selected_stats_exam_run_label": selected_exam_run_label,
         "stats_student_options": [
             {
                 "id": session.student_id,
                 "name": session.student.display_name,
                 "selected": session.student_id == selected_student_id,
+                "session_ids_text": ",".join(
+                    str(item.exam_run_id)
+                    for item in eligible_exam_sessions
+                    if item.student_id == session.student_id and item.exam_run_id
+                ),
             }
             for session in sorted(eligible_sessions_by_student_id.values(), key=lambda item: item.student.display_name)
         ],
@@ -4117,6 +4546,7 @@ def build_student_exam_detail_context(
             requires_explanation=requires_explanations,
             selected_answer_override=(selected_answer_overrides or {}).get(question.id),
             student_explanation_override=(explanation_overrides or {}).get(question.id),
+            analysis_suggestion_student=student if show_feedback else None,
         )
         for question in questions
     ]
@@ -5390,6 +5820,13 @@ def build_student_portal_page(
     student = get_student_by_user(portal_user)
 
     if page_key == "courses":
+        unread_message_count = student.site_messages.filter(is_read=False).count()
+        message_summary_card = {
+            "label": "消息",
+            "value": f"{unread_message_count} 条",
+            "href": reverse("student-site-messages"),
+            "hint": "老师处理解析挑战后的站内信",
+        }
         live_classroom_card = {
             "slug": "live-classroom",
             "title": "实时课堂",
@@ -5425,11 +5862,24 @@ def build_student_portal_page(
                 {"label": "已开放", "value": f"{state_counts['open']} 个"},
                 {"label": "体验中", "value": f"{state_counts['trial']} 个"},
                 {"label": "未开放", "value": f"{state_counts['locked']} 个"},
+                message_summary_card,
             ]
             if preferred_course_slug:
                 page_shell["entry_hint"] = "当前只显示与你当前课程匹配的入口，以及作业入口。"
             else:
                 page_shell["entry_hint"] = "当前只保留作业入口；课程入口会按学生主课程方向显示。"
+        else:
+            state_counts = {
+                "open": sum(1 for card in page_shell["portal_cards"] if card["state"] == "open"),
+                "trial": sum(1 for card in page_shell["portal_cards"] if card["state"] == "trial"),
+                "locked": sum(1 for card in page_shell["portal_cards"] if card["state"] == "locked"),
+            }
+            page_shell["summary_cards"] = [
+                {"label": "已开放", "value": f"{state_counts['open']} 个"},
+                {"label": "体验中", "value": f"{state_counts['trial']} 个"},
+                {"label": "未开放", "value": f"{state_counts['locked']} 个"},
+                message_summary_card,
+            ]
         return page_shell
 
     if page_key == "cpp":
@@ -5819,7 +6269,7 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
 def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "students") -> dict:
     page_shell = deepcopy(ROLE_SHELL_CONTENT["teacher"])
     assignments = list(get_teacher_active_assignments(portal_user))
-    active_tab = active_tab if active_tab in {"students", "courses"} else "students"
+    active_tab = active_tab if active_tab in {"students", "courses", "messages"} else "students"
     assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     assignments_by_course: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     for assignment in assignments:
@@ -5828,7 +6278,6 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
 
     student_rows = []
     total_open_records = 0
-    total_lesson_balance = 0
     for student_id in sorted(assignments_by_student):
         student_assignments = assignments_by_student[student_id]
         student = student_assignments[0].student
@@ -5837,7 +6286,6 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         open_items = [item for item in topic_items if item["is_open"]]
         total_open_records += len(open_items)
         lesson_hour_summary = build_lesson_hour_summary(student)
-        total_lesson_balance += lesson_hour_summary["balance"]
         assignment_scope_text = summarize_teacher_assignment_scope(student_assignments)
 
         student_rows.append(
@@ -5898,21 +6346,25 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     course_rows.sort(key=lambda row: (row["order"], row["title"]))
 
     current_course_count = len(course_rows)
+    message_rows = build_teacher_analysis_message_rows(portal_user)
+    message_count = len(message_rows)
     page_shell["summary_cards"] = [
         {"label": "负责学生", "value": f"{len(assignments_by_student)} 人", "hint": "当前 assignment 覆盖的学生数"},
         {"label": "当前课程", "value": f"{current_course_count} 门", "hint": "当前有学生在学的课程方向"},
         {"label": "已开放内容", "value": f"{total_open_records} 项", "hint": "GESP4 多专题的已开放记录总数"},
-        {"label": "课时汇总", "value": format_delta_hours(total_lesson_balance), "hint": "当前负责学生的课时余额汇总"},
+        {"label": "消息", "value": f"{message_count} 条", "hint": "待处理的学生解析挑战"},
     ]
     page_shell["section_eyebrow"] = "Teacher Workbench"
-    page_shell["section_title"] = "学生与课程工作入口"
-    page_shell["section_description"] = "教师首页现在按“学生 / 课程”两条工作流组织。先从学生详情进入日常操作，再从课程页进入分类入口。"
-    page_shell["tabs"] = build_teacher_workbench_tabs(active_tab)
+    page_shell["section_title"] = "教师工作台"
+    page_shell["section_description"] = ""
+    page_shell["tabs"] = build_teacher_workbench_tabs(active_tab, message_count=message_count)
     page_shell["active_tab"] = active_tab
     page_shell["students"] = student_rows
     page_shell["courses"] = course_rows
     page_shell["student_table_rows"] = student_rows
     page_shell["course_table_rows"] = course_rows
+    page_shell["message_table_rows"] = message_rows
+    page_shell["message_count"] = message_count
     page_shell["student_pool_links"] = [
         {
             "label": f"{course['title']} · 添加新学生",

@@ -97,6 +97,94 @@
             color: #8a5700;
         }
 
+        .student-exam-analysis-challenge {
+            margin-top: 12px;
+            width: 100%;
+        }
+
+        .student-exam-analysis-challenge .teacher-exam-important__panel {
+            display: grid;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .student-exam-analysis-editor {
+            display: grid;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .student-exam-analysis-editor__toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .student-exam-analysis-editor__toolbar button {
+            background: #fff;
+            border: 1px solid rgba(22, 80, 140, 0.18);
+            border-radius: 8px;
+            color: #16508c;
+            cursor: pointer;
+            font-weight: 700;
+            padding: 7px 10px;
+        }
+
+        .student-exam-analysis-editor textarea {
+            border: 1px solid #d8e1ec;
+            border-radius: 10px;
+            box-sizing: border-box;
+            color: #25334a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            line-height: 1.65;
+            min-height: 180px;
+            padding: 12px 14px;
+            resize: vertical;
+            width: 100%;
+        }
+
+        .student-exam-analysis-editor__preview {
+            background: #fff;
+            border: 1px solid rgba(22, 80, 140, 0.12);
+            border-radius: 10px;
+            min-height: 72px;
+            padding: 12px 14px;
+        }
+
+        .student-exam-analysis-challenge .teacher-exam-important__actions {
+            width: 100%;
+        }
+
+        .student-exam-analysis-challenge .login-button {
+            justify-content: center;
+            width: 100%;
+        }
+
+        .student-analysis-suggestion-history {
+            border-top: 1px solid rgba(37, 51, 74, 0.12);
+            display: grid;
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .student-analysis-suggestion-history__item {
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(37, 51, 74, 0.12);
+            border-radius: 8px;
+            display: grid;
+            gap: 8px;
+            padding: 10px 12px;
+        }
+
+        .student-analysis-suggestion-history__meta {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: space-between;
+        }
+
         .student-exam-practice-confirm {
             border: 0;
             border-radius: 8px;
@@ -418,7 +506,7 @@
                         </nav>
                         <div class="student-exam-paper-panel">
                             {% for question in question_rows %}
-                                <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %} student-exam-question-card" data-student-exam-question-card="{{ question.id }}"{% if not forloop.first %} hidden{% endif %}>
+                                <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %} student-exam-question-card" id="student-exam-question-{{ question.id }}" data-student-exam-question-card="{{ question.id }}"{% if not forloop.first %} hidden{% endif %}>
                                     <div class="content-access-card__top">
                                         <div>
                                             <h5>第 {{ question.question_no }} 题</h5>
@@ -510,11 +598,79 @@
                                                     <strong>你的解析</strong>
                                                     <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
                                                 {% endif %}
+                                                {% if question.student_analysis_suggestions %}
+                                                    <div class="student-analysis-suggestion-history">
+                                                        <strong>你的解析挑战记录</strong>
+                                                        {% for suggestion in question.student_analysis_suggestions %}
+                                                            <article class="student-analysis-suggestion-history__item" id="student-analysis-suggestion-{{ suggestion.id }}">
+                                                                <div class="student-analysis-suggestion-history__meta">
+                                                                    <span>{{ suggestion.created_at_text }}</span>
+                                                                    <span class="state-pill state-pill--{% if suggestion.is_accepted %}open{% elif suggestion.is_rejected %}locked{% else %}future{% endif %}">{{ suggestion.status_text }}</span>
+                                                                </div>
+                                                                <div class="exam-markdown-body">{{ suggestion.content_html }}</div>
+                                                            </article>
+                                                        {% endfor %}
+                                                    </div>
+                                                {% endif %}
+                                                <details class="teacher-exam-important student-exam-analysis-challenge">
+                                                    <summary class="teacher-exam-important__summary state-pill state-pill--future">提交解析挑战</summary>
+                                                    <div class="teacher-exam-important__panel">
+                                                        <div class="student-exam-analysis-editor" data-student-analysis-editor>
+                                                            <span class="section-heading__eyebrow">你的更好解析（支持 Markdown 和 C++ 代码块）</span>
+                                                            <div class="student-exam-analysis-editor__toolbar" aria-label="解析编辑工具">
+                                                                <button type="button" data-markdown-command="bold">加粗</button>
+                                                                <button type="button" data-markdown-command="inline-code">行内代码</button>
+                                                                <button type="button" data-markdown-command="cpp-block">C++代码块</button>
+                                                                <button type="button" data-markdown-command="list">列表</button>
+                                                            </div>
+                                                            <textarea name="analysis_suggestion_{{ question.id }}" placeholder="可以写出你认为更清楚的解析、质疑 AI 解析，或补充代码推导过程。点击上方按钮可以直接插入格式。"></textarea>
+                                                            <div class="student-exam-analysis-editor__preview exam-markdown-body" data-markdown-preview>预览会显示在这里。</div>
+                                                        </div>
+                                                        <p class="section-heading__eyebrow">老师采纳后，这条解析会展示给其他同学。</p>
+                                                        <div class="teacher-exam-important__actions">
+                                                            <button type="submit" class="login-button" name="form_action" value="submit_analysis_suggestion:{{ question.id }}">提交给老师</button>
+                                                        </div>
+                                                    </div>
+                                                </details>
                                             </div>
                                         {% elif show_feedback %}
                                             <div class="record-inline-feedback">
                                                 <strong>解析</strong>
                                                 <div class="exam-markdown-body">{{ question.analysis_html }}</div>
+                                                {% if question.student_analysis_suggestions %}
+                                                    <div class="student-analysis-suggestion-history">
+                                                        <strong>你的解析挑战记录</strong>
+                                                        {% for suggestion in question.student_analysis_suggestions %}
+                                                            <article class="student-analysis-suggestion-history__item" id="student-analysis-suggestion-{{ suggestion.id }}">
+                                                                <div class="student-analysis-suggestion-history__meta">
+                                                                    <span>{{ suggestion.created_at_text }}</span>
+                                                                    <span class="state-pill state-pill--{% if suggestion.is_accepted %}open{% elif suggestion.is_rejected %}locked{% else %}future{% endif %}">{{ suggestion.status_text }}</span>
+                                                                </div>
+                                                                <div class="exam-markdown-body">{{ suggestion.content_html }}</div>
+                                                            </article>
+                                                        {% endfor %}
+                                                    </div>
+                                                {% endif %}
+                                                <details class="teacher-exam-important student-exam-analysis-challenge">
+                                                    <summary class="teacher-exam-important__summary state-pill state-pill--future">提交解析挑战</summary>
+                                                    <div class="teacher-exam-important__panel">
+                                                        <div class="student-exam-analysis-editor" data-student-analysis-editor>
+                                                            <span class="section-heading__eyebrow">你的更好解析（支持 Markdown 和 C++ 代码块）</span>
+                                                            <div class="student-exam-analysis-editor__toolbar" aria-label="解析编辑工具">
+                                                                <button type="button" data-markdown-command="bold">加粗</button>
+                                                                <button type="button" data-markdown-command="inline-code">行内代码</button>
+                                                                <button type="button" data-markdown-command="cpp-block">C++代码块</button>
+                                                                <button type="button" data-markdown-command="list">列表</button>
+                                                            </div>
+                                                            <textarea name="analysis_suggestion_{{ question.id }}" placeholder="可以写出你认为更清楚的解析、质疑 AI 解析，或补充代码推导过程。点击上方按钮可以直接插入格式。"></textarea>
+                                                            <div class="student-exam-analysis-editor__preview exam-markdown-body" data-markdown-preview>预览会显示在这里。</div>
+                                                        </div>
+                                                        <p class="section-heading__eyebrow">老师采纳后，这条解析会展示给其他同学。</p>
+                                                        <div class="teacher-exam-important__actions">
+                                                            <button type="submit" class="login-button" name="form_action" value="submit_analysis_suggestion:{{ question.id }}">提交给老师</button>
+                                                        </div>
+                                                    </div>
+                                                </details>
                                             </div>
                                         {% endif %}
                                     </div>
@@ -682,10 +838,173 @@
             }
             restoreCachedAnswers();
             updateQuestionButtonStates();
-            activateByIndex(0);
+            const hashTargetId = window.location.hash ? window.location.hash.slice(1) : "";
+            const hashTarget = hashTargetId ? document.getElementById(hashTargetId) : null;
+            const targetCard = hashTarget ? hashTarget.closest("[data-student-exam-question-card]") : null;
+            if (targetCard) {
+                window.activateStudentExamQuestion(targetCard.dataset.studentExamQuestionCard || "");
+                setTimeout(() => {
+                    hashTarget.scrollIntoView({behavior: "smooth", block: "center"});
+                }, 80);
+            } else {
+                activateByIndex(0);
+            }
         })();
     </script>
     {% if show_feedback %}
+        <script>
+            (function () {
+                const editors = Array.from(document.querySelectorAll("[data-student-analysis-editor]"));
+                if (!editors.length) {
+                    return;
+                }
+
+                function escapeHtml(value) {
+                    return String(value || "")
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+                        .replace(/"/g, "&quot;")
+                        .replace(/'/g, "&#39;");
+                }
+
+                function renderInlineMarkdown(value) {
+                    const codeParts = [];
+                    let html = escapeHtml(value).replace(/`([^`\n]+)`/g, function (_match, code) {
+                        codeParts.push('<code class="exam-markdown-body__inline-code">' + code.trim() + "</code>");
+                        return "@@CODE" + (codeParts.length - 1) + "@@";
+                    });
+                    html = html
+                        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+                        .replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+                    codeParts.forEach(function (codeHtml, index) {
+                        html = html.replace("@@CODE" + index + "@@", codeHtml);
+                    });
+                    return html;
+                }
+
+                function renderMarkdownPreview(value) {
+                    const lines = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+                    const parts = [];
+                    let paragraph = [];
+                    let code = [];
+                    let inCode = false;
+
+                    function flushParagraph() {
+                        if (!paragraph.length) {
+                            return;
+                        }
+                        const stripped = paragraph.map(function (line) { return line.trim(); });
+                        const bulletItems = stripped
+                            .map(function (line) {
+                                const match = line.match(/^[-*]\s+(.+)$/);
+                                return match ? match[1] : null;
+                            })
+                            .filter(function (item) { return item !== null; });
+                        if (bulletItems.length && bulletItems.length === stripped.length) {
+                            parts.push(
+                                '<ul class="exam-markdown-body__list">' +
+                                bulletItems.map(function (item) { return "<li>" + renderInlineMarkdown(item) + "</li>"; }).join("") +
+                                "</ul>"
+                            );
+                        } else {
+                            parts.push(
+                                '<p class="exam-markdown-body__paragraph">' +
+                                paragraph.map(renderInlineMarkdown).join("<br>") +
+                                "</p>"
+                            );
+                        }
+                        paragraph = [];
+                    }
+
+                    function flushCode() {
+                        parts.push(
+                            '<pre class="exam-markdown-body__code"><code>' +
+                            escapeHtml(code.join("\n").replace(/\s+$/g, "")) +
+                            "</code></pre>"
+                        );
+                        code = [];
+                    }
+
+                    lines.forEach(function (line) {
+                        const stripped = line.trim();
+                        if (stripped.indexOf("```") === 0) {
+                            if (inCode) {
+                                flushCode();
+                                inCode = false;
+                            } else {
+                                flushParagraph();
+                                inCode = true;
+                                code = [];
+                            }
+                            return;
+                        }
+                        if (inCode) {
+                            code.push(line);
+                            return;
+                        }
+                        if (!stripped) {
+                            flushParagraph();
+                            return;
+                        }
+                        const heading = stripped.match(/^(#{1,4})\s+(.+)$/);
+                        if (heading) {
+                            flushParagraph();
+                            parts.push('<h4 class="exam-markdown-body__heading">' + renderInlineMarkdown(heading[2]) + "</h4>");
+                            return;
+                        }
+                        paragraph.push(line);
+                    });
+                    if (inCode) {
+                        flushCode();
+                    }
+                    flushParagraph();
+                    return parts.join("\n") || "预览会显示在这里。";
+                }
+
+                function insertMarkdown(textarea, before, after, fallback) {
+                    const start = textarea.selectionStart || 0;
+                    const end = textarea.selectionEnd || 0;
+                    const current = textarea.value || "";
+                    const selected = current.slice(start, end) || fallback || "";
+                    const next = current.slice(0, start) + before + selected + after + current.slice(end);
+                    textarea.value = next;
+                    const cursor = start + before.length + selected.length + after.length;
+                    textarea.focus();
+                    textarea.setSelectionRange(cursor, cursor);
+                    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+                }
+
+                editors.forEach(function (editor) {
+                    const textarea = editor.querySelector("textarea");
+                    const preview = editor.querySelector("[data-markdown-preview]");
+                    if (!textarea || !preview) {
+                        return;
+                    }
+                    const updatePreview = function () {
+                        preview.innerHTML = renderMarkdownPreview(textarea.value);
+                    };
+                    editor.addEventListener("click", function (event) {
+                        const button = event.target.closest("[data-markdown-command]");
+                        if (!button) {
+                            return;
+                        }
+                        const command = button.dataset.markdownCommand || "";
+                        if (command === "bold") {
+                            insertMarkdown(textarea, "**", "**", "重点内容");
+                        } else if (command === "inline-code") {
+                            insertMarkdown(textarea, "`", "`", "cout << 2");
+                        } else if (command === "cpp-block") {
+                            insertMarkdown(textarea, "```cpp\n", "\n```", "int ans = 0;\ncout << ans;");
+                        } else if (command === "list") {
+                            insertMarkdown(textarea, "- ", "", "第一步说明");
+                        }
+                    });
+                    textarea.addEventListener("input", updatePreview);
+                    updatePreview();
+                });
+            })();
+        </script>
         <script>
             (function () {
                 const dialog = document.getElementById("student-exam-practice-confirm");

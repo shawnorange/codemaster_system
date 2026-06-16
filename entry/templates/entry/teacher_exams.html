@@ -129,8 +129,8 @@
 
     <section class="surface-panel surface-panel--primary" id="available-exam-papers">
         <div class="section-heading">
-            <p class="section-heading__eyebrow">Publish Exam</p>
-            <h3>发布考试</h3>
+            <p class="section-heading__eyebrow">Paper Management</p>
+            <h3>试卷管理</h3>
         </div>
 
         <div class="portal-grid-shell teacher-tabulator-shell">
@@ -785,10 +785,18 @@
                 ].join("");
             };
             const buildAvailablePaperActions = (row) => {
+                const analysisDisabled = row.can_generate_analysis ? "" : " disabled";
+                const analysisLabel = row.can_generate_analysis ? "增加解析" : "解析中";
                 return [
                     '<div class="teacher-exam-actions available-paper-actions">',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href || "#") + '">预览</a>',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
+                    '<form method="post" class="teacher-exam-row-action">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="generate_bank_paper_analysis">',
+                    '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn"' + analysisDisabled + '>' + analysisLabel + '</button>',
+                    '</form>',
                     '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '">发布</button>',
                     '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
                     '</div>',
@@ -840,10 +848,20 @@
                         { title: "所属级别", field: "level_text", minWidth: 120 },
                         { title: "发布人", field: "publisher_name", minWidth: 140 },
                         {
+                            title: "解析状态",
+                            field: "analysis_status_text",
+                            minWidth: 140,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                const title = row.analysis_error ? ' title="' + escapeHtml(row.analysis_error) + '"' : "";
+                                return '<span class="state-pill state-pill--trial"' + title + '>' + escapeHtml(row.analysis_status_text || "未生成") + '</span>';
+                            },
+                        },
+                        {
                             title: "操作",
                             field: "id",
-                            minWidth: 340,
-                            width: 340,
+                            minWidth: 430,
+                            width: 430,
                             hozAlign: "center",
                             headerSort: false,
                             formatter: (cell) => buildAvailablePaperActions(cell.getRow().getData()),

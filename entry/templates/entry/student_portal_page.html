@@ -29,10 +29,17 @@
 
             <div class="entry-stat-row">
                 {% for item in page_shell.summary_cards %}
-                    <article class="entry-stat-chip">
-                        <span>{{ item.label }}</span>
-                        <strong>{{ item.value }}</strong>
-                    </article>
+                    {% if item.href %}
+                        <a class="entry-stat-chip entry-stat-chip--link" href="{{ item.href }}" title="{{ item.hint|default:'' }}">
+                            <span>{{ item.label }}</span>
+                            <strong>{{ item.value }}</strong>
+                        </a>
+                    {% else %}
+                        <article class="entry-stat-chip">
+                            <span>{{ item.label }}</span>
+                            <strong>{{ item.value }}</strong>
+                        </article>
+                    {% endif %}
                 {% endfor %}
             </div>
         </section>

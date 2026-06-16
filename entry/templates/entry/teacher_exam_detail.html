@@ -68,18 +68,78 @@
         }
 
         .teacher-exam-stats-filter {
+            align-items: end;
             display: grid;
-            gap: 6px;
-            min-width: min(280px, 100%);
+            gap: 12px;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            min-width: min(560px, 100%);
         }
 
-        .teacher-exam-stats-filter select {
+        .teacher-exam-stats-combobox {
+            position: relative;
+        }
+
+        .teacher-exam-stats-combobox__button,
+        .teacher-exam-stats-combobox__search {
             border: 1px solid rgba(15, 103, 184, 0.16);
             border-radius: 8px;
+            background: #fff;
             color: var(--text-main);
             font: inherit;
             padding: 10px 12px;
             width: 100%;
+        }
+
+        .teacher-exam-stats-combobox__button {
+            cursor: pointer;
+            overflow: hidden;
+            text-align: left;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .teacher-exam-stats-combobox__panel {
+            background: #fff;
+            border: 1px solid rgba(15, 103, 184, 0.16);
+            border-radius: 8px;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+            display: grid;
+            gap: 8px;
+            left: 0;
+            max-height: 320px;
+            overflow: auto;
+            padding: 10px;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 20;
+        }
+
+        .teacher-exam-stats-combobox__panel[hidden] {
+            display: none;
+        }
+
+        .teacher-exam-stats-combobox__option {
+            background: transparent;
+            border: 0;
+            border-radius: 8px;
+            color: var(--text-main);
+            cursor: pointer;
+            font: inherit;
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        .teacher-exam-stats-combobox__option:hover,
+        .teacher-exam-stats-combobox__option.is-selected {
+            background: rgba(15, 103, 184, 0.08);
+            color: var(--brand-primary);
+        }
+
+        .teacher-exam-stats-combobox__empty {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            padding: 6px 10px;
         }
 
         .teacher-exam-important {
@@ -159,6 +219,14 @@
             resize: vertical;
         }
 
+        .teacher-exam-analysis-edit-panel {
+            min-width: min(720px, 92vw);
+        }
+
+        .teacher-exam-analysis-edit-panel textarea {
+            min-height: 180px;
+        }
+
         .teacher-exam-important__actions {
             display: flex;
             justify-content: flex-end;
@@ -233,6 +301,11 @@
             .teacher-exam-question-stats-heading {
                 align-items: stretch;
                 flex-direction: column;
+            }
+
+            .teacher-exam-stats-filter {
+                grid-template-columns: minmax(0, 1fr);
+                min-width: 0;
             }
         }
     </style>
@@ -355,13 +428,36 @@
                 </p>
             </div>
             <form class="teacher-exam-stats-filter" method="get">
-                <label class="section-heading__eyebrow" for="teacher-exam-stats-student">逐题统计筛选</label>
-                <select id="teacher-exam-stats-student" name="stats_student_id" onchange="this.form.submit()">
-                    <option value="" {% if not selected_stats_student_id %}selected{% endif %}>全部</option>
-                    {% for item in stats_student_options %}
-                        <option value="{{ item.id }}" {% if item.selected %}selected{% endif %}>{{ item.name }}</option>
-                    {% endfor %}
-                </select>
+                <input type="hidden" name="stats_exam_run_id" value="{% if selected_stats_exam_run_id %}{{ selected_stats_exam_run_id }}{% endif %}" data-stats-hidden="run">
+                <input type="hidden" name="stats_student_id" value="{% if selected_stats_student_id %}{{ selected_stats_student_id }}{% endif %}" data-stats-hidden="student">
+                <div class="teacher-exam-stats-combobox" data-stats-combobox="run">
+                    <label class="section-heading__eyebrow" for="teacher-exam-stats-run-search">考试场次</label>
+                    <button class="teacher-exam-stats-combobox__button" type="button" data-stats-combobox-button>
+                        {% if selected_stats_exam_run_label %}{{ selected_stats_exam_run_label }}{% else %}场次全部{% endif %}
+                    </button>
+                    <div class="teacher-exam-stats-combobox__panel" data-stats-combobox-panel hidden>
+                        <input class="teacher-exam-stats-combobox__search" id="teacher-exam-stats-run-search" type="search" placeholder="搜索场次、口令或学生姓名" data-stats-combobox-search>
+                        <button class="teacher-exam-stats-combobox__option{% if not selected_stats_exam_run_id %} is-selected{% endif %}" type="button" data-stats-combobox-option data-value="" data-label="场次全部" data-search="场次全部 全部" data-student-ids="" data-student-names="">场次全部</button>
+                        {% for item in stats_exam_run_options %}
+                            <button class="teacher-exam-stats-combobox__option{% if item.selected %} is-selected{% endif %}" type="button" data-stats-combobox-option data-value="{{ item.id }}" data-label="{{ item.label }}" data-search="{{ item.search_text }}" data-student-ids="{{ item.student_ids_text }}" data-student-names="{{ item.student_names_text }}">{{ item.label }}</button>
+                        {% endfor %}
+                        <span class="teacher-exam-stats-combobox__empty" data-stats-combobox-empty hidden>没有匹配的场次</span>
+                    </div>
+                </div>
+                <div class="teacher-exam-stats-combobox" data-stats-combobox="student">
+                    <label class="section-heading__eyebrow" for="teacher-exam-stats-student-search">逐题统计筛选</label>
+                    <button class="teacher-exam-stats-combobox__button" type="button" data-stats-combobox-button>
+                        {% if selected_stats_student_name %}{{ selected_stats_student_name }}{% else %}全部{% endif %}
+                    </button>
+                    <div class="teacher-exam-stats-combobox__panel" data-stats-combobox-panel hidden>
+                        <input class="teacher-exam-stats-combobox__search" id="teacher-exam-stats-student-search" type="search" placeholder="搜索学生姓名" data-stats-combobox-search>
+                        <button class="teacher-exam-stats-combobox__option{% if not selected_stats_student_id %} is-selected{% endif %}" type="button" data-stats-combobox-option data-value="" data-label="全部" data-search="全部" data-session-ids="">全部</button>
+                        {% for item in stats_student_options %}
+                            <button class="teacher-exam-stats-combobox__option{% if item.selected %} is-selected{% endif %}" type="button" data-stats-combobox-option data-value="{{ item.id }}" data-label="{{ item.name }}" data-search="{{ item.name }}" data-session-ids="{{ item.session_ids_text }}">{{ item.name }}</button>
+                        {% endfor %}
+                        <span class="teacher-exam-stats-combobox__empty" data-stats-combobox-empty hidden>没有匹配的学生</span>
+                    </div>
+                </div>
             </form>
         </div>
         {% if question_rows %}
@@ -416,6 +512,7 @@
                                                 {% csrf_token %}
                                                 <input type="hidden" name="form_action" value="update_exam_question_answer">
                                                 <input type="hidden" name="question_id" value="{{ question.id }}">
+                                                <input type="hidden" name="stats_exam_run_id" value="{{ selected_stats_exam_run_id }}">
                                                 <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
                                                 <label>
                                                     <span class="section-heading__eyebrow">标准答案</span>
@@ -440,6 +537,7 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="form_action" value="mark_exam_question_important">
                                             <input type="hidden" name="question_id" value="{{ question.id }}">
+                                            <input type="hidden" name="stats_exam_run_id" value="{{ selected_stats_exam_run_id }}">
                                             <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
                                             <label>
                                                 <span class="section-heading__eyebrow">重点说明（可选）</span>
@@ -488,10 +586,11 @@
                                     <strong>答案解析</strong>
                                     <details class="teacher-exam-important">
                                         <summary class="teacher-exam-important__summary state-pill state-pill--future">编辑解析</summary>
-                                        <form class="teacher-exam-important__panel" method="post">
+                                        <form class="teacher-exam-important__panel teacher-exam-analysis-edit-panel" method="post">
                                             {% csrf_token %}
                                             <input type="hidden" name="form_action" value="update_exam_question_analysis">
                                             <input type="hidden" name="question_id" value="{{ question.id }}">
+                                            <input type="hidden" name="stats_exam_run_id" value="{{ selected_stats_exam_run_id }}">
                                             <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
                                             <label>
                                                 <span class="section-heading__eyebrow">解析 Markdown</span>
@@ -508,6 +607,47 @@
                                     <p class="exam-markdown-body__paragraph">正确答案：{{ question.correct_answer }}。</p>
                                     {{ question.analysis_html }}
                                 </div>
+                                {% if question.pending_analysis_suggestions %}
+                                    <div class="teacher-exam-analysis-suggestions">
+                                        <strong>学生解析建议 {{ question.pending_analysis_suggestion_count }} 条</strong>
+                                        {% for suggestion in question.pending_analysis_suggestions %}
+                                            <details class="teacher-exam-important" id="analysis-suggestion-{{ suggestion.id }}">
+                                                <summary class="teacher-exam-important__summary state-pill state-pill--future">
+                                                    {{ suggestion.student_name }} · {{ suggestion.created_at_text }}
+                                                </summary>
+                                                <div class="teacher-exam-important__panel">
+                                                    <div class="exam-markdown-body">{{ suggestion.content_html }}</div>
+                                                    <form method="post">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="form_action" value="accept_exam_analysis_suggestion">
+                                                        <input type="hidden" name="question_id" value="{{ question.id }}">
+                                                        <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}">
+                                                        <input type="hidden" name="stats_exam_run_id" value="{{ selected_stats_exam_run_id }}">
+                                                        <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
+                                                        <label>
+                                                            <span class="section-heading__eyebrow">采纳内容（可编辑，支持 Markdown 和代码块）</span>
+                                                            <textarea name="accepted_analysis">{{ suggestion.content_md }}</textarea>
+                                                        </label>
+                                                        <div class="teacher-exam-important__actions">
+                                                            <button type="submit" class="login-button">编辑后采纳</button>
+                                                        </div>
+                                                    </form>
+                                                    <form method="post">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="form_action" value="reject_exam_analysis_suggestion">
+                                                        <input type="hidden" name="question_id" value="{{ question.id }}">
+                                                        <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}">
+                                                        <input type="hidden" name="stats_exam_run_id" value="{{ selected_stats_exam_run_id }}">
+                                                        <input type="hidden" name="stats_student_id" value="{{ selected_stats_student_id }}">
+                                                        <div class="teacher-exam-important__actions">
+                                                            <button type="submit" class="teacher-anchor-link">忽略这条建议</button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </details>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
                         </article>
                     {% endfor %}
@@ -600,6 +740,119 @@
             applyFilter();
         })();
         (function () {
+            const form = document.querySelector(".teacher-exam-stats-filter");
+            if (!form) return;
+            const runBox = form.querySelector('[data-stats-combobox="run"]');
+            const studentBox = form.querySelector('[data-stats-combobox="student"]');
+            const runHidden = form.querySelector('[data-stats-hidden="run"]');
+            const studentHidden = form.querySelector('[data-stats-hidden="student"]');
+            const normalize = (value) => String(value || "").trim().toLowerCase();
+            const normalizeSelectedId = (value) => {
+                const text = String(value || "").trim();
+                return text && text !== "0" ? text : "";
+            };
+            const splitIds = (value) => new Set(String(value || "").split(",").map((item) => item.trim()).filter(Boolean));
+            function getParts(box) {
+                return {
+                    button: box ? box.querySelector("[data-stats-combobox-button]") : null,
+                    panel: box ? box.querySelector("[data-stats-combobox-panel]") : null,
+                    search: box ? box.querySelector("[data-stats-combobox-search]") : null,
+                    options: box ? Array.from(box.querySelectorAll("[data-stats-combobox-option]")) : [],
+                    empty: box ? box.querySelector("[data-stats-combobox-empty]") : null,
+                };
+            }
+            const runParts = getParts(runBox);
+            const studentParts = getParts(studentBox);
+            function applyOptionFilter(parts, predicate, limit) {
+                let visibleCount = 0;
+                let matchedValueCount = 0;
+                parts.options.forEach((option) => {
+                    const value = String(option.dataset.value || "");
+                    let visible = predicate(option);
+                    if (visible && value) {
+                        matchedValueCount += 1;
+                        if (limit && matchedValueCount > limit) {
+                            visible = false;
+                        }
+                    }
+                    option.hidden = !visible;
+                    if (visible && value) visibleCount += 1;
+                });
+                if (parts.empty) {
+                    parts.empty.hidden = visibleCount > 0;
+                }
+            }
+            function filterRunOptions() {
+                const query = normalize(runParts.search ? runParts.search.value : "");
+                const studentQuery = normalize(studentParts.search ? studentParts.search.value : "");
+                const selectedStudentId = normalizeSelectedId(studentHidden ? studentHidden.value : "");
+                applyOptionFilter(runParts, function (option) {
+                    const value = String(option.dataset.value || "");
+                    if (!value) return true;
+                    const searchText = normalize(option.dataset.search);
+                    const studentNames = normalize(option.dataset.studentNames);
+                    const studentIds = splitIds(option.dataset.studentIds);
+                    const matchesOwnQuery = !query || searchText.includes(query);
+                    const matchesStudentQuery = !studentQuery || studentNames.includes(studentQuery);
+                    const matchesSelectedStudent = !selectedStudentId || studentIds.has(selectedStudentId);
+                    return matchesOwnQuery && matchesStudentQuery && matchesSelectedStudent;
+                }, 10);
+            }
+            function filterStudentOptions() {
+                const query = normalize(studentParts.search ? studentParts.search.value : "");
+                const selectedRunId = normalizeSelectedId(runHidden ? runHidden.value : "");
+                applyOptionFilter(studentParts, function (option) {
+                    const value = String(option.dataset.value || "");
+                    if (!value) return true;
+                    const searchText = normalize(option.dataset.search);
+                    const sessionIds = splitIds(option.dataset.sessionIds);
+                    return (!query || searchText.includes(query)) && (!selectedRunId || sessionIds.has(selectedRunId));
+                }, 10);
+                filterRunOptions();
+            }
+            function closeAll(exceptPanel) {
+                [runParts.panel, studentParts.panel].forEach((panel) => {
+                    if (panel && panel !== exceptPanel) panel.hidden = true;
+                });
+            }
+            function bindCombobox(kind, parts) {
+                if (!parts.button || !parts.panel) return;
+                parts.button.addEventListener("click", function () {
+                    const willOpen = parts.panel.hidden;
+                    closeAll(parts.panel);
+                    parts.panel.hidden = !willOpen;
+                    if (willOpen && parts.search) {
+                        parts.search.focus();
+                        parts.search.select();
+                    }
+                });
+                if (parts.search) {
+                    parts.search.addEventListener("input", kind === "run" ? filterRunOptions : filterStudentOptions);
+                }
+                parts.options.forEach((option) => {
+                    option.addEventListener("click", function () {
+                        if (kind === "run" && runHidden) {
+                            runHidden.value = option.dataset.value || "";
+                        }
+                        if (kind === "student" && studentHidden) {
+                            studentHidden.value = option.dataset.value || "";
+                        }
+                        parts.button.textContent = option.dataset.label || option.textContent || "";
+                        form.submit();
+                    });
+                });
+            }
+            bindCombobox("run", runParts);
+            bindCombobox("student", studentParts);
+            document.addEventListener("click", function (event) {
+                if (!form.contains(event.target)) {
+                    closeAll(null);
+                }
+            });
+            filterStudentOptions();
+            filterRunOptions();
+        })();
+        (function () {
             const review = document.getElementById("teacher-exam-question-review");
             if (!review) return;
             const buttons = Array.from(review.querySelectorAll("[data-teacher-exam-question-button]"));
@@ -617,7 +870,18 @@
                     activate(button.dataset.teacherExamQuestionButton || "");
                 });
             });
-            if (buttons[0]) {
+            const hashTargetId = window.location.hash ? window.location.hash.slice(1) : "";
+            const hashTarget = hashTargetId ? document.getElementById(hashTargetId) : null;
+            const targetCard = hashTarget ? hashTarget.closest("[data-question-card]") : null;
+            if (targetCard) {
+                activate(targetCard.dataset.questionCard || "");
+                setTimeout(function () {
+                    hashTarget.scrollIntoView({behavior: "smooth", block: "center"});
+                    if (hashTarget.tagName && hashTarget.tagName.toLowerCase() === "details") {
+                        hashTarget.open = true;
+                    }
+                }, 80);
+            } else if (buttons[0]) {
                 activate(buttons[0].dataset.teacherExamQuestionButton || "");
             }
         })();

@@ -1153,6 +1153,40 @@
         return table;
     }
 
+    function buildTeacherWorkbenchMessagesTable(config) {
+        var data = readJsonScript(config.dataScriptId);
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(
+                data,
+                [
+                    { title: "学生", field: "student_name", minWidth: 140 },
+                    { title: "试卷", field: "paper_title", minWidth: 220 },
+                    { title: "题号", field: "question_no", hozAlign: "center", width: 100 },
+                    { title: "提交时间", field: "created_at_text", minWidth: 170 },
+                    { title: "解析挑战内容", field: "content_preview", minWidth: 300 },
+                    {
+                        title: "处理",
+                        field: "detail_href",
+                        hozAlign: "center",
+                        width: 110,
+                        headerSort: false,
+                        formatter: function (cell) {
+                            return actionButton("处理", cell.getValue(), "primary");
+                        },
+                    },
+                ],
+                {
+                    initialSort: [{ column: "created_at_text", dir: "desc" }],
+                }
+            )
+        );
+
+        var searchFilter = attachSearch(table, config.searchInputId, ["student_name", "paper_title", "question_no", "content_preview", "search_text"]);
+        wirePersistentState("teacher-workbench-messages", table, document.getElementById(config.tableId), config.searchInputId, searchFilter);
+        return table;
+    }
+
     function buildAssignmentStudentSelector(config) {
         return buildSingleSelectTable({
             tableId: config.tableId,
@@ -2041,6 +2075,7 @@
         initTeacherHomeworkStatsStudents: buildTeacherHomeworkStatsStudentsTable,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,
+        initTeacherWorkbenchMessages: buildTeacherWorkbenchMessagesTable,
         initStudentAssignmentGrid: buildStudentAssignmentsTable,
         initLevelGrid: buildLevelTable,
         initKnowledgePointGrid: buildKnowledgePointTable,

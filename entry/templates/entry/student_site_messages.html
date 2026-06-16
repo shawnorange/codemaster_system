@@ -1,0 +1,110 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <style>
+        .student-message-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .student-message-card {
+            border: 1px solid rgba(15, 103, 184, 0.12);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.86);
+            display: grid;
+            gap: 10px;
+            padding: 14px 16px;
+        }
+
+        .student-message-card--unread {
+            border-color: rgba(217, 45, 32, 0.22);
+            box-shadow: 0 12px 28px rgba(15, 103, 184, 0.1);
+        }
+
+        .student-message-card__top {
+            align-items: center;
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+        }
+
+        .student-message-card__top h4 {
+            color: var(--primary-deep);
+            margin: 0;
+        }
+
+        .student-message-card p {
+            color: var(--text-muted);
+            line-height: 1.65;
+            margin: 0;
+        }
+
+        .student-message-card__footer {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel hero-panel--stacked-metrics">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Messages</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="role-description">{{ page_description }}</p>
+        </div>
+        <div class="hero-panel__metrics">
+            {% for item in summary_cards %}
+                <article class="metric-card">
+                    <p class="metric-card__label">{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.hint }}</span>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Inbox</p>
+            <h3>站内信</h3>
+        </div>
+        <div class="student-message-list">
+            {% for message in message_rows %}
+                <article class="student-message-card{% if not message.is_read %} student-message-card--unread{% endif %}">
+                    <div class="student-message-card__top">
+                        <h4>{{ message.title }}</h4>
+                        <span class="state-pill state-pill--{% if message.is_read %}future{% else %}locked{% endif %}">{{ message.status_text }}</span>
+                    </div>
+                    <p>{{ message.body }}</p>
+                    <div class="student-message-card__footer">
+                        <span class="section-heading__eyebrow">{{ message.created_at_text }}</span>
+                        <a class="login-button" href="{{ message.open_href }}">查看对应题目</a>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="entry-hint-bar">{{ empty_message }}</div>
+            {% endfor %}
+        </div>
+        <div class="topic-access-modal__footer topic-access-modal__footer--course">
+            <a class="teacher-anchor-link" href="{{ back_href }}">返回课程选择页</a>
+        </div>
+    </section>
+{% endblock %}

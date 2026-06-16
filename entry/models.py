@@ -805,6 +805,134 @@ class ExamQuestion(models.Model):
         return f"{self.paper.title} - 第{self.question_no}题"
 
 
+class ExamQuestionAnalysisBlock(models.Model):
+    SOURCE_AI = "ai"
+    SOURCE_TEACHER = "teacher"
+    SOURCE_STUDENT = "student"
+    SOURCE_MERGED = "merged"
+
+    SOURCE_CHOICES = [
+        (SOURCE_AI, "AI 解析"),
+        (SOURCE_TEACHER, "老师解析"),
+        (SOURCE_STUDENT, "学生贡献"),
+        (SOURCE_MERGED, "汇总解析"),
+    ]
+
+    question = models.ForeignKey(ExamQuestion, on_delete=models.CASCADE, related_name="analysis_blocks")
+    source_type = models.CharField("解析来源", max_length=32, choices=SOURCE_CHOICES, default=SOURCE_TEACHER)
+    content_md = models.TextField("解析 Markdown")
+    contributors_json = models.JSONField("贡献者快照", default=list, blank=True)
+    created_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_exam_analysis_blocks",
+    )
+    is_visible = models.BooleanField("是否展示", default=True)
+    sort_order = models.PositiveIntegerField("排序", default=0)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["question_id", "sort_order", "id"]
+        verbose_name = "考试题目解析块"
+        verbose_name_plural = "考试题目解析块"
+        indexes = [
+            models.Index(fields=["question", "is_visible", "sort_order"], name="exam_analysis_q_visible_idx"),
+            models.Index(fields=["source_type", "is_visible"], name="exam_analysis_source_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.question} - {self.get_source_type_display()}"
+
+
+class ExamQuestionAnalysisSuggestion(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_ACCEPTED = "accepted"
+    STATUS_REJECTED = "rejected"
+    STATUS_MERGED = "merged"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "待审核"),
+        (STATUS_ACCEPTED, "已采纳"),
+        (STATUS_REJECTED, "已忽略"),
+        (STATUS_MERGED, "已汇总"),
+    ]
+
+    question = models.ForeignKey(ExamQuestion, on_delete=models.CASCADE, related_name="analysis_suggestions")
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="exam_analysis_suggestions")
+    session = models.ForeignKey(
+        "ExamSession",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="analysis_suggestions",
+    )
+    content_md = models.TextField("学生解析 Markdown")
+    status = models.CharField("状态", max_length=32, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    accepted_block = models.ForeignKey(
+        ExamQuestionAnalysisBlock,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="source_suggestions",
+    )
+    reviewed_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_exam_analysis_suggestions",
+    )
+    reviewed_at = models.DateTimeField("审核时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "考试题目解析建议"
+        verbose_name_plural = "考试题目解析建议"
+        indexes = [
+            models.Index(fields=["question", "status", "created_at"], name="exam_analysis_sug_q_idx"),
+            models.Index(fields=["student", "status", "created_at"], name="exam_analysis_sug_stu_idx"),
+            models.Index(fields=["session", "status"], name="exam_analysis_sug_sess_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.question} - {self.student.display_name}"
+
+
+class StudentSiteMessage(models.Model):
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="site_messages")
+    source_suggestion = models.ForeignKey(
+        ExamQuestionAnalysisSuggestion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="student_site_messages",
+    )
+    title = models.CharField("标题", max_length=160)
+    body = models.TextField("正文", blank=True)
+    target_href = models.CharField("跳转链接", max_length=500, blank=True)
+    is_read = models.BooleanField("是否已读", default=False)
+    read_at = models.DateTimeField("阅读时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "学生站内信"
+        verbose_name_plural = "学生站内信"
+        indexes = [
+            models.Index(fields=["student", "is_read", "created_at"], name="student_msg_unread_idx"),
+            models.Index(fields=["source_suggestion"], name="student_msg_suggestion_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.student.display_name} - {self.title}"
+
+
 class ExamQuestionBankItem(models.Model):
     QUESTION_TYPE_SINGLE_CHOICE = "single_choice"
     SOURCE_MANUAL = "manual"
@@ -951,10 +1079,22 @@ class ExamQuestionBankImportJob(models.Model):
 class ExamQuestionBankPaper(models.Model):
     SOURCE_HERMES = "hermes"
     SOURCE_LOCAL_OCR = "local_ocr"
+    ANALYSIS_STATUS_NOT_STARTED = "not_started"
+    ANALYSIS_STATUS_RUNNING = "running"
+    ANALYSIS_STATUS_COMPLETED = "completed"
+    ANALYSIS_STATUS_PARTIAL = "partial"
+    ANALYSIS_STATUS_FAILED = "failed"
 
     SOURCE_CHOICES = [
         (SOURCE_HERMES, "Hermes 题库"),
         (SOURCE_LOCAL_OCR, "本地 OCR 导入"),
+    ]
+    ANALYSIS_STATUS_CHOICES = [
+        (ANALYSIS_STATUS_NOT_STARTED, "未生成"),
+        (ANALYSIS_STATUS_RUNNING, "解析中"),
+        (ANALYSIS_STATUS_COMPLETED, "解析完成"),
+        (ANALYSIS_STATUS_PARTIAL, "部分完成"),
+        (ANALYSIS_STATUS_FAILED, "解析失败"),
     ]
 
     level = models.CharField("级别", max_length=32)
@@ -965,6 +1105,18 @@ class ExamQuestionBankPaper(models.Model):
     title = models.CharField("试卷标题", max_length=255)
     import_batch_uid = models.CharField("导入批次 UID", max_length=128, blank=True)
     source = models.CharField("来源", max_length=32, choices=SOURCE_CHOICES, default=SOURCE_HERMES)
+    analysis_generation_status = models.CharField(
+        "AI 解析状态",
+        max_length=32,
+        choices=ANALYSIS_STATUS_CHOICES,
+        default=ANALYSIS_STATUS_NOT_STARTED,
+    )
+    analysis_generation_started_at = models.DateTimeField("AI 解析开始时间", null=True, blank=True)
+    analysis_generation_completed_at = models.DateTimeField("AI 解析完成时间", null=True, blank=True)
+    analysis_generation_total_count = models.PositiveIntegerField("AI 解析总题数", default=0)
+    analysis_generation_done_count = models.PositiveIntegerField("AI 解析完成题数", default=0)
+    analysis_generation_failed_count = models.PositiveIntegerField("AI 解析失败题数", default=0)
+    analysis_generation_error = models.TextField("AI 解析错误", blank=True)
     is_active = models.BooleanField("是否启用", default=True)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     updated_at = models.DateTimeField("更新时间", auto_now=True)
@@ -1229,6 +1381,13 @@ class ExamSession(models.Model):
     ]
 
     paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE, related_name="sessions")
+    exam_run = models.ForeignKey(
+        "ExamRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sessions",
+    )
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="exam_sessions")
     assigned_by = models.ForeignKey(
         PortalUser,
@@ -1268,10 +1427,41 @@ class ExamSession(models.Model):
         indexes = [
             models.Index(fields=["student", "status", "is_active"], name="exam_sess_student_status_idx"),
             models.Index(fields=["paper", "status", "is_active"], name="exam_sess_paper_status_idx"),
+            models.Index(fields=["exam_run", "status", "is_active"], name="exam_sess_run_status_idx"),
         ]
 
     def __str__(self) -> str:
         return f"{self.student.display_name} - {self.paper.title}"
+
+
+class ExamRun(models.Model):
+    paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE, related_name="runs")
+    access_code = models.CharField("考试入口口令", max_length=6)
+    generated_at = models.DateTimeField("口令生成时间", default=timezone.now)
+    starts_at = models.DateTimeField("场次开始时间", null=True, blank=True)
+    ends_at = models.DateTimeField("场次结束时间", null=True, blank=True)
+    created_by = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_exam_runs",
+    )
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-generated_at", "-id"]
+        verbose_name = "考试场次"
+        verbose_name_plural = "考试场次"
+        indexes = [
+            models.Index(fields=["paper", "is_active", "generated_at"], name="exam_run_paper_time_idx"),
+            models.Index(fields=["access_code", "is_active"], name="exam_run_code_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.paper.title} - {self.generated_at:%Y-%m-%d %H:%M}"
 
 
 class ExamSubmissionAnswer(models.Model):

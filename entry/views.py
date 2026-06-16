@@ -1,8 +1,10 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import re
 import uuid
 import unicodedata
+import threading
 from io import BytesIO
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -10,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.db.models import Count, F, Max
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.storage import default_storage
@@ -54,13 +56,19 @@ from .exam_online import (
     create_exam_practice_session,
     create_exam_for_students,
     create_or_get_exam_session_by_access_code,
+    ensure_exam_run_for_paper,
     generate_unique_exam_access_code,
+    get_exam_session_questions,
     grade_exam_session,
     normalize_exam_answer,
     normalize_exam_options,
     record_exam_proctor_event,
     recalculate_exam_scores_for_paper,
     start_exam_session,
+)
+from .exam_analysis import (
+    generate_ai_analysis_for_bank_question,
+    sync_legacy_question_analysis,
 )
 from .exam_paper_import import (
     ExamPaperImportConfirmError,
@@ -93,6 +101,8 @@ from .models import (
     CourseLevel,
     ExamPaper,
     ExamQuestion,
+    ExamQuestionAnalysisBlock,
+    ExamQuestionAnalysisSuggestion,
     ExamQuestionBankAsset,
     ExamQuestionBankImportJob,
     ExamQuestionBankItem,
@@ -110,6 +120,7 @@ from .models import (
     Question,
     RewardRecord,
     Student,
+    StudentSiteMessage,
     TeacherEvaluation,
     TeacherStudentAssignment,
 )
@@ -131,6 +142,7 @@ from .portal_context import (
     build_student_exam_list_context,
     build_student_exam_print_context,
     build_student_exam_record_detail_context,
+    build_student_site_message_context,
     build_student_practice_page_shell,
     build_teacher_assignment_form_context,
     build_teacher_assignment_remove_context,
@@ -2941,7 +2953,7 @@ def get_exam_bank_paper_review_context(
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "考试管理", "href": reverse("teacher-exams")},
-            {"label": "发布考试", "href": f"{reverse('teacher-exams')}#available-exam-papers"},
+            {"label": "试卷管理", "href": f"{reverse('teacher-exams')}#available-exam-papers"},
             {"label": "编辑试卷" if is_edit else "预览试卷"},
         ],
         "paper": paper,
@@ -3361,6 +3373,31 @@ def student_exam_list(request: HttpRequest) -> HttpResponse:
 
 
 @role_required("student")
+def student_site_messages(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    context = build_student_site_message_context(portal_user)
+    return render_shell_page(request, "student", "entry/student_site_messages.html", context)
+
+
+@role_required("student")
+def student_site_message_open(request: HttpRequest, message_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    try:
+        message = StudentSiteMessage.objects.get(id=message_id, student=student)
+    except StudentSiteMessage.DoesNotExist as exc:
+        raise Http404("未找到该消息") from exc
+    if not message.is_read:
+        message.is_read = True
+        message.read_at = timezone.now()
+        message.save(update_fields=["is_read", "read_at", "updated_at"])
+    target_href = str(message.target_href or "").strip()
+    if target_href:
+        return redirect(target_href)
+    return redirect(reverse("student-site-messages"))
+
+
+@role_required("student")
 def student_exam_record_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     try:
@@ -3401,6 +3438,8 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
             context["success_message"] = "练习场次已创建，可以开始作答。"
         elif request.GET.get("op") == "code_accepted":
             context["success_message"] = "口令校验成功，可以开始考试。"
+        elif request.GET.get("op") == "analysis_suggestion_submitted":
+            context["success_message"] = "你的解析挑战已提交，老师采纳后会展示给同学们。"
         return render_shell_page(request, "student", "entry/student_exam_detail.html", context)
 
     try:
@@ -3439,6 +3478,32 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
                 build_redirect_with_query(
                     reverse("student-exam-detail", args=[practice_session.id]),
                     params={"op": "practice_started"},
+                )
+            )
+
+        if action.startswith("submit_analysis_suggestion"):
+            if session.status not in {ExamSession.STATUS_SUBMITTED, ExamSession.STATUS_AUTO_CHECKED}:
+                return render_exam(error_message="交卷后才能提交解析挑战。")
+            _action_name, _separator, action_question_id = action.partition(":")
+            question_id = normalize_positive_int(action_question_id, default=0, minimum=1)
+            suggestion_text = str(request.POST.get(f"analysis_suggestion_{question_id}") or "").strip()
+            if len("".join(suggestion_text.split())) < 5:
+                return render_exam(error_message="解析挑战内容太短，请至少写出一句完整说明。", focus_question_id=question_id)
+            questions_by_id = {question.id: question for question in get_exam_session_questions(session)}
+            question = questions_by_id.get(question_id)
+            if not question:
+                return render_exam(error_message="未找到这道题，无法提交解析挑战。")
+            ExamQuestionAnalysisSuggestion.objects.create(
+                question=question,
+                student=student,
+                session=session,
+                content_md=suggestion_text,
+            )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("student-exam-detail", args=[session.id]),
+                    params={"op": "analysis_suggestion_submitted"},
+                    anchor=f"student-exam-question-{question.id}",
                 )
             )
 
@@ -4355,7 +4420,7 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
             bank_paper,
             remove_visual_placeholders=bool(first_asset),
         )
-        ExamQuestion.objects.update_or_create(
+        question, _created = ExamQuestion.objects.update_or_create(
             paper=exam_paper,
             question_no=bank_question.question_no,
             defaults={
@@ -4385,8 +4450,192 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                 "is_active": True,
             },
         )
+        if bank_question.analysis_md.strip():
+            ExamQuestionAnalysisBlock.objects.update_or_create(
+                question=question,
+                source_type=ExamQuestionAnalysisBlock.SOURCE_TEACHER,
+                sort_order=0,
+                defaults={
+                    "content_md": bank_question.analysis_md.strip(),
+                    "is_visible": True,
+                },
+            )
+        sync_legacy_question_analysis(question)
         synced_count += 1
     return synced_count
+
+
+EXAM_BANK_PAPER_ANALYSIS_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="exam-bank-analysis")
+EXAM_BANK_PAPER_ANALYSIS_LOCK = threading.Lock()
+EXAM_BANK_PAPER_ANALYSIS_FUTURES: dict[int, object] = {}
+
+
+def get_exam_bank_paper_analysis_questions(bank_paper: ExamQuestionBankPaper):
+    return bank_paper.questions.filter(
+        question_type__in=[
+            ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+        ]
+    ).order_by("question_no", "id")
+
+
+def refresh_exam_bank_paper_analysis_status(bank_paper: ExamQuestionBankPaper, *, error_message: str = "") -> ExamQuestionBankPaper:
+    questions = list(get_exam_bank_paper_analysis_questions(bank_paper).only("id", "analysis_md"))
+    total_count = len(questions)
+    done_count = sum(1 for question in questions if str(question.analysis_md or "").strip())
+    failed_count = max(total_count - done_count, 0)
+    if total_count and done_count >= total_count:
+        status = ExamQuestionBankPaper.ANALYSIS_STATUS_COMPLETED
+        failed_count = 0
+    elif done_count > 0:
+        status = ExamQuestionBankPaper.ANALYSIS_STATUS_PARTIAL
+    elif error_message:
+        status = ExamQuestionBankPaper.ANALYSIS_STATUS_FAILED
+    else:
+        status = ExamQuestionBankPaper.ANALYSIS_STATUS_NOT_STARTED
+        failed_count = 0
+    bank_paper.analysis_generation_status = status
+    bank_paper.analysis_generation_total_count = total_count
+    bank_paper.analysis_generation_done_count = done_count
+    bank_paper.analysis_generation_failed_count = failed_count
+    bank_paper.analysis_generation_error = error_message[:1000]
+    bank_paper.analysis_generation_completed_at = timezone.now() if status != ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING else None
+    bank_paper.save(
+        update_fields=[
+            "analysis_generation_status",
+            "analysis_generation_total_count",
+            "analysis_generation_done_count",
+            "analysis_generation_failed_count",
+            "analysis_generation_error",
+            "analysis_generation_completed_at",
+            "updated_at",
+        ]
+    )
+    return bank_paper
+
+
+def sync_exam_questions_for_bank_paper_usage(bank_paper: ExamQuestionBankPaper) -> int:
+    marker = build_exam_bank_paper_publish_marker(bank_paper.id)
+    synced_count = 0
+    for exam_paper in ExamPaper.objects.filter(is_active=True, description__contains=marker).order_by("id"):
+        synced_count += sync_exam_questions_from_bank_paper(exam_paper=exam_paper, bank_paper=bank_paper)
+    return synced_count
+
+
+def run_exam_bank_paper_analysis_generation(bank_paper_id: int) -> None:
+    if threading.current_thread() is not threading.main_thread():
+        close_old_connections()
+    error_messages: list[str] = []
+    try:
+        bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id, is_active=True)
+        questions = list(get_exam_bank_paper_analysis_questions(bank_paper).prefetch_related("options", "assets"))
+        total_count = len(questions)
+        bank_paper.analysis_generation_total_count = total_count
+        bank_paper.analysis_generation_done_count = sum(1 for question in questions if str(question.analysis_md or "").strip())
+        bank_paper.analysis_generation_failed_count = 0
+        bank_paper.save(
+            update_fields=[
+                "analysis_generation_total_count",
+                "analysis_generation_done_count",
+                "analysis_generation_failed_count",
+                "updated_at",
+            ]
+        )
+        missing_questions = [question for question in questions if not str(question.analysis_md or "").strip()]
+        if not missing_questions:
+            refresh_exam_bank_paper_analysis_status(bank_paper)
+            sync_exam_questions_for_bank_paper_usage(bank_paper)
+            return
+
+        worker_count = max(1, min(int(getattr(settings, "EXAM_AI_ANALYSIS_QUESTION_CONCURRENCY", 2)), len(missing_questions), 4))
+
+        def generate_one(question_id: int) -> tuple[int, str, str]:
+            should_manage_db_connection = threading.current_thread() is not threading.main_thread()
+            if should_manage_db_connection:
+                close_old_connections()
+            try:
+                question = (
+                    ExamQuestionBankQuestion.objects.select_related("paper")
+                    .prefetch_related("options", "assets")
+                    .get(id=question_id, paper_id=bank_paper_id)
+                )
+                if str(question.analysis_md or "").strip():
+                    return question_id, "skipped", ""
+                analysis_md = generate_ai_analysis_for_bank_question(question).strip()
+                if not analysis_md:
+                    return question_id, "failed", "Qwen 返回空解析。"
+                question.analysis_md = analysis_md
+                question.save(update_fields=["analysis_md", "updated_at"])
+                return question_id, "done", ""
+            except Exception as exc:  # noqa: BLE001 - background status must capture Qwen errors.
+                return question_id, "failed", str(exc)
+            finally:
+                if should_manage_db_connection:
+                    close_old_connections()
+
+        if worker_count == 1:
+            question_results = [generate_one(question.id) for question in missing_questions]
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix=f"exam-analysis-q-{bank_paper_id}") as executor:
+                question_results = [future.result() for future in as_completed([executor.submit(generate_one, question.id) for question in missing_questions])]
+        for _question_id, result, error_message in question_results:
+            if result == "failed" and error_message:
+                error_messages.append(error_message)
+            latest_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id)
+            latest_questions = list(get_exam_bank_paper_analysis_questions(latest_paper).only("id", "analysis_md"))
+            done_count = sum(1 for question in latest_questions if str(question.analysis_md or "").strip())
+            latest_paper.analysis_generation_done_count = done_count
+            latest_paper.analysis_generation_failed_count = len(error_messages)
+            latest_paper.analysis_generation_error = "；".join(error_messages[-3:])[:1000]
+            latest_paper.save(
+                update_fields=[
+                    "analysis_generation_done_count",
+                    "analysis_generation_failed_count",
+                    "analysis_generation_error",
+                    "updated_at",
+                ]
+            )
+
+        bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id)
+        refresh_exam_bank_paper_analysis_status(bank_paper, error_message="；".join(error_messages[-3:]))
+        sync_exam_questions_for_bank_paper_usage(bank_paper)
+    except Exception:
+        logger.exception("exam bank paper analysis generation failed bank_paper_id=%s", bank_paper_id)
+        try:
+            bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id)
+            refresh_exam_bank_paper_analysis_status(bank_paper, error_message="后台解析任务异常，请稍后重试。")
+        except Exception:
+            logger.exception("failed to update exam bank paper analysis status bank_paper_id=%s", bank_paper_id)
+    finally:
+        with EXAM_BANK_PAPER_ANALYSIS_LOCK:
+            EXAM_BANK_PAPER_ANALYSIS_FUTURES.pop(bank_paper_id, None)
+        if threading.current_thread() is not threading.main_thread():
+            close_old_connections()
+
+
+def start_exam_bank_paper_analysis_generation(bank_paper_id: int) -> bool:
+    with transaction.atomic():
+        bank_paper = ExamQuestionBankPaper.objects.select_for_update().get(id=bank_paper_id, is_active=True)
+        if bank_paper.analysis_generation_status == ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING:
+            return False
+        bank_paper.analysis_generation_status = ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING
+        bank_paper.analysis_generation_started_at = timezone.now()
+        bank_paper.analysis_generation_completed_at = None
+        bank_paper.analysis_generation_error = ""
+        bank_paper.save(
+            update_fields=[
+                "analysis_generation_status",
+                "analysis_generation_started_at",
+                "analysis_generation_completed_at",
+                "analysis_generation_error",
+                "updated_at",
+            ]
+        )
+    with EXAM_BANK_PAPER_ANALYSIS_LOCK:
+        future = EXAM_BANK_PAPER_ANALYSIS_EXECUTOR.submit(run_exam_bank_paper_analysis_generation, bank_paper_id)
+        EXAM_BANK_PAPER_ANALYSIS_FUTURES[bank_paper_id] = future
+    return True
 
 
 def sync_exam_questions_from_linked_bank_paper(exam_paper: ExamPaper) -> int:
@@ -4464,6 +4713,8 @@ def apply_exam_management_schedule(
     elif paper.status != ExamPaper.STATUS_PUBLISHED:
         paper.status = ExamPaper.STATUS_DRAFT
     paper.save(update_fields=update_fields)
+    if start_immediately:
+        ensure_exam_run_for_paper(paper=paper, teacher=paper.teacher)
     return paper
 
 
@@ -4515,6 +4766,7 @@ def create_or_update_exam_management_from_bank_paper(
         exam_paper.access_code = generate_unique_exam_access_code()
         exam_paper.access_code_generated_at = timezone.now()
         exam_paper.save(update_fields=["access_code", "access_code_generated_at", "updated_at"])
+        ensure_exam_run_for_paper(paper=exam_paper, teacher=teacher)
     sync_exam_questions_from_bank_paper(exam_paper=exam_paper, bank_paper=bank_paper)
     return exam_paper, True
 
@@ -4570,6 +4822,14 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
         elif op == "bank_paper_deleted":
             delete_mode = str(request.GET.get("mode") or "").strip()
             success_message = "未发布试卷已硬删除。" if delete_mode == "hard" else "可用试卷已删除。"
+        elif op == "bank_paper_analysis_started":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            success_message = f"{paper.title} 已开始后台生成 AI 解析，可继续操作其他试卷。" if paper else "已开始后台生成 AI 解析。"
+        elif op == "bank_paper_analysis_running":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            success_message = f"{paper.title} 正在生成 AI 解析，请稍后刷新查看状态。" if paper else "这张试卷正在生成 AI 解析。"
         elif op in {"bank_paper_added", "bank_paper_exists"}:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).first()
@@ -4632,6 +4892,23 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 build_redirect_with_query(
                     reverse("teacher-exams"),
                     params={"op": "bank_paper_deleted", "mode": delete_result["mode"]},
+                    anchor="available-exam-papers",
+                )
+                )
+
+        if action == "generate_bank_paper_analysis":
+            bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            try:
+                started = start_exam_bank_paper_analysis_generation(bank_paper_id)
+            except ExamQuestionBankPaper.DoesNotExist:
+                return render_exam_page(error_message="未找到这张可用试卷。")
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={
+                        "op": "bank_paper_analysis_started" if started else "bank_paper_analysis_running",
+                        "paper_id": bank_paper_id,
+                    },
                     anchor="available-exam-papers",
                 )
             )
@@ -5255,8 +5532,15 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     if request.method == "POST":
         action = str(request.POST.get("form_action") or "").strip()
-        if action not in {"mark_exam_question_important", "update_exam_question_answer", "update_exam_question_analysis"}:
+        if action not in {
+            "mark_exam_question_important",
+            "update_exam_question_answer",
+            "update_exam_question_analysis",
+            "accept_exam_analysis_suggestion",
+            "reject_exam_analysis_suggestion",
+        }:
             return redirect(reverse("teacher-exam-detail", args=[paper_id]))
+        stats_exam_run_id = normalize_positive_int(request.POST.get("stats_exam_run_id"), default=0, minimum=0)
         stats_student_id = normalize_positive_int(request.POST.get("stats_student_id"), default=0, minimum=0)
         question_id = normalize_positive_int(request.POST.get("question_id"), default=0, minimum=1)
         try:
@@ -5268,6 +5552,8 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
         except ExamQuestion.DoesNotExist as exc:
             raise Http404("未找到该考试题目") from exc
         redirect_params = {"question": question.question_no}
+        if stats_exam_run_id:
+            redirect_params["stats_exam_run_id"] = stats_exam_run_id
         if stats_student_id:
             redirect_params["stats_student_id"] = stats_student_id
         if action == "update_exam_question_answer":
@@ -5295,13 +5581,93 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
             )
         if action == "update_exam_question_analysis":
             analysis = str(request.POST.get("analysis") or "").strip()
-            question.analysis = analysis
-            question.save(update_fields=["analysis", "updated_at"])
+            ExamQuestionAnalysisBlock.objects.update_or_create(
+                question=question,
+                source_type=ExamQuestionAnalysisBlock.SOURCE_TEACHER,
+                sort_order=0,
+                defaults={
+                    "content_md": analysis,
+                    "created_by": portal_user,
+                    "is_visible": bool(analysis),
+                },
+            )
+            analysis = sync_legacy_question_analysis(question)
             ExamSubmissionAnswer.objects.filter(question=question).update(
                 analysis_snapshot=analysis,
                 updated_at=timezone.now(),
             )
             redirect_params["op"] = "analysis_updated"
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exam-detail", args=[paper_id]),
+                    params=redirect_params,
+                    anchor=f"exam-question-{question.id}",
+                )
+            )
+        if action in {"accept_exam_analysis_suggestion", "reject_exam_analysis_suggestion"}:
+            suggestion_id = normalize_positive_int(request.POST.get("suggestion_id"), default=0, minimum=1)
+            try:
+                suggestion = (
+                    ExamQuestionAnalysisSuggestion.objects.select_related("student", "question")
+                    .filter(
+                        id=suggestion_id,
+                        question=question,
+                        question__paper_id=paper_id,
+                        status=ExamQuestionAnalysisSuggestion.STATUS_PENDING,
+                    )
+                    .get()
+                )
+            except ExamQuestionAnalysisSuggestion.DoesNotExist as exc:
+                raise Http404("未找到该解析建议") from exc
+            if action == "reject_exam_analysis_suggestion":
+                suggestion.status = ExamQuestionAnalysisSuggestion.STATUS_REJECTED
+                suggestion.reviewed_by = portal_user
+                suggestion.reviewed_at = timezone.now()
+                suggestion.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+                create_student_analysis_suggestion_message(suggestion)
+                redirect_params["op"] = "analysis_suggestion_rejected"
+                return redirect(
+                    build_redirect_with_query(
+                        reverse("teacher-exam-detail", args=[paper_id]),
+                        params=redirect_params,
+                        anchor=f"exam-question-{question.id}",
+                    )
+                )
+            accepted_content = str(request.POST.get("accepted_analysis") or suggestion.content_md or "").strip()
+            contributor_name = suggestion.student.display_name
+            contributor_heading = f"本解析由 {contributor_name} 同学提供"
+            accepted_body = re.sub(r"^\s*-{3,}\s*", "", accepted_content).strip()
+            accepted_body = re.sub(
+                rf"^\s*(\*\*)?本解析由\s+{re.escape(contributor_name)}\s+同学提供。?(\*\*)?\s*",
+                "",
+                accepted_body,
+            ).strip()
+            accepted_content = f"---\n\n{contributor_heading}\n\n{accepted_body or suggestion.content_md.strip()}"
+            max_sort_order = (
+                ExamQuestionAnalysisBlock.objects.filter(question=question).aggregate(Max("sort_order")).get("sort_order__max")
+                or 10
+            )
+            block = ExamQuestionAnalysisBlock.objects.create(
+                question=question,
+                source_type=ExamQuestionAnalysisBlock.SOURCE_STUDENT,
+                content_md=accepted_content,
+                contributors_json=[{"student_id": suggestion.student_id, "name": contributor_name}],
+                created_by=portal_user,
+                is_visible=True,
+                sort_order=int(max_sort_order) + 10,
+            )
+            suggestion.status = ExamQuestionAnalysisSuggestion.STATUS_ACCEPTED
+            suggestion.accepted_block = block
+            suggestion.reviewed_by = portal_user
+            suggestion.reviewed_at = timezone.now()
+            suggestion.save(update_fields=["status", "accepted_block", "reviewed_by", "reviewed_at", "updated_at"])
+            create_student_analysis_suggestion_message(suggestion)
+            analysis = sync_legacy_question_analysis(question)
+            ExamSubmissionAnswer.objects.filter(question=question).update(
+                analysis_snapshot=analysis,
+                updated_at=timezone.now(),
+            )
+            redirect_params["op"] = "analysis_suggestion_accepted"
             return redirect(
                 build_redirect_with_query(
                     reverse("teacher-exam-detail", args=[paper_id]),
@@ -5326,6 +5692,7 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
         context = build_teacher_exam_detail_context(
             portal_user,
             paper_id,
+            selected_exam_run_id=normalize_positive_int(request.GET.get("stats_exam_run_id"), default=0, minimum=0),
             selected_student_id=normalize_positive_int(request.GET.get("stats_student_id"), default=0, minimum=0),
         )
     except ObjectDoesNotExist as exc:
@@ -5336,9 +5703,34 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
         context["success_message"] = f"已修改第 {request.GET.get('question') or ''} 题标准答案，并同步重算 {request.GET.get('sessions') or '0'} 条提交记录。"
     elif request.GET.get("op") == "analysis_updated":
         context["success_message"] = f"已更新第 {request.GET.get('question') or ''} 题解析，学生端结果页会同步显示。"
+    elif request.GET.get("op") == "analysis_suggestion_accepted":
+        context["success_message"] = f"已采纳第 {request.GET.get('question') or ''} 题的学生解析，学生端结果页会同步显示。"
+    elif request.GET.get("op") == "analysis_suggestion_rejected":
+        context["success_message"] = f"已忽略第 {request.GET.get('question') or ''} 题的学生解析建议。"
     elif request.GET.get("op") == "answer_update_failed":
         context["error_message"] = f"第 {request.GET.get('question') or ''} 题标准答案无效，请选择当前题目已有选项。"
     return render_shell_page(request, "teacher", "entry/teacher_exam_detail.html", context)
+
+
+def create_student_analysis_suggestion_message(suggestion: ExamQuestionAnalysisSuggestion) -> StudentSiteMessage | None:
+    if not suggestion.session_id:
+        return None
+    question = suggestion.question
+    paper = question.paper
+    status_text = dict(ExamQuestionAnalysisSuggestion.STATUS_CHOICES).get(suggestion.status, "已处理")
+    target_href = f"{reverse('student-exam-detail', args=[suggestion.session_id])}#student-analysis-suggestion-{suggestion.id}"
+    message, _created = StudentSiteMessage.objects.update_or_create(
+        source_suggestion=suggestion,
+        defaults={
+            "student": suggestion.student,
+            "title": f"解析挑战{status_text}",
+            "body": f"{paper.title} 第 {question.question_no} 题的解析挑战已{status_text}。",
+            "target_href": target_href,
+            "is_read": False,
+            "read_at": None,
+        },
+    )
+    return message
 
 
 @role_required("teacher")
