@@ -40,6 +40,10 @@
                 min-height: 104px;
             }
 
+            .system-content-grid--teacher-workbench {
+                grid-template-columns: 1fr;
+            }
+
             @media (max-width: 960px) {
                 .hero-panel__metrics--teacher-workbench {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -77,7 +81,7 @@
         </div>
     </section>
 
-    <div class="system-content-grid">
+    <div class="system-content-grid{% if role_key == 'teacher' %} system-content-grid--teacher-workbench{% endif %}">
         <section class="surface-panel surface-panel--primary">
             <div class="section-heading">
                 <p class="section-heading__eyebrow">{{ page_shell.section_eyebrow }}</p>
@@ -509,46 +513,48 @@
             {% endif %}
         </section>
 
-        <aside class="system-aside">
-            <section class="surface-panel">
-                <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">System Context</p>
-                    <h3>当前页面上下文</h3>
-                </div>
-
-                <div class="context-list">
-                    <div class="context-list__item">
-                        <span>当前角色</span>
-                        <strong>{{ role_label }}</strong>
+        {% if role_key != "teacher" %}
+            <aside class="system-aside">
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">System Context</p>
+                        <h3>当前页面上下文</h3>
                     </div>
-                    <div class="context-list__item">
-                        <span>当前用户</span>
-                        <strong>{{ viewer_display_name }}</strong>
-                    </div>
-                    <div class="context-list__item">
-                        <span>访问路径</span>
-                        <strong>{{ request.path }}</strong>
-                    </div>
-                </div>
-            </section>
 
-            <section class="surface-panel">
-                <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">{{ page_shell.support_label }}</p>
-                    <h3>{{ page_shell.support_title }}</h3>
-                    <p>{{ page_shell.support_description }}</p>
-                </div>
+                    <div class="context-list">
+                        <div class="context-list__item">
+                            <span>当前角色</span>
+                            <strong>{{ role_label }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>当前用户</span>
+                            <strong>{{ viewer_display_name }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>访问路径</span>
+                            <strong>{{ request.path }}</strong>
+                        </div>
+                    </div>
+                </section>
 
-                <ul class="support-list">
-                    {% for item in page_shell.support_items %}
-                        <li>
-                            <strong>{{ item.title }}</strong>
-                            <span>{{ item.description }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </section>
-        </aside>
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">{{ page_shell.support_label }}</p>
+                        <h3>{{ page_shell.support_title }}</h3>
+                        <p>{{ page_shell.support_description }}</p>
+                    </div>
+
+                    <ul class="support-list">
+                        {% for item in page_shell.support_items %}
+                            <li>
+                                <strong>{{ item.title }}</strong>
+                                <span>{{ item.description }}</span>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </section>
+            </aside>
+        {% endif %}
     </div>
 {% endblock %}
 

@@ -772,7 +772,8 @@ class HomeworkMVPTests(TestCase):
         response = self.client.get(reverse("teacher-students"), {"tab": "students"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "C++ · 添加新学生")
+        self.assertContains(response, "添加新学生")
+        self.assertNotContains(response, "C++ · 添加新学生")
         self.assertContains(response, "导入学生")
         self.assertContains(
             response,
@@ -787,7 +788,8 @@ class HomeworkMVPTests(TestCase):
         response = self.client.get(reverse("teacher-students"), {"tab": "students"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "C++ · 添加新学生")
+        self.assertContains(response, "添加新学生")
+        self.assertNotContains(response, "C++ · 添加新学生")
         self.assertContains(response, "导入学生")
 
     def test_non_teacher001_cannot_see_student_import_button_on_course_students_page(self) -> None:
@@ -804,7 +806,8 @@ class HomeworkMVPTests(TestCase):
         response = self.client.get(reverse("teacher-students"), {"tab": "students"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "C++ · 添加新学生")
+        self.assertContains(response, "添加新学生")
+        self.assertNotContains(response, "C++ · 添加新学生")
         self.assertNotContains(response, "导入学生")
 
     def test_non_teacher001_cannot_post_student_csv_import(self) -> None:

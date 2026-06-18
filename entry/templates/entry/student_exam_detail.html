@@ -462,11 +462,6 @@
                             <strong>{{ question_rows|length }} 题</strong>
                             <p>支持单选、判断，编程题暂展示题面</p>
                         </article>
-                        <article class="topic-work-card__meta-item">
-                            <span>监考</span>
-                            <strong>{% if session.proctoring_enabled %}已开启{% else %}未开启{% endif %}</strong>
-                            <p>开始后记录切屏和窗口事件</p>
-                        </article>
                     </div>
                     <div class="record-inline-feedback">
                         <strong>入口状态</strong>
@@ -511,6 +506,7 @@
                                         <div>
                                             <h5>第 {{ question.question_no }} 题</h5>
                                             <p>{{ question.question_type_text }} · {{ question.score }} 分</p>
+                                            <p class="section-heading__eyebrow">知识点：{{ question.knowledge_display }}</p>
                                         </div>
                                         {% if show_feedback %}
                                             <span class="state-pill state-pill--{% if question.is_correct %}open{% else %}locked{% endif %}">
@@ -728,10 +724,11 @@
                 }
             }
 
-            function saveCurrentAnswers() {
+            function saveCurrentAnswers(extra) {
                 if (!showAnswerSheet) {
                     return;
                 }
+                const existingCache = readCache();
                 const answers = {};
                 const explanations = {};
                 cards.forEach((card) => {
@@ -745,7 +742,12 @@
                         explanations[questionId] = explanation.value;
                     }
                 });
-                writeCache({answers: answers, explanations: explanations, savedAt: Date.now()});
+                writeCache({
+                    answers: answers,
+                    explanations: explanations,
+                    activeQuestionId: (extra && extra.activeQuestionId) || existingCache.activeQuestionId || "",
+                    savedAt: Date.now()
+                });
             }
 
             function restoreCachedAnswers() {
@@ -799,6 +801,7 @@
                 buttons.forEach((button) => {
                     button.classList.toggle("is-active", button.dataset.studentExamQuestionButton === activeId);
                 });
+                saveCurrentAnswers({activeQuestionId: activeId});
             }
             window.activateStudentExamQuestion = function (questionId) {
                 const targetIndex = cards.findIndex((card) => card.dataset.studentExamQuestionCard === String(questionId));
@@ -836,8 +839,11 @@
             if (examForm) {
                 examForm.addEventListener("submit", saveCurrentAnswers);
             }
+            window.addEventListener("pagehide", () => saveCurrentAnswers({}));
+            window.addEventListener("beforeunload", () => saveCurrentAnswers({}));
             restoreCachedAnswers();
             updateQuestionButtonStates();
+            const cache = readCache();
             const hashTargetId = window.location.hash ? window.location.hash.slice(1) : "";
             const hashTarget = hashTargetId ? document.getElementById(hashTargetId) : null;
             const targetCard = hashTarget ? hashTarget.closest("[data-student-exam-question-card]") : null;
@@ -846,6 +852,8 @@
                 setTimeout(() => {
                     hashTarget.scrollIntoView({behavior: "smooth", block: "center"});
                 }, 80);
+            } else if (cache.activeQuestionId) {
+                window.activateStudentExamQuestion(cache.activeQuestionId);
             } else {
                 activateByIndex(0);
             }
@@ -1080,37 +1088,6 @@
                 if (textarea) {
                     setTimeout(() => textarea.focus(), 350);
                 }
-            })();
-        </script>
-    {% endif %}
-    {% if session.proctoring_enabled and show_answer_sheet %}
-        <script>
-            (function () {
-                const endpoint = "{{ proctor_event_api }}";
-                const csrfInput = document.querySelector("#student-exam-form input[name='csrfmiddlewaretoken']");
-                const csrfToken = csrfInput ? csrfInput.value : "";
-                const sendEvent = (eventType) => {
-                    if (!endpoint || !csrfToken) {
-                        return;
-                    }
-                    fetch(endpoint, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "X-CSRFToken": csrfToken
-                        },
-                        body: JSON.stringify({event_type: eventType}),
-                        keepalive: true
-                    }).catch(() => {});
-                };
-                document.addEventListener("visibilitychange", () => {
-                    if (document.visibilityState === "hidden") {
-                        sendEvent("visibility_hidden");
-                    }
-                });
-                window.addEventListener("blur", () => sendEvent("blur"));
-                window.addEventListener("focus", () => sendEvent("focus"));
-                document.addEventListener("paste", () => sendEvent("paste"));
             })();
         </script>
     {% endif %}

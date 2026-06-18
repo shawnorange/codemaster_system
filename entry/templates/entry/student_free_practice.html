@@ -1,0 +1,531 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block system_content %}
+    <style>
+        .free-practice-filter {
+            display: grid;
+            grid-template-columns: minmax(160px, 0.7fr) repeat(2, minmax(220px, 1fr)) auto;
+            gap: 14px;
+            align-items: end;
+        }
+        .free-practice-filter-panel {
+            position: relative;
+            z-index: 80;
+            overflow: visible;
+        }
+        .free-practice-question-panel {
+            position: relative;
+            z-index: 1;
+        }
+        .free-practice-field {
+            display: grid;
+            gap: 8px;
+        }
+        .free-practice-field span {
+            color: #475569;
+            font-size: 0.86rem;
+            font-weight: 700;
+        }
+        .free-practice-field small {
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .free-practice-control,
+        .free-practice-combobox__button,
+        .free-practice-combobox__search {
+            width: 100%;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            background: #ffffff;
+            color: #0f172a;
+            font: inherit;
+        }
+        .free-practice-control,
+        .free-practice-combobox__button {
+            min-height: 44px;
+            padding: 0 12px;
+        }
+        .free-practice-combobox {
+            position: relative;
+        }
+        .free-practice-combobox__button {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            text-align: left;
+            cursor: pointer;
+        }
+        .free-practice-combobox.is-disabled .free-practice-combobox__button,
+        .free-practice-combobox__button:disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+        .free-practice-combobox__panel {
+            position: absolute;
+            z-index: 1000;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            display: none;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+            padding: 8px;
+        }
+        .free-practice-combobox.is-open .free-practice-combobox__panel {
+            display: block;
+        }
+        .free-practice-combobox__search {
+            height: 38px;
+            padding: 0 10px;
+            margin-bottom: 8px;
+        }
+        .free-practice-combobox__options {
+            display: grid;
+            max-height: 210px;
+            overflow: auto;
+        }
+        .free-practice-combobox__option {
+            border: 0;
+            border-radius: 6px;
+            background: transparent;
+            padding: 9px 10px;
+            color: #0f172a;
+            text-align: left;
+            cursor: pointer;
+        }
+        .free-practice-combobox__option:hover,
+        .free-practice-combobox__option.is-selected {
+            background: #e0f2fe;
+        }
+        .free-practice-warning {
+            display: none;
+            margin-top: 10px;
+            color: #dc2626;
+            font-weight: 700;
+        }
+        .free-practice-warning.is-visible {
+            display: block;
+        }
+        .free-practice-toolbar {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin: 14px 0;
+        }
+        .free-practice-select-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .free-practice-question-list {
+            display: grid;
+            gap: 12px;
+        }
+        .free-practice-question-card {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+        }
+        .free-practice-question-card__checkbox {
+            margin-top: 4px;
+            inline-size: 18px;
+            block-size: 18px;
+        }
+        .free-practice-question-card__body {
+            display: grid;
+            gap: 10px;
+        }
+        .free-practice-question-card__meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .free-practice-question-card__options {
+            display: grid;
+            gap: 8px;
+        }
+        .free-practice-question-card__option {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr);
+            gap: 8px;
+            align-items: start;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+        @media (max-width: 900px) {
+            .free-practice-filter {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <nav class="student-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}
+                <i></i>
+            {% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="compact-portal-header">
+        <div class="compact-portal-header__main">
+            <p class="eyebrow">Free Practice</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <p class="compact-portal-header__description">{{ page_description }}</p>
+        </div>
+        <div class="entry-stat-row">
+            {% for item in summary_cards %}
+                <article class="entry-stat-chip">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if error_message %}
+        <div class="form-error">{{ error_message }}</div>
+    {% endif %}
+    {% if limit_warning %}
+        <div class="form-error">{{ limit_warning }}</div>
+    {% endif %}
+
+    <section class="surface-panel free-practice-filter-panel">
+        <form method="get" class="free-practice-filter">
+            <label class="free-practice-field">
+                <span>等级</span>
+                <input type="hidden" name="level_code" value="{{ selected_level_code }}" data-free-practice-level-value>
+                <div class="free-practice-combobox" data-free-practice-combobox="level">
+                    <button type="button" class="free-practice-combobox__button" data-free-practice-combobox-button>
+                        <span data-free-practice-combobox-label>{{ selected_level_code|default:"请选择等级" }}</span>
+                        <span>∨</span>
+                    </button>
+                    <div class="free-practice-combobox__panel">
+                        <input class="free-practice-combobox__search" type="search" placeholder="搜索等级" data-free-practice-combobox-search>
+                        <div class="free-practice-combobox__options">
+                            <button type="button" class="free-practice-combobox__option{% if not selected_level_code %} is-selected{% endif %}" data-value="">请选择等级</button>
+                            {% for option in level_options %}
+                                <button type="button" class="free-practice-combobox__option{% if option.value == selected_level_code %} is-selected{% endif %}" data-value="{{ option.value }}">{{ option.label }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <small>GESP 等级来自知识点映射表，CSP-J/S 可跨类别搜索。</small>
+            </label>
+            <label class="free-practice-field">
+                <span>知识点一级目录</span>
+                <input type="hidden" name="knowledge_query" value="{{ knowledge_query }}" data-free-practice-level1-value>
+                <div class="free-practice-combobox{% if level1_disabled %} is-disabled{% endif %}" data-free-practice-combobox="level1">
+                    <button type="button" class="free-practice-combobox__button" data-free-practice-combobox-button {% if level1_disabled %}disabled{% endif %}>
+                        <span data-free-practice-combobox-label>{{ knowledge_query|default:"全部知识点一级目录" }}</span>
+                        <span>∨</span>
+                    </button>
+                    <div class="free-practice-combobox__panel">
+                        <input class="free-practice-combobox__search" type="search" placeholder="搜索知识点一级目录" data-free-practice-combobox-search>
+                        <div class="free-practice-combobox__options">
+                            <button type="button" class="free-practice-combobox__option{% if not knowledge_query %} is-selected{% endif %}" data-value="">全部知识点一级目录</button>
+                            {% for option in level1_options %}
+                                <button type="button" class="free-practice-combobox__option{% if option == knowledge_query %} is-selected{% endif %}" data-value="{{ option }}">{{ option }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <small>{% if level1_disabled %}请先选择等级，再选择知识点一级目录。{% else %}点开默认显示 5 个选项，可在下拉顶部继续模糊搜索。{% endif %}</small>
+            </label>
+            <label class="free-practice-field">
+                <span>知识点二级目录</span>
+                <input type="hidden" name="knowledge_level_2" value="{{ knowledge_level_2 }}" data-free-practice-level2-value>
+                <div class="free-practice-combobox{% if level2_disabled %} is-disabled{% endif %}" data-free-practice-combobox="level2">
+                    <button type="button" class="free-practice-combobox__button" data-free-practice-combobox-button {% if level2_disabled %}disabled{% endif %}>
+                        <span data-free-practice-combobox-label>{{ knowledge_level_2|default:"全部知识点二级目录" }}</span>
+                        <span>∨</span>
+                    </button>
+                    <div class="free-practice-combobox__panel">
+                        <input class="free-practice-combobox__search" type="search" placeholder="搜索知识点二级目录" data-free-practice-combobox-search>
+                        <div class="free-practice-combobox__options">
+                            <button type="button" class="free-practice-combobox__option{% if not knowledge_level_2 %} is-selected{% endif %}" data-value="" data-parent="">全部知识点二级目录</button>
+                            {% for option in level2_options %}
+                                <button type="button" class="free-practice-combobox__option{% if option.value == knowledge_level_2 %} is-selected{% endif %}" data-value="{{ option.value }}" data-parent="{{ option.level_1 }}">{{ option.value }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <small>{% if level2_disabled %}请先选择知识点一级目录，再选择知识点二级目录。{% else %}知识点二级目录会跟随知识点一级目录联动。{% endif %}</small>
+            </label>
+            <button type="submit" class="login-button">搜索题目</button>
+        </form>
+        {% if csp_unrestricted %}
+            <div class="entry-hint-bar">CSP-J / CSP-S 默认包含全部知识点一级目录，可以直接搜索，不受 GESP 类别限制。</div>
+        {% endif %}
+    </section>
+
+    <form method="post" class="surface-panel free-practice-question-panel">
+        {% csrf_token %}
+        <input type="hidden" name="form_action" value="start_free_practice">
+        <input type="hidden" name="level_code" value="{{ selected_level_code }}">
+        <input type="hidden" name="knowledge_query" value="{{ knowledge_query }}">
+        <input type="hidden" name="knowledge_level_2" value="{{ knowledge_level_2 }}">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">最多 {{ max_question_count }} 题</p>
+            <h3>选择练习题</h3>
+            <p>练习不在多，而在精。</p>
+        </div>
+
+        {% if question_rows %}
+            <div class="free-practice-toolbar">
+                <label class="free-practice-select-all">
+                    <input type="checkbox" data-free-practice-select-all>
+                    <span>一键全选</span>
+                </label>
+                <span class="section-heading__eyebrow">已选 <strong data-free-practice-selected-count>0</strong> / {{ max_question_count }} 题</span>
+            </div>
+            <div class="free-practice-warning" data-free-practice-warning>练习不在多，而在精。</div>
+            <div class="free-practice-question-list">
+                {% for question in question_rows %}
+                    <article class="content-access-card content-access-card--trial free-practice-question-card">
+                        <input class="free-practice-question-card__checkbox" type="checkbox" name="question_ids" value="{{ question.id }}" {% if question.is_selected %}checked{% endif %} data-free-practice-question-checkbox>
+                        <div class="free-practice-question-card__body">
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>{{ question.paper_title }} · 第 {{ question.question_no }} 题</h5>
+                                    <div class="free-practice-question-card__meta">
+                                        <span class="state-pill state-pill--trial">一级目录：{{ question.knowledge_level_1 }}</span>
+                                        <span class="state-pill state-pill--future">二级目录：{{ question.knowledge_level_2 }}</span>
+                                        <span class="state-pill state-pill--open">三级目录：{{ question.knowledge_level_3 }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                            {% if question.material_image_paths or question.question_image_paths %}
+                                {% if question.material_image_paths %}
+                                    <div class="student-exam-material-panel">
+                                        <strong>公共材料</strong>
+                                        {% for image_path in question.material_image_paths %}
+                                            <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题公共材料 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                {% for image_path in question.question_image_paths %}
+                                    <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                {% endfor %}
+                            {% else %}
+                                {% for image_path in question.image_paths %}
+                                    <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                {% endfor %}
+                            {% endif %}
+                            <div class="free-practice-question-card__options">
+                                {% for option in question.option_items %}
+                                    <div class="free-practice-question-card__option">
+                                        <strong>{{ option.key }}</strong>
+                                        <div class="exam-markdown-body">{{ option.display_html }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <a class="teacher-anchor-link" href="{{ back_href }}">返回练习</a>
+                <button type="submit" class="login-button">确定生成并练习</button>
+            </div>
+        {% else %}
+            <div class="entry-hint-bar">{% if not selected_level_code %}请先选择等级，再选择知识点一级目录。{% else %}当前条件下没有可练习题目，请换一个知识点一级目录关键词。{% endif %}</div>
+            <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <a class="teacher-anchor-link" href="{{ back_href }}">返回练习</a>
+            </div>
+        {% endif %}
+    </form>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script>
+        (function () {
+            const maxCount = Number("{{ max_question_count }}");
+            const warning = document.querySelector("[data-free-practice-warning]");
+            const checkboxes = Array.from(document.querySelectorAll("[data-free-practice-question-checkbox]"));
+            const selectAll = document.querySelector("[data-free-practice-select-all]");
+            const selectedCount = document.querySelector("[data-free-practice-selected-count]");
+            const levelValue = document.querySelector("[data-free-practice-level-value]");
+            const level1Value = document.querySelector("[data-free-practice-level1-value]");
+            const level2Value = document.querySelector("[data-free-practice-level2-value]");
+
+            function setComboboxDisabled(type, disabled) {
+                const root = document.querySelector('[data-free-practice-combobox="' + type + '"]');
+                if (!root) {
+                    return;
+                }
+                const button = root.querySelector("[data-free-practice-combobox-button]");
+                root.classList.toggle("is-disabled", disabled);
+                root.classList.remove("is-open");
+                if (button) {
+                    button.disabled = disabled;
+                }
+            }
+
+            function updateDependentComboboxes() {
+                const hasLevel = Boolean(levelValue && levelValue.value);
+                const hasLevel1 = Boolean(level1Value && level1Value.value);
+                setComboboxDisabled("level1", !hasLevel);
+                setComboboxDisabled("level2", !hasLevel1);
+            }
+
+            function showLimitWarning() {
+                if (warning) {
+                    warning.classList.add("is-visible");
+                }
+            }
+
+            function updateSelectionState() {
+                const checked = checkboxes.filter((checkbox) => checkbox.checked);
+                if (selectedCount) {
+                    selectedCount.textContent = String(checked.length);
+                }
+                if (selectAll) {
+                    selectAll.checked = checked.length > 0 && checked.length === Math.min(maxCount, checkboxes.length);
+                    selectAll.indeterminate = checked.length > 0 && !selectAll.checked;
+                }
+            }
+
+            checkboxes.forEach((checkbox) => {
+                checkbox.addEventListener("change", () => {
+                    const checked = checkboxes.filter((item) => item.checked);
+                    if (checked.length > maxCount) {
+                        checkbox.checked = false;
+                        showLimitWarning();
+                    }
+                    updateSelectionState();
+                });
+            });
+
+            if (selectAll) {
+                selectAll.addEventListener("change", () => {
+                    checkboxes.forEach((checkbox, index) => {
+                        checkbox.checked = selectAll.checked && index < maxCount;
+                    });
+                    if (selectAll.checked && checkboxes.length > maxCount) {
+                        showLimitWarning();
+                    }
+                    updateSelectionState();
+                });
+            }
+
+            function setupCombobox(root) {
+                const button = root.querySelector("[data-free-practice-combobox-button]");
+                const label = root.querySelector("[data-free-practice-combobox-label]");
+                const search = root.querySelector("[data-free-practice-combobox-search]");
+                const options = Array.from(root.querySelectorAll("[data-value]"));
+                const type = root.dataset.freePracticeCombobox;
+                const hiddenInput = type === "level" ? levelValue : type === "level1" ? level1Value : level2Value;
+
+                function defaultLabel() {
+                    if (type === "level") {
+                        return "请选择等级";
+                    }
+                    if (type === "level1") {
+                        return "全部知识点一级目录";
+                    }
+                    return "全部知识点二级目录";
+                }
+
+                function visibleParent() {
+                    return level1Value ? level1Value.value : "";
+                }
+
+                function filterOptions() {
+                    const query = search ? search.value.trim().toLowerCase() : "";
+                    const parent = visibleParent();
+                    options.forEach((option) => {
+                        const parentValue = option.dataset.parent || "";
+                        const parentMatches = type !== "level2" || !parent || !parentValue || parentValue === parent;
+                        const queryMatches = !query || option.textContent.trim().toLowerCase().includes(query);
+                        option.hidden = !(parentMatches && queryMatches);
+                    });
+                }
+
+                button.addEventListener("click", () => {
+                    if (button.disabled || root.classList.contains("is-disabled")) {
+                        return;
+                    }
+                    document.querySelectorAll("[data-free-practice-combobox]").forEach((item) => {
+                        if (item !== root) {
+                            item.classList.remove("is-open");
+                        }
+                    });
+                    root.classList.toggle("is-open");
+                    filterOptions();
+                    if (search) {
+                        search.focus();
+                    }
+                });
+
+                if (search) {
+                    search.addEventListener("input", filterOptions);
+                }
+
+                options.forEach((option) => {
+                    option.addEventListener("click", () => {
+                        const value = option.dataset.value || "";
+                        if (hiddenInput) {
+                            hiddenInput.value = value;
+                        }
+                        if (label) {
+                            label.textContent = value || defaultLabel();
+                        }
+                        options.forEach((item) => item.classList.toggle("is-selected", item === option));
+                        root.classList.remove("is-open");
+                        if (type === "level" && level1Value && level2Value) {
+                            level1Value.value = "";
+                            level2Value.value = "";
+                            const level1Root = document.querySelector('[data-free-practice-combobox="level1"]');
+                            const level2Root = document.querySelector('[data-free-practice-combobox="level2"]');
+                            const level1Label = level1Root ? level1Root.querySelector("[data-free-practice-combobox-label]") : null;
+                            const level2Label = level2Root ? level2Root.querySelector("[data-free-practice-combobox-label]") : null;
+                            if (level1Label) {
+                                level1Label.textContent = "全部知识点一级目录";
+                            }
+                            if (level2Label) {
+                                level2Label.textContent = "全部知识点二级目录";
+                            }
+                            updateDependentComboboxes();
+                        }
+                        if (type === "level1" && level2Value) {
+                            level2Value.value = "";
+                            const level2Root = document.querySelector('[data-free-practice-combobox="level2"]');
+                            const level2Label = level2Root ? level2Root.querySelector("[data-free-practice-combobox-label]") : null;
+                            if (level2Label) {
+                                level2Label.textContent = "全部知识点二级目录";
+                            }
+                            updateDependentComboboxes();
+                        }
+                        updateDependentComboboxes();
+                    });
+                });
+            }
+
+            document.querySelectorAll("[data-free-practice-combobox]").forEach(setupCombobox);
+            document.addEventListener("click", (event) => {
+                if (!event.target.closest("[data-free-practice-combobox]")) {
+                    document.querySelectorAll("[data-free-practice-combobox]").forEach((item) => item.classList.remove("is-open"));
+                }
+            });
+            updateSelectionState();
+            updateDependentComboboxes();
+        })();
+    </script>
+{% endblock %}

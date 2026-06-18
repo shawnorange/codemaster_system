@@ -43,7 +43,9 @@ FINISHED_EXAM_SESSION_STATUSES = {
 EXAM_PRACTICE_SESSION_TYPES = {
     ExamSession.SESSION_TYPE_FULL_PRACTICE,
     ExamSession.SESSION_TYPE_WRONG_PRACTICE,
+    ExamSession.SESSION_TYPE_FREE_PRACTICE,
 }
+FREE_PRACTICE_MAX_QUESTION_COUNT = 20
 RECALCULABLE_EXAM_SESSION_STATUSES = {
     ExamSession.STATUS_SUBMITTED,
     ExamSession.STATUS_AUTO_CHECKED,
@@ -130,23 +132,44 @@ def is_exam_practice_session(session: ExamSession) -> bool:
 
 
 def get_exam_session_questions(session: ExamSession) -> list[ExamQuestion]:
+    scope = session.question_scope_json if isinstance(session.question_scope_json, dict) else {}
+    question_ids = []
+    seen_question_ids = set()
+    for question_id in scope.get("question_ids") or []:
+        if str(question_id).strip().isdigit():
+            normalized_question_id = int(question_id)
+            if normalized_question_id not in seen_question_ids:
+                seen_question_ids.add(normalized_question_id)
+                question_ids.append(normalized_question_id)
+    is_free_practice_scope = (
+        session.session_type == ExamSession.SESSION_TYPE_FREE_PRACTICE
+        or str(scope.get("source_session_type") or "") == ExamSession.SESSION_TYPE_FREE_PRACTICE
+    )
+    if is_free_practice_scope and question_ids:
+        scoped_questions = list(
+            ExamQuestion.objects.filter(id__in=question_ids, is_active=True)
+            .select_related("paper", "paper__teacher", "paper__course")
+            .prefetch_related("analysis_blocks")
+        )
+        question_by_id = {question.id: question for question in scoped_questions}
+        return [question_by_id[question_id] for question_id in question_ids if question_id in question_by_id]
     questions = list(
         session.paper.questions.filter(is_active=True)
         .prefetch_related("analysis_blocks")
         .order_by("question_no", "id")
     )
-    scope = session.question_scope_json if isinstance(session.question_scope_json, dict) else {}
-    question_ids = {
-        int(question_id)
-        for question_id in (scope.get("question_ids") or [])
-        if str(question_id).strip().isdigit()
-    }
     if not question_ids:
         return questions
     return [question for question in questions if question.id in question_ids]
 
 
 def get_first_finished_exam_session_for_wrong_practice(session: ExamSession) -> ExamSession:
+    if session.session_type in {
+        ExamSession.SESSION_TYPE_FREE_PRACTICE,
+        ExamSession.SESSION_TYPE_FULL_PRACTICE,
+        ExamSession.SESSION_TYPE_WRONG_PRACTICE,
+    }:
+        return session
     return (
         ExamSession.objects.filter(
             paper_id=session.paper_id,
@@ -163,7 +186,7 @@ def get_first_finished_exam_session_for_wrong_practice(session: ExamSession) -> 
 
 def get_wrong_question_ids_from_first_exam_session(session: ExamSession) -> list[int]:
     source_session = get_first_finished_exam_session_for_wrong_practice(session)
-    source_questions = list(source_session.paper.questions.filter(is_active=True).order_by("question_no", "id"))
+    source_questions = get_exam_session_questions(source_session)
     wrong_question_ids = set(
         source_session.answers.filter(is_correct=False, question__is_active=True).values_list("question_id", flat=True)
     )
@@ -504,10 +527,10 @@ def create_exam_practice_session(
     if session_type not in EXAM_PRACTICE_SESSION_TYPES:
         raise ExamError("请选择有效的练习模式。")
 
-    source_questions = list(source_session.paper.questions.filter(is_active=True).order_by("question_no", "id"))
+    source_questions = get_exam_session_questions(source_session)
     if session_type == ExamSession.SESSION_TYPE_WRONG_PRACTICE:
         source_session = get_first_finished_exam_session_for_wrong_practice(source_session)
-        source_questions = list(source_session.paper.questions.filter(is_active=True).order_by("question_no", "id"))
+        source_questions = get_exam_session_questions(source_session)
         question_ids = get_wrong_question_ids_from_first_exam_session(source_session)
         if not question_ids:
             raise ExamError("第一次正式考试没有错题，暂时不能开启错题练习。")
@@ -541,6 +564,49 @@ def create_exam_practice_session(
             started_at=now,
             is_active=True,
         )
+
+
+def create_free_exam_practice_session(
+    *,
+    student: Student,
+    source_questions: list[ExamQuestion],
+    level_code: str = "",
+    knowledge_query: str = "",
+) -> ExamSession:
+    selected_questions = [question for question in source_questions if question.is_active][:FREE_PRACTICE_MAX_QUESTION_COUNT]
+    if not selected_questions:
+        raise ExamError("请选择至少一道题开始自由练习。")
+
+    first_question = selected_questions[0]
+    source_paper = first_question.paper
+    now = timezone.now()
+
+    with transaction.atomic():
+        locked_paper = ExamPaper.objects.select_for_update().get(id=source_paper.id, is_active=True)
+        latest_attempt_no = (
+            ExamSession.objects.filter(paper=locked_paper, student=student, is_active=True)
+            .aggregate(latest_attempt_no=Max("attempt_no"))
+            .get("latest_attempt_no")
+            or 0
+        )
+        session = ExamSession.objects.create(
+            paper=locked_paper,
+            student=student,
+            assigned_by=locked_paper.teacher,
+            attempt_no=int(latest_attempt_no) + 1,
+            session_type=ExamSession.SESSION_TYPE_FREE_PRACTICE,
+            question_scope_json={
+                "level_code": level_code.strip(),
+                "knowledge_query": knowledge_query.strip(),
+                "display_title": f"自由练习 · {level_code.strip() or '全部等级'}",
+                "source_question_ids": [question.id for question in selected_questions],
+                "question_ids": [question.id for question in selected_questions],
+            },
+            status=ExamSession.STATUS_IN_PROGRESS,
+            started_at=now,
+            is_active=True,
+        )
+    return session
 
 
 def create_exam_for_students(
@@ -917,7 +983,4 @@ def record_exam_proctor_event(
             event_type=event_type,
             metadata_json=metadata or {},
         )
-        if event_type in SWITCH_EVENT_TYPES:
-            locked_session.switch_count += 1
-            locked_session.save(update_fields=["switch_count", "updated_at"])
     return event

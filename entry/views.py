@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 from django.conf import settings
 from django.db import close_old_connections, transaction
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, Q
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -53,6 +53,7 @@ from .homework_completion_stats import resolve_homework_completion_period_dates
 from .exam_online import (
     ExamError,
     activate_exam_access_code,
+    create_free_exam_practice_session,
     create_exam_practice_session,
     create_exam_for_students,
     create_or_get_exam_session_by_access_code,
@@ -68,10 +69,12 @@ from .exam_online import (
 )
 from .exam_analysis import (
     generate_ai_analysis_for_bank_question,
+    identify_bank_question_knowledge_points,
     sync_legacy_question_analysis,
 )
 from .exam_paper_import import (
     ExamPaperImportConfirmError,
+    ExamPaperImportError,
     build_default_question_analysis_md,
     clean_imported_markdown,
     combine_raw_ocr_page_markdown,
@@ -106,6 +109,7 @@ from .models import (
     ExamQuestionBankAsset,
     ExamQuestionBankImportJob,
     ExamQuestionBankItem,
+    ExamKnowledgePointMap,
     ExamQuestionBankOption,
     ExamQuestionBankPaper,
     ExamQuestionBankQuestion,
@@ -142,6 +146,7 @@ from .portal_context import (
     build_student_exam_list_context,
     build_student_exam_print_context,
     build_student_exam_record_detail_context,
+    build_student_free_practice_context,
     build_student_site_message_context,
     build_student_practice_page_shell,
     build_teacher_assignment_form_context,
@@ -164,6 +169,7 @@ from .portal_context import (
     build_teacher_course_workflow_placeholder_context,
     build_teacher_exam_page_context,
     build_teacher_exam_detail_context,
+    serialize_available_exam_bank_paper,
     build_teacher_homework_stats_context,
     build_teacher_homework_builder_context,
     build_teacher_page_shell,
@@ -2713,6 +2719,35 @@ def serialize_confirmed_exam_bank_paper_row(
     subject_title = infer_exam_bank_paper_subject(paper)
     source_text = dict(ExamQuestionBankPaper.SOURCE_CHOICES).get(paper.source, paper.source or "系统")
     question_count = int(getattr(paper, "question_count", 0) or 0)
+    knowledge_done_count = 0
+    knowledge_questions = list(paper.questions.all())
+    knowledge_total_count = len(knowledge_questions) or question_count
+    knowledge_running_count = 0
+    knowledge_failed_count = 0
+    for question in knowledge_questions:
+        full_json = question.full_json if isinstance(question.full_json, dict) else {}
+        if str(full_json.get("knowledge_level_1") or "").strip() and str(full_json.get("knowledge_level_2") or "").strip():
+            knowledge_done_count += 1
+        knowledge_status = str(full_json.get("knowledge_status") or "").strip()
+        if knowledge_status in {"pending", "running"}:
+            knowledge_running_count += 1
+        elif knowledge_status == "failed":
+            knowledge_failed_count += 1
+    if knowledge_total_count <= 0:
+        knowledge_status_text = "无题目"
+        knowledge_status_tone = "trial"
+    elif knowledge_running_count > 0:
+        knowledge_status_text = f"识别中 {knowledge_done_count}/{knowledge_total_count}"
+        knowledge_status_tone = "trial"
+    elif knowledge_done_count <= 0:
+        knowledge_status_text = "识别失败" if knowledge_failed_count else "未识别"
+        knowledge_status_tone = "trial"
+    elif knowledge_done_count >= knowledge_total_count:
+        knowledge_status_text = "识别完成"
+        knowledge_status_tone = "open"
+    else:
+        knowledge_status_text = f"部分识别 {knowledge_done_count}/{knowledge_total_count}"
+        knowledge_status_tone = "trial"
     year_month_text = f"{paper.year}年{paper.month}月" if paper.year and paper.month else "未设置"
     created_at_text = timezone.localtime(paper.created_at).strftime("%Y-%m-%d %H:%M") if paper.created_at else ""
     updated_at_text = timezone.localtime(paper.updated_at).strftime("%Y-%m-%d %H:%M") if paper.updated_at else ""
@@ -2733,8 +2768,14 @@ def serialize_confirmed_exam_bank_paper_row(
         "question_count": question_count,
         "created_at_text": created_at_text,
         "updated_at_text": updated_at_text,
-        "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
+        "knowledge_status_text": knowledge_status_text,
+        "knowledge_status_tone": knowledge_status_tone,
+        "knowledge_total_count": knowledge_total_count,
+        "knowledge_done_count": knowledge_done_count,
+        "knowledge_running_count": knowledge_running_count,
+        "knowledge_failed_count": knowledge_failed_count,
+        "can_generate_knowledge": knowledge_running_count == 0,
         "publish_href": f"{reverse('teacher-exams')}#available-exam-papers",
         "has_exam_management_record": has_exam_management_record,
         "delete_label": "删除" if has_exam_management_record else "硬删除",
@@ -2807,6 +2848,7 @@ def serialize_exam_bank_paper_question_for_review(
     if not answer_text and answer_json and set(answer_json) - {"source", "needs_teacher_review"}:
         answer_text = json.dumps(answer_json, ensure_ascii=False)
     option_map = {option.option_key.upper(): option.option_text_md for option in options}
+    full_json = question.full_json if isinstance(question.full_json, dict) else {}
     return {
         "id": question.id,
         "question_uid": question.question_uid,
@@ -2818,6 +2860,16 @@ def serialize_exam_bank_paper_question_for_review(
         "stem_html": render_exam_markdown_for_display(question.stem_md),
         "answer_text": str(answer_text or ""),
         "analysis_md": question.analysis_md,
+        "analysis_html": render_exam_markdown_for_display(question.analysis_md or "当前没有解析。"),
+        "has_analysis": bool(str(question.analysis_md or "").strip()),
+        "knowledge_level_1": str(full_json.get("knowledge_level_1") or ""),
+        "knowledge_level_2": str(full_json.get("knowledge_level_2") or ""),
+        "knowledge_level_3": str(full_json.get("knowledge_level_3") or ""),
+        "can_generate_analysis": question.question_type in {
+            ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+        },
         "programming_json_text": json.dumps(question.programming_json, ensure_ascii=False, indent=2)
         if isinstance(question.programming_json, (dict, list))
         else str(question.programming_json or ""),
@@ -2866,6 +2918,9 @@ def serialize_parsed_ocr_question_for_review(
         "stem_html": render_exam_markdown_for_display(stem_md),
         "answer_text": answer_text,
         "analysis_md": str(parsed_question.get("analysis_md") or ""),
+        "analysis_html": render_exam_markdown_for_display(str(parsed_question.get("analysis_md") or "当前没有解析。")),
+        "has_analysis": bool(str(parsed_question.get("analysis_md") or "").strip()),
+        "can_generate_analysis": False,
         "programming_json_text": "",
         "full_json_text": "",
         "options": [
@@ -3020,7 +3075,12 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
             question.analysis_md = normalize_preserved_multiline_text(
                 request.POST.get(f"question_{question_id}_analysis") or ""
             ).strip()
-            question.save(update_fields=["question_type", "stem_md", "answer_json", "analysis_md", "updated_at"])
+            full_json = dict(question.full_json) if isinstance(question.full_json, dict) else {}
+            full_json["knowledge_level_1"] = str(request.POST.get(f"question_{question_id}_knowledge_level_1") or "").strip()
+            full_json["knowledge_level_2"] = str(request.POST.get(f"question_{question_id}_knowledge_level_2") or "").strip()
+            full_json["knowledge_level_3"] = str(request.POST.get(f"question_{question_id}_knowledge_level_3") or "").strip()
+            question.full_json = full_json
+            question.save(update_fields=["question_type", "stem_md", "answer_json", "analysis_md", "full_json", "updated_at"])
 
             for sort_order, option_key in enumerate(option_keys, start=1):
                 option_text = normalize_preserved_multiline_text(
@@ -3054,13 +3114,24 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
             analysis_md = normalize_preserved_multiline_text(
                 request.POST.get(f"new_question_{key}_analysis") or ""
             ).strip()
+            knowledge_level_1 = str(request.POST.get(f"new_question_{key}_knowledge_level_1") or "").strip()
+            knowledge_level_2 = str(request.POST.get(f"new_question_{key}_knowledge_level_2") or "").strip()
+            knowledge_level_3 = str(request.POST.get(f"new_question_{key}_knowledge_level_3") or "").strip()
             options: dict[str, str] = {
                 option_key: normalize_preserved_multiline_text(
                     request.POST.get(f"new_question_{key}_option_{option_key.lower()}") or ""
                 ).strip()
                 for option_key in option_keys
             }
-            has_any_value = bool(stem_md or answer_text or analysis_md or any(options.values()))
+            has_any_value = bool(
+                stem_md
+                or answer_text
+                or analysis_md
+                or knowledge_level_1
+                or knowledge_level_2
+                or knowledge_level_3
+                or any(options.values())
+            )
             if not has_any_value:
                 continue
             if not stem_md:
@@ -3087,7 +3158,12 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
                 answer_json=answer_json,
                 analysis_md=analysis_md,
                 programming_json={},
-                full_json={"source": "teacher_manual_edit"},
+                full_json={
+                    "source": "teacher_manual_edit",
+                    "knowledge_level_1": knowledge_level_1,
+                    "knowledge_level_2": knowledge_level_2,
+                    "knowledge_level_3": knowledge_level_3,
+                },
             )
             for sort_order, option_key in enumerate(option_keys, start=1):
                 option_text = options.get(option_key, "")
@@ -3309,6 +3385,71 @@ def student_practice(request: HttpRequest) -> HttpResponse:
             **build_shell_identity_context(request),
         },
     )
+
+
+@role_required("student")
+def student_free_practice(request: HttpRequest) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    level_code = (request.POST.get("level_code") if request.method == "POST" else request.GET.get("level_code")) or ""
+    knowledge_query = (request.POST.get("knowledge_query") if request.method == "POST" else request.GET.get("knowledge_query")) or ""
+    knowledge_level_2 = (request.POST.get("knowledge_level_2") if request.method == "POST" else request.GET.get("knowledge_level_2")) or ""
+
+    def render_free_practice(
+        *,
+        error_message: str = "",
+        limit_warning: str = "",
+        selected_question_ids: list[int] | None = None,
+    ) -> HttpResponse:
+        context = build_student_free_practice_context(
+            portal_user,
+            level_code=level_code,
+            knowledge_query=knowledge_query,
+            knowledge_level_2=knowledge_level_2,
+            selected_question_ids=selected_question_ids,
+            error_message=error_message,
+            limit_warning=limit_warning,
+        )
+        return render_shell_page(request, "student", "entry/student_free_practice.html", context)
+
+    if request.method == "POST":
+        action = request.POST.get("form_action", "").strip()
+        if action != "start_free_practice":
+            return render_free_practice(error_message="请选择有效的自由练习操作。")
+        selected_question_ids = normalize_positive_int_list(request.POST.getlist("question_ids"))
+        if not selected_question_ids:
+            return render_free_practice(error_message="请至少选择一道题。")
+        if len(selected_question_ids) > 20:
+            return render_free_practice(
+                limit_warning="练习不在多，而在精。",
+                selected_question_ids=selected_question_ids[:20],
+            )
+        questions_by_id = {
+            question.id: question
+            for question in ExamQuestion.objects.select_related("paper", "paper__teacher", "paper__course")
+            .prefetch_related("analysis_blocks")
+            .filter(id__in=selected_question_ids, is_active=True, paper__is_active=True)
+        }
+        source_questions = [questions_by_id[question_id] for question_id in selected_question_ids if question_id in questions_by_id]
+        if not source_questions:
+            return render_free_practice(error_message="没有找到可练习的题目。")
+        try:
+            practice_session = create_free_exam_practice_session(
+                student=student,
+                source_questions=source_questions,
+                level_code=level_code,
+                knowledge_query=" / ".join(part for part in [knowledge_query.strip(), knowledge_level_2.strip()] if part),
+            )
+        except ExamError as exc:
+            return render_free_practice(error_message=str(exc), selected_question_ids=selected_question_ids)
+        return redirect(
+            build_redirect_with_query(
+                reverse("student-exam-detail", args=[practice_session.id]),
+                params={"op": "practice_started"},
+            )
+        )
+
+    return render_free_practice()
 
 
 @role_required("student")
@@ -3577,10 +3718,10 @@ def api_student_exam_proctor_event(request: HttpRequest, session_id: int) -> Jso
             event_type=str(payload.get("event_type") or ""),
             metadata={"source": "browser_exam_page"},
         )
-        session.refresh_from_db(fields=["switch_count"])
+        session.refresh_from_db(fields=["switch_count", "status"])
     except (ExamSession.DoesNotExist, ExamError) as exc:
         return JsonResponse({"error": str(exc)}, status=400)
-    return JsonResponse({"event_id": event.id, "switch_count": session.switch_count})
+    return JsonResponse({"event_id": event.id, "switch_count": session.switch_count, "status": session.status})
 
 
 @role_required("student")
@@ -4372,6 +4513,274 @@ def ensure_flowchart_content_asset_for_bank_question(
     )
 
 
+def get_exam_knowledge_mapping_path(bank_paper: ExamQuestionBankPaper) -> Path:
+    level_code = re.sub(r"[^0-9A-Za-z_-]", "", str(bank_paper.level or "").strip().upper())
+    if not level_code:
+        raise ExamPaperImportError("这张试卷没有所属级别，无法匹配知识对照表。")
+    return Path(settings.BASE_DIR) / "knowledge_mappings" / "cpp" / f"{level_code}知识对照.md"
+
+
+def normalize_exam_knowledge_subject(subject_title: str) -> str:
+    normalized = str(subject_title or "").strip().lower()
+    if normalized in {"c++", "cpp"}:
+        return "cpp"
+    if normalized == "python":
+        return "python"
+    if normalized == "scratch":
+        return "scratch"
+    return re.sub(r"[^0-9a-zA-Z_-]", "", normalized)
+
+
+def build_exam_knowledge_mapping_markdown_from_rows(rows: list[ExamKnowledgePointMap]) -> str:
+    lines = [
+        "| 一级目录 | 二级目录 | 三级训练点 / 典型考法 |",
+        "|---|---|---|",
+    ]
+    for row in rows:
+        lines.append(f"| {row.level_1} | {row.level_2} | {row.level_3} |")
+    return "\n".join(lines)
+
+
+def search_exam_knowledge_point_maps(
+    *,
+    subject: str = "",
+    category_code: str = "",
+    query: str = "",
+    limit: int = 50,
+):
+    queryset = ExamKnowledgePointMap.objects.filter(is_active=True)
+    normalized_subject = normalize_exam_knowledge_subject(subject)
+    normalized_category = re.sub(r"[^0-9A-Za-z_-]", "", str(category_code or "").strip().upper())
+    normalized_query = str(query or "").strip()
+    if normalized_subject:
+        queryset = queryset.filter(subject=normalized_subject)
+    if normalized_category:
+        queryset = queryset.filter(category_code__iexact=normalized_category)
+    if normalized_query:
+        queryset = queryset.filter(
+            Q(level_1__icontains=normalized_query)
+            | Q(level_2__icontains=normalized_query)
+            | Q(level_3__icontains=normalized_query)
+        )
+    return queryset.order_by("subject", "category_code", "sort_order", "id")[: max(1, min(int(limit or 50), 200))]
+
+
+def load_exam_knowledge_mapping_markdown(bank_paper: ExamQuestionBankPaper) -> str:
+    subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(bank_paper))
+    category_code = re.sub(r"[^0-9A-Za-z_-]", "", str(bank_paper.level or "").strip().upper())
+    if subject and category_code:
+        rows = list(
+            ExamKnowledgePointMap.objects.filter(
+                subject=subject,
+                category_code__iexact=category_code,
+                is_active=True,
+            ).order_by("sort_order", "id")
+        )
+        if rows:
+            return build_exam_knowledge_mapping_markdown_from_rows(rows)
+    mapping_path = get_exam_knowledge_mapping_path(bank_paper)
+    if not mapping_path.is_file():
+        raise ExamPaperImportError(f"未找到 {bank_paper.level} 对应的知识对照表：{mapping_path.relative_to(settings.BASE_DIR)}")
+    return mapping_path.read_text(encoding="utf-8").strip()
+
+
+def update_bank_question_knowledge_points(
+    bank_question: ExamQuestionBankQuestion,
+    *,
+    level_1: str,
+    level_2: str,
+    level_3: str = "",
+    source: str = "qwen",
+) -> None:
+    full_json = dict(bank_question.full_json) if isinstance(bank_question.full_json, dict) else {}
+    full_json["knowledge_level_1"] = str(level_1 or "").strip()
+    full_json["knowledge_level_2"] = str(level_2 or "").strip()
+    full_json["knowledge_level_3"] = str(level_3 or "").strip()
+    full_json["knowledge_source"] = source
+    full_json["knowledge_status"] = "done"
+    full_json["knowledge_error"] = ""
+    bank_question.full_json = full_json
+    bank_question.save(update_fields=["full_json", "updated_at"])
+
+
+def build_bank_question_knowledge_label(bank_question: ExamQuestionBankQuestion, fallback: str = "") -> str:
+    full_json = bank_question.full_json if isinstance(bank_question.full_json, dict) else {}
+    parts = [
+        str(full_json.get("knowledge_level_1") or "").strip(),
+        str(full_json.get("knowledge_level_2") or "").strip(),
+        str(full_json.get("knowledge_level_3") or "").strip(),
+    ]
+    label = " / ".join(part for part in parts if part)
+    return label or fallback
+
+
+EXAM_BANK_PAPER_KNOWLEDGE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="exam-bank-knowledge")
+EXAM_BANK_PAPER_KNOWLEDGE_LOCK = threading.Lock()
+EXAM_BANK_PAPER_KNOWLEDGE_FUTURES: dict[int, object] = {}
+
+
+def get_exam_bank_paper_knowledge_questions(bank_paper: ExamQuestionBankPaper):
+    return bank_paper.questions.filter(
+        question_type__in=[
+            ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+            ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+        ]
+    ).order_by("question_no", "id")
+
+
+def bank_question_has_knowledge_points(bank_question: ExamQuestionBankQuestion) -> bool:
+    full_json = bank_question.full_json if isinstance(bank_question.full_json, dict) else {}
+    return bool(
+        str(full_json.get("knowledge_level_1") or "").strip()
+        and str(full_json.get("knowledge_level_2") or "").strip()
+    )
+
+
+def set_bank_question_knowledge_status(
+    bank_question: ExamQuestionBankQuestion,
+    status: str,
+    *,
+    error_message: str = "",
+) -> None:
+    full_json = dict(bank_question.full_json) if isinstance(bank_question.full_json, dict) else {}
+    full_json["knowledge_status"] = status
+    full_json["knowledge_error"] = str(error_message or "").strip()[:1000]
+    bank_question.full_json = full_json
+    bank_question.save(update_fields=["full_json", "updated_at"])
+
+
+def mark_bank_paper_knowledge_generation_pending(bank_paper: ExamQuestionBankPaper) -> int:
+    questions = list(get_exam_bank_paper_knowledge_questions(bank_paper))
+    for question in questions:
+        if bank_question_has_knowledge_points(question):
+            continue
+        set_bank_question_knowledge_status(question, "pending")
+    return len(questions)
+
+
+def generate_bank_paper_knowledge_points(bank_paper_id: int) -> int:
+    bank_paper = ExamQuestionBankPaper.objects.prefetch_related("questions__options", "questions__assets").get(
+        id=bank_paper_id,
+        is_active=True,
+    )
+    mapping_markdown = load_exam_knowledge_mapping_markdown(bank_paper)
+    supported_types = {
+        ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+    }
+    updated_count = 0
+    for bank_question in bank_paper.questions.filter(question_type__in=supported_types).order_by("question_no", "id"):
+        result = identify_bank_question_knowledge_points(
+            bank_question=bank_question,
+            mapping_markdown=mapping_markdown,
+        )
+        update_bank_question_knowledge_points(
+            bank_question,
+            level_1=result["level_1"],
+            level_2=result["level_2"],
+            level_3=result["level_3"],
+            source="qwen",
+        )
+        updated_count += 1
+    sync_exam_questions_for_bank_paper_usage(bank_paper)
+    return updated_count
+
+
+def run_exam_bank_paper_knowledge_generation(bank_paper_id: int) -> None:
+    if threading.current_thread() is not threading.main_thread():
+        close_old_connections()
+    error_messages: list[str] = []
+    try:
+        bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id, is_active=True)
+        mapping_markdown = load_exam_knowledge_mapping_markdown(bank_paper)
+        questions = list(get_exam_bank_paper_knowledge_questions(bank_paper).prefetch_related("options", "assets"))
+        target_questions = [question for question in questions if not bank_question_has_knowledge_points(question)]
+        if not target_questions:
+            sync_exam_questions_for_bank_paper_usage(bank_paper)
+            return
+
+        worker_count = max(1, min(int(getattr(settings, "EXAM_AI_KNOWLEDGE_QUESTION_CONCURRENCY", 2)), len(target_questions), 4))
+
+        def identify_one(question_id: int) -> tuple[int, str, str]:
+            should_manage_db_connection = threading.current_thread() is not threading.main_thread()
+            if should_manage_db_connection:
+                close_old_connections()
+            try:
+                question = (
+                    ExamQuestionBankQuestion.objects.select_related("paper")
+                    .prefetch_related("options", "assets")
+                    .get(id=question_id, paper_id=bank_paper_id)
+                )
+                if bank_question_has_knowledge_points(question):
+                    return question_id, "skipped", ""
+                set_bank_question_knowledge_status(question, "running")
+                result = identify_bank_question_knowledge_points(
+                    bank_question=question,
+                    mapping_markdown=mapping_markdown,
+                )
+                update_bank_question_knowledge_points(
+                    question,
+                    level_1=result["level_1"],
+                    level_2=result["level_2"],
+                    level_3=result["level_3"],
+                    source="qwen",
+                )
+                return question_id, "done", ""
+            except Exception as exc:  # noqa: BLE001 - background status must capture Qwen errors.
+                try:
+                    failed_question = ExamQuestionBankQuestion.objects.get(id=question_id, paper_id=bank_paper_id)
+                    set_bank_question_knowledge_status(failed_question, "failed", error_message=str(exc))
+                except Exception:
+                    logger.exception("failed to update knowledge status question_id=%s", question_id)
+                return question_id, "failed", str(exc)
+            finally:
+                if should_manage_db_connection:
+                    close_old_connections()
+
+        if worker_count == 1:
+            question_results = [identify_one(question.id) for question in target_questions]
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix=f"exam-knowledge-q-{bank_paper_id}") as executor:
+                question_results = [future.result() for future in as_completed([executor.submit(identify_one, question.id) for question in target_questions])]
+        for _question_id, result, error_message in question_results:
+            if result == "failed" and error_message:
+                error_messages.append(error_message)
+        sync_exam_questions_for_bank_paper_usage(ExamQuestionBankPaper.objects.get(id=bank_paper_id))
+    except Exception:
+        logger.exception("exam bank paper knowledge generation failed bank_paper_id=%s", bank_paper_id)
+        try:
+            bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id)
+            for question in get_exam_bank_paper_knowledge_questions(bank_paper):
+                if not bank_question_has_knowledge_points(question):
+                    set_bank_question_knowledge_status(question, "failed", error_message="后台知识点识别任务异常，请稍后重试。")
+        except Exception:
+            logger.exception("failed to update exam bank paper knowledge status bank_paper_id=%s", bank_paper_id)
+    finally:
+        with EXAM_BANK_PAPER_KNOWLEDGE_LOCK:
+            EXAM_BANK_PAPER_KNOWLEDGE_FUTURES.pop(bank_paper_id, None)
+        if threading.current_thread() is not threading.main_thread():
+            close_old_connections()
+
+
+def start_exam_bank_paper_knowledge_generation(bank_paper_id: int) -> bool:
+    with transaction.atomic():
+        bank_paper = ExamQuestionBankPaper.objects.select_for_update().get(id=bank_paper_id, is_active=True)
+        questions = list(get_exam_bank_paper_knowledge_questions(bank_paper))
+        if any(
+            str((question.full_json if isinstance(question.full_json, dict) else {}).get("knowledge_status") or "") in {"pending", "running"}
+            for question in questions
+        ):
+            return False
+        load_exam_knowledge_mapping_markdown(bank_paper)
+        mark_bank_paper_knowledge_generation_pending(bank_paper)
+    with EXAM_BANK_PAPER_KNOWLEDGE_LOCK:
+        future = EXAM_BANK_PAPER_KNOWLEDGE_EXECUTOR.submit(run_exam_bank_paper_knowledge_generation, bank_paper_id)
+        EXAM_BANK_PAPER_KNOWLEDGE_FUTURES[bank_paper_id] = future
+    return True
+
+
 def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: ExamQuestionBankPaper) -> int:
     supported_types = {
         ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
@@ -4415,6 +4824,7 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
         ]
         bank_score = str(full_json.get("score") or "").strip()
         default_non_choice_score = "25.00" if is_pdf_crop_demo_question else "0.00"
+        knowledge_label = build_bank_question_knowledge_label(bank_question, fallback=bank_paper.level)
         stem = clean_bank_question_stem_for_exam(
             bank_question,
             bank_paper,
@@ -4430,7 +4840,7 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                 "correct_answer": correct_answer,
                 "analysis": bank_question.analysis_md,
                 "score": bank_score or ("2.00" if is_choice_like else default_non_choice_score),
-                "wrong_point_label": bank_paper.level,
+                "wrong_point_label": knowledge_label,
                 "image_path": first_asset.relative_path if first_asset else "",
                 "source_snapshot_json": {
                     "created_from": "exam_question_bank_paper",
@@ -4439,7 +4849,10 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                     "question_uid": bank_question.question_uid,
                     "source_pdf_id": bank_paper.source_pdf_id,
                     "level_code": bank_paper.level,
-                    "knowledge_point": bank_paper.title,
+                    "knowledge_point": knowledge_label,
+                    "knowledge_level_1": str(full_json.get("knowledge_level_1") or "").strip(),
+                    "knowledge_level_2": str(full_json.get("knowledge_level_2") or "").strip(),
+                    "knowledge_level_3": str(full_json.get("knowledge_level_3") or "").strip(),
                     "question_type": bank_question.question_type,
                     "image_paths": image_paths,
                     "material_image_paths": material_image_paths,
@@ -4638,6 +5051,28 @@ def start_exam_bank_paper_analysis_generation(bank_paper_id: int) -> bool:
     return True
 
 
+def generate_single_bank_question_analysis(bank_paper: ExamQuestionBankPaper, question_id: int) -> ExamQuestionBankQuestion:
+    question = (
+        ExamQuestionBankQuestion.objects.select_related("paper")
+        .prefetch_related("options", "assets")
+        .get(id=question_id, paper=bank_paper)
+    )
+    if question.question_type not in {
+        ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+    }:
+        raise ValidationError("当前题型暂不支持单独生成解析。")
+    analysis_md = generate_ai_analysis_for_bank_question(question).strip()
+    if not analysis_md:
+        raise ValidationError("Qwen 返回空解析。")
+    question.analysis_md = analysis_md
+    question.save(update_fields=["analysis_md", "updated_at"])
+    refresh_exam_bank_paper_analysis_status(bank_paper)
+    sync_exam_questions_for_bank_paper_usage(bank_paper)
+    return question
+
+
 def sync_exam_questions_from_linked_bank_paper(exam_paper: ExamPaper) -> int:
     bank_paper_id = get_exam_bank_paper_id_from_exam_description(exam_paper.description)
     if not bank_paper_id:
@@ -4830,6 +5265,15 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
             success_message = f"{paper.title} 正在生成 AI 解析，请稍后刷新查看状态。" if paper else "这张试卷正在生成 AI 解析。"
+        elif op == "bank_paper_knowledge_generated":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            paper_title = paper.title if paper else "这张试卷"
+            success_message = f"{paper_title} 已开始后台识别知识点，可离开页面，完成后状态会自动更新。"
+        elif op == "bank_paper_knowledge_running":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            success_message = f"{paper.title} 正在识别知识点，请稍后查看状态。" if paper else "这张试卷正在识别知识点。"
         elif op in {"bank_paper_added", "bank_paper_exists"}:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).first()
@@ -4907,6 +5351,25 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                     reverse("teacher-exams"),
                     params={
                         "op": "bank_paper_analysis_started" if started else "bank_paper_analysis_running",
+                        "paper_id": bank_paper_id,
+                    },
+                    anchor="available-exam-papers",
+                )
+            )
+
+        if action == "generate_bank_paper_knowledge":
+            bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            try:
+                started = start_exam_bank_paper_knowledge_generation(bank_paper_id)
+            except ExamQuestionBankPaper.DoesNotExist:
+                return render_exam_page(error_message="未找到这张可用试卷。")
+            except ExamPaperImportError as exc:
+                return render_exam_page(error_message=str(exc))
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={
+                        "op": "bank_paper_knowledge_generated" if started else "bank_paper_knowledge_running",
                         "paper_id": bank_paper_id,
                     },
                     anchor="available-exam-papers",
@@ -5444,6 +5907,27 @@ def teacher_exam_paper_import_jobs_status(request: HttpRequest) -> HttpResponse:
 
 
 @role_required("teacher")
+def teacher_exam_bank_paper_status(request: HttpRequest) -> JsonResponse:
+    portal_user = get_portal_user_from_request(request)
+    current_teacher_name = portal_user.full_name or portal_user.username
+    published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
+    papers = list(
+        ExamQuestionBankPaper.objects.filter(is_active=True)
+        .prefetch_related("questions")
+        .order_by("-year", "-month", "level", "source_pdf_id", "id")
+    )
+    rows = [
+        serialize_available_exam_bank_paper(
+            paper,
+            publisher_name=current_teacher_name,
+            published_bank_paper_ids=published_bank_paper_ids,
+        )
+        for paper in papers
+    ]
+    return JsonResponse({"rows": rows})
+
+
+@role_required("teacher")
 def teacher_exam_paper_import_job_detail(request: HttpRequest, import_job_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     import_job = (
@@ -5490,14 +5974,48 @@ def teacher_exam_paper_import_job_detail(request: HttpRequest, import_job_id: in
 def teacher_exam_bank_paper_preview(request: HttpRequest, paper_id: int) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     try:
-        context = get_exam_bank_paper_review_context(
-            portal_user,
-            paper_id,
-            mode="preview",
-            success_message="试卷内容已保存。" if (request.GET.get("op") or "").strip() == "updated" else "",
-        )
+        paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).get()
     except ExamQuestionBankPaper.DoesNotExist as exc:
         raise Http404("未找到该可用试卷") from exc
+    if request.method == "POST":
+        action = str(request.POST.get("form_action") or "").strip()
+        if action != "generate_bank_question_analysis":
+            return redirect(reverse("teacher-exam-bank-paper-preview", args=[paper_id]))
+        question_id = normalize_positive_int(request.POST.get("question_id"), default=0, minimum=1)
+        try:
+            question = generate_single_bank_question_analysis(paper, question_id)
+        except (ExamQuestionBankQuestion.DoesNotExist, ValidationError) as exc:
+            message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            return_mode = "edit" if str(request.POST.get("return_to") or "").strip() == "edit" else "preview"
+            context = get_exam_bank_paper_review_context(
+                portal_user,
+                paper_id,
+                mode=return_mode,
+                error_message=message or "单题解析生成失败。",
+            )
+            template_name = "entry/teacher_exam_bank_paper_edit.html" if return_mode == "edit" else "entry/teacher_exam_bank_paper_preview.html"
+            return render_shell_page(request, "teacher", template_name, context)
+        return_mode = "edit" if str(request.POST.get("return_to") or "").strip() == "edit" else "preview"
+        target_route = "teacher-exam-bank-paper-edit" if return_mode == "edit" else "teacher-exam-bank-paper-preview"
+        return redirect(
+            build_redirect_with_query(
+                reverse(target_route, args=[paper_id]),
+                params={"op": "question_analysis_generated", "question": question.question_no},
+                anchor=f"bank-question-{question.id}",
+            )
+        )
+    op = (request.GET.get("op") or "").strip()
+    success_message = ""
+    if op == "updated":
+        success_message = "试卷内容已保存。"
+    elif op == "question_analysis_generated":
+        success_message = f"已生成第 {request.GET.get('question') or ''} 题解析。"
+    context = get_exam_bank_paper_review_context(
+        portal_user,
+        paper_id,
+        mode="preview",
+        success_message=success_message,
+    )
     return render_shell_page(request, "teacher", "entry/teacher_exam_bank_paper_preview.html", context)
 
 
@@ -5523,7 +6041,13 @@ def teacher_exam_bank_paper_edit(request: HttpRequest, paper_id: int) -> HttpRes
             )
         )
 
-    context = get_exam_bank_paper_review_context(portal_user, paper_id, mode="edit")
+    op = (request.GET.get("op") or "").strip()
+    success_message = ""
+    if op == "question_analysis_generated":
+        success_message = f"已生成第 {request.GET.get('question') or ''} 题解析。"
+    elif op == "updated":
+        success_message = "试卷内容已保存。"
+    context = get_exam_bank_paper_review_context(portal_user, paper_id, mode="edit", success_message=success_message)
     return render_shell_page(request, "teacher", "entry/teacher_exam_bank_paper_edit.html", context)
 
 

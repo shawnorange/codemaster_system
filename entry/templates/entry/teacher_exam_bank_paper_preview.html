@@ -25,9 +25,25 @@
             gap: 10px;
         }
 
+        .exam-bank-paper-answer-actions {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        .exam-bank-paper-answer-actions form {
+            margin: 0;
+        }
+
         @media (max-width: 760px) {
             .exam-bank-paper-options {
                 grid-template-columns: 1fr;
+            }
+
+            .exam-bank-paper-answer-actions {
+                justify-content: flex-start;
             }
         }
     </style>
@@ -57,6 +73,9 @@
     {% if success_message %}
         <div class="entry-hint-bar">{{ success_message }}</div>
     {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
 
     <section class="surface-panel surface-panel--primary">
         <div class="section-heading">
@@ -66,15 +85,27 @@
         </div>
         <div class="content-access-list">
             {% for question in question_rows %}
-                <article class="content-access-card content-access-card--trial exam-bank-paper-question">
+                <article class="content-access-card content-access-card--trial exam-bank-paper-question" id="bank-question-{{ question.id }}">
                     <div class="content-access-card__top">
                         <div>
                             <h5>第 {{ question.question_no }} 题</h5>
                             <p>{{ question.question_type_text }}</p>
                         </div>
-                        {% if question.answer_text %}
-                            <span class="state-pill state-pill--open">答案 {{ question.answer_text }}</span>
-                        {% endif %}
+                        <div class="exam-bank-paper-answer-actions">
+                            {% if question.answer_text %}
+                                <span class="state-pill state-pill--open">答案 {{ question.answer_text }}</span>
+                            {% endif %}
+                            {% if question.can_generate_analysis %}
+                                <form method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="generate_bank_question_analysis">
+                                    <input type="hidden" name="question_id" value="{{ question.id }}">
+                                    <button type="submit" class="teacher-anchor-link">
+                                        {% if question.has_analysis %}重新解析{% else %}生成解析{% endif %}
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="exam-markdown-body">{{ question.stem_html }}</div>
                     {% for asset in question.assets %}
@@ -101,7 +132,7 @@
                     {% endif %}
                     <div class="record-inline-feedback">
                         <strong>解析</strong>
-                        <span>{{ question.analysis_md|default:"当前没有解析。" }}</span>
+                        <div class="exam-markdown-body">{{ question.analysis_html }}</div>
                     </div>
                 </article>
             {% empty %}

@@ -123,6 +123,23 @@ class Course(models.Model):
         return self.title
 
 
+class Teacher(models.Model):
+    user = models.OneToOneField(PortalUser, on_delete=models.CASCADE, related_name="teacher_profile")
+    display_name = models.CharField("教师姓名", max_length=64)
+    phone = models.CharField("手机号", max_length=32, blank=True)
+    courses = models.ManyToManyField(Course, related_name="teacher_profiles", blank=True, verbose_name="关联课程")
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["id"]
+        verbose_name = "教师"
+        verbose_name_plural = "教师"
+
+    def __str__(self) -> str:
+        return self.display_name
+
+
 class CourseCategory(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="categories")
     slug = models.SlugField("分类标识", max_length=64)
@@ -1141,6 +1158,39 @@ class ExamQuestionBankPaper(models.Model):
         return self.title
 
 
+class ExamKnowledgePointMap(models.Model):
+    subject = models.CharField("所属学科", max_length=32)
+    category_code = models.CharField("所属类别", max_length=32)
+    level_1 = models.CharField("一级目录", max_length=128)
+    level_2 = models.CharField("二级目录", max_length=128)
+    level_3 = models.CharField("三级目录", max_length=255, blank=True)
+    source_path = models.CharField("来源文件", max_length=255, blank=True)
+    sort_order = models.PositiveIntegerField("排序", default=0)
+    is_active = models.BooleanField("是否启用", default=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["subject", "category_code", "sort_order", "id"]
+        verbose_name = "考试知识点映射"
+        verbose_name_plural = "考试知识点映射"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subject", "category_code", "level_1", "level_2", "level_3"],
+                name="exam_kp_map_unique_path",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["subject", "category_code", "is_active"], name="exam_kp_map_scope_idx"),
+            models.Index(fields=["level_1", "level_2"], name="exam_kp_map_l1_l2_idx"),
+            models.Index(fields=["level_3"], name="exam_kp_map_l3_idx"),
+        ]
+
+    def __str__(self) -> str:
+        parts = [self.subject, self.category_code, self.level_1, self.level_2, self.level_3]
+        return " / ".join(part for part in parts if part)
+
+
 class ExamQuestionBankQuestion(models.Model):
     QUESTION_TYPE_SINGLE_CHOICE = "single_choice"
     QUESTION_TYPE_TRUE_FALSE = "true_false"
@@ -1358,6 +1408,7 @@ class ExamSession(models.Model):
     SESSION_TYPE_EXAM = "exam"
     SESSION_TYPE_FULL_PRACTICE = "full_practice"
     SESSION_TYPE_WRONG_PRACTICE = "wrong_practice"
+    SESSION_TYPE_FREE_PRACTICE = "free_practice"
 
     STATUS_ASSIGNED = "assigned"
     STATUS_IN_PROGRESS = "in_progress"
@@ -1378,6 +1429,7 @@ class ExamSession(models.Model):
         (SESSION_TYPE_EXAM, "正式考试"),
         (SESSION_TYPE_FULL_PRACTICE, "整卷练习"),
         (SESSION_TYPE_WRONG_PRACTICE, "错题练习"),
+        (SESSION_TYPE_FREE_PRACTICE, "自由练习"),
     ]
 
     paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE, related_name="sessions")

@@ -43,7 +43,7 @@
         <section class="surface-panel surface-panel--primary">
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Course Student Pool</p>
-                <h3>{{ course_title }} · 添加新学生</h3>
+                <h3>添加新学生</h3>
                 <p>这里既保留学生池批量加入，也支持单个新增。批量保存只写 TeacherStudentAssignment；单个新增会补齐最小学生主档。</p>
             </div>
 
@@ -87,6 +87,14 @@
 
                     <div class="portal-grid-toolbar portal-grid-toolbar--secondary teacher-tabulator-toolbar teacher-tabulator-toolbar--secondary">
                         <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                            <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                <label for="course-student-pool-course-switch">当前课程</label>
+                                <select id="course-student-pool-course-switch" class="portal-grid-filter-control teacher-tabulator-filter-control">
+                                    {% for option in course_switch_options %}
+                                        <option value="{{ option.value }}" data-href="{{ option.href }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                             <div class="portal-grid-filter-field teacher-tabulator-filter-field">
                                 <label for="course-student-pool-level">加入到级别</label>
                                 <select id="course-student-pool-level" name="level_code" class="portal-grid-filter-control teacher-tabulator-filter-control">
@@ -219,6 +227,17 @@
             const singleStudentCloseButton = document.getElementById("close-single-student-modal");
             const singleStudentCancelButton = document.getElementById("cancel-single-student-modal");
             const singleStudentShouldOpen = {{ single_student_modal_should_open|yesno:"true,false" }};
+            const courseSwitchSelect = document.getElementById("course-student-pool-course-switch");
+
+            if (courseSwitchSelect) {
+                courseSwitchSelect.addEventListener("change", function () {
+                    const selectedOption = courseSwitchSelect.options[courseSwitchSelect.selectedIndex];
+                    const href = selectedOption ? selectedOption.dataset.href : "";
+                    if (href) {
+                        window.location.href = href;
+                    }
+                });
+            }
 
             const showDialog = (dialog) => {
                 if (!dialog) {

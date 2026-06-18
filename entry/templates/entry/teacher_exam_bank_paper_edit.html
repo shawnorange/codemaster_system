@@ -60,6 +60,14 @@
             box-sizing: border-box;
         }
 
+        .exam-bank-edit-analysis-heading {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
         .exam-bank-edit-asset {
             max-width: 100%;
             max-height: 420px;
@@ -115,6 +123,9 @@
     {% if error_message %}
         <div class="entry-hint-bar">{{ error_message }}</div>
     {% endif %}
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
 
     <section class="surface-panel surface-panel--primary">
         <div class="section-heading">
@@ -122,7 +133,7 @@
             <h3>手动修改试卷内容</h3>
             <p>保存后会更新试卷管理 datagrid 中的这张可用试卷。</p>
         </div>
-        <form method="post" class="record-form">
+        <form method="post" class="record-form" id="exam-bank-paper-edit-form">
             {% csrf_token %}
             <div class="exam-bank-edit-grid">
                 <label class="exam-bank-edit-field">
@@ -137,7 +148,7 @@
 
             <div class="exam-bank-edit-list" data-exam-bank-edit-list>
                 {% for question in question_rows %}
-                    <article class="exam-bank-edit-question">
+                    <article class="exam-bank-edit-question" id="bank-question-{{ question.id }}">
                         <input type="hidden" name="question_ids" value="{{ question.id }}">
                         <div class="exam-bank-edit-question__header">
                             <span>第 {{ question.question_no }} 题</span>
@@ -168,6 +179,20 @@
                             </label>
                         </div>
                         <div class="exam-bank-edit-grid">
+                            <label class="exam-bank-edit-field">
+                                <span>一级目录</span>
+                                <input type="text" name="question_{{ question.id }}_knowledge_level_1" value="{{ question.knowledge_level_1 }}" maxlength="128">
+                            </label>
+                            <label class="exam-bank-edit-field">
+                                <span>二级目录</span>
+                                <input type="text" name="question_{{ question.id }}_knowledge_level_2" value="{{ question.knowledge_level_2 }}" maxlength="128">
+                            </label>
+                            <label class="exam-bank-edit-field">
+                                <span>三级目录（选填）</span>
+                                <input type="text" name="question_{{ question.id }}_knowledge_level_3" value="{{ question.knowledge_level_3 }}" maxlength="255">
+                            </label>
+                        </div>
+                        <div class="exam-bank-edit-grid">
                             {% for option in question.options %}
                                 <label class="exam-bank-edit-field">
                                     <span>选项 {{ option.key }}</span>
@@ -176,7 +201,18 @@
                             {% endfor %}
                         </div>
                         <label class="exam-bank-edit-field">
-                            <span>解析</span>
+                            <span class="exam-bank-edit-analysis-heading">
+                                <span>解析</span>
+                                {% if question.can_generate_analysis %}
+                                    <button
+                                        type="submit"
+                                        class="teacher-anchor-link"
+                                        form="exam-bank-question-analysis-{{ question.id }}"
+                                    >
+                                        {% if question.has_analysis %}重新解析{% else %}单独解析{% endif %}
+                                    </button>
+                                {% endif %}
+                            </span>
                             <textarea name="question_{{ question.id }}_analysis" rows="4">{{ question.analysis_md }}</textarea>
                         </label>
                     </article>
@@ -211,6 +247,20 @@
                         </label>
                     </div>
                     <div class="exam-bank-edit-grid">
+                        <label class="exam-bank-edit-field">
+                            <span>一级目录</span>
+                            <input type="text" name="new_question___KEY___knowledge_level_1" value="" maxlength="128">
+                        </label>
+                        <label class="exam-bank-edit-field">
+                            <span>二级目录</span>
+                            <input type="text" name="new_question___KEY___knowledge_level_2" value="" maxlength="128">
+                        </label>
+                        <label class="exam-bank-edit-field">
+                            <span>三级目录（选填）</span>
+                            <input type="text" name="new_question___KEY___knowledge_level_3" value="" maxlength="255">
+                        </label>
+                    </div>
+                    <div class="exam-bank-edit-grid">
                         {% for key in option_keys %}
                             <label class="exam-bank-edit-field">
                                 <span>选项 {{ key }}</span>
@@ -235,6 +285,16 @@
                 <button type="submit" class="login-button">保存修改</button>
             </div>
         </form>
+        {% for question in question_rows %}
+            {% if question.can_generate_analysis %}
+                <form id="exam-bank-question-analysis-{{ question.id }}" method="post" action="{{ preview_href }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="generate_bank_question_analysis">
+                    <input type="hidden" name="question_id" value="{{ question.id }}">
+                    <input type="hidden" name="return_to" value="edit">
+                </form>
+            {% endif %}
+        {% endfor %}
     </section>
 {% endblock %}
 

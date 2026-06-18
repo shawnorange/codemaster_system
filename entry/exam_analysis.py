@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -172,7 +173,18 @@ def _build_bank_question_analysis_prompt(bank_question: ExamQuestionBankQuestion
     )
 
 
-def _request_qwen_analysis(*, prompt: str, image_paths: list[Path]) -> str:
+def _strip_json_code_fence(text: str) -> str:
+    content = text.strip()
+    if content.startswith("```"):
+        content = content.removeprefix("```").strip()
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+    return content
+
+
+def _request_qwen_analysis(*, prompt: str, image_paths: list[Path], append_challenge: bool = True) -> str:
     api_key = get_qwen_api_key()
     base_url = get_qwen_base_url()
     model = get_qwen_analysis_model()
@@ -204,9 +216,72 @@ def _request_qwen_analysis(*, prompt: str, image_paths: list[Path]) -> str:
     content_md = extract_qwen_message_text(response.json()).strip()
     if not content_md:
         raise ExamPaperImportError("Qwen 解析生成返回为空。")
-    if AI_ANALYSIS_CHALLENGE_MD not in content_md:
+    if append_challenge and AI_ANALYSIS_CHALLENGE_MD not in content_md:
         content_md = f"{content_md}\n\n{AI_ANALYSIS_CHALLENGE_MD}"
     return content_md
+
+
+def _build_bank_question_knowledge_prompt(
+    *,
+    bank_question: ExamQuestionBankQuestion,
+    mapping_markdown: str,
+) -> str:
+    options = [
+        f"{option.option_key}. {option.option_text_md}"
+        for option in bank_question.options.order_by("sort_order", "option_key")
+        if str(option.option_key or "").strip() and str(option.option_text_md or "").strip()
+    ]
+    return "\n".join(
+        [
+            "你是少儿编程考试知识点标注助手。请严格根据下面的知识对照表，为题目选择最匹配的知识点。",
+            "只输出 JSON，不要输出 Markdown、解释或多余文字。",
+            "JSON 格式必须是：",
+            '{"level_1":"一级目录","level_2":"二级目录","level_3":"三级训练点或空字符串"}',
+            "要求：",
+            "1. level_1 和 level_2 必须来自知识对照表中的同一行。",
+            "2. level_3 可以从同一行的三级训练点中提炼，无法确定时填空字符串。",
+            "3. 不要编造知识对照表不存在的一级目录和二级目录。",
+            "",
+            "知识对照表：",
+            mapping_markdown,
+            "",
+            "题目信息：",
+            f"题号：第 {bank_question.question_no} 题",
+            f"题型：{bank_question.question_type}",
+            f"正确答案：{_get_bank_question_answer_text(bank_question) or '未填写'}",
+            f"题干文字：{bank_question.stem_md or '以题目截图为准'}",
+            "选项：",
+            "\n".join(options) or "无",
+            "现有解析：",
+            str(bank_question.analysis_md or "").strip() or "无",
+        ]
+    )
+
+
+def identify_bank_question_knowledge_points(
+    *,
+    bank_question: ExamQuestionBankQuestion,
+    mapping_markdown: str,
+) -> dict[str, str]:
+    content = _request_qwen_analysis(
+        prompt=_build_bank_question_knowledge_prompt(
+            bank_question=bank_question,
+            mapping_markdown=mapping_markdown,
+        ),
+        image_paths=_media_image_paths_for_bank_question(bank_question),
+        append_challenge=False,
+    )
+    try:
+        parsed = json.loads(_strip_json_code_fence(content))
+    except json.JSONDecodeError as exc:
+        raise ExamPaperImportError("Qwen 知识点识别返回不是合法 JSON。") from exc
+    if not isinstance(parsed, dict):
+        raise ExamPaperImportError("Qwen 知识点识别返回格式不正确。")
+    return {
+        "level_1": str(parsed.get("level_1") or "").strip(),
+        "level_2": str(parsed.get("level_2") or "").strip(),
+        "level_3": str(parsed.get("level_3") or "").strip(),
+    }
 
 
 def generate_ai_analysis_for_bank_question(bank_question: ExamQuestionBankQuestion) -> str:

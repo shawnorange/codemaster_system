@@ -39,6 +39,7 @@ from entry.models import (
     ExamQuestionBankAsset,
     ExamQuestionBankImportJob,
     ExamQuestionBankItem,
+    ExamKnowledgePointMap,
     ExamQuestionBankOption,
     ExamQuestionBankPaper,
     ExamQuestionBankQuestion,
@@ -48,6 +49,7 @@ from entry.models import (
     PortalUser,
     Student,
     StudentSiteMessage,
+    Teacher,
     TeacherStudentAssignment,
 )
 from entry.portal_context import normalize_exam_question_no_for_sort, render_exam_markdown_for_display
@@ -288,7 +290,14 @@ class ExamMVPTests(TestCase):
         response = self.client.get(reverse("teacher-students"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "考试管理")
+        self.assertContains(response, "添加新学生")
+        self.assertNotContains(response, "C++ · 添加新学生")
+        self.assertNotContains(response, "导入考题")
+        self.assertNotContains(response, "当前页面上下文")
+        self.assertNotContains(response, "教学提醒")
         self.assertNotContains(response, "#exam-panel")
+        teacher_profile = Teacher.objects.get(user=self.teacher)
+        self.assertTrue(teacher_profile.courses.filter(id=self.course.id).exists())
 
         course_response = self.client.get(reverse("teacher-course-students-detail", args=[self.course.slug]))
         self.assertEqual(course_response.status_code, 200)
@@ -1483,7 +1492,7 @@ class ExamMVPTests(TestCase):
             question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
             stem_md="原始题干 $N$\n\n```cpp\n1 int main() {\n2     return 0;\n3 }\n```",
             answer_json={"correct_answer": "A"},
-            analysis_md="原始解析",
+            analysis_md="原始解析\n\n```cpp\ncout << 1;\n```",
             programming_json={},
             full_json={},
         )
@@ -1499,14 +1508,20 @@ class ExamMVPTests(TestCase):
 
         exam_page_response = self.client.get(reverse("teacher-exams"))
         self.assertEqual(exam_page_response.status_code, 200)
-        self.assertContains(exam_page_response, reverse("teacher-exam-bank-paper-preview", args=[paper.id]))
+        self.assertContains(exam_page_response, "知识点识别状态")
+        self.assertNotContains(exam_page_response, ">预览<", html=False)
         self.assertContains(exam_page_response, reverse("teacher-exam-bank-paper-edit", args=[paper.id]))
+        self.assertContains(exam_page_response, "知识点识别")
+        available_row = next(row for row in exam_page_response.context["available_paper_rows"] if row["id"] == paper.id)
+        self.assertEqual(available_row["knowledge_status_text"], "未识别")
 
         preview_response = self.client.get(reverse("teacher-exam-bank-paper-preview", args=[paper.id]))
         self.assertEqual(preview_response.status_code, 200)
         self.assertContains(preview_response, "试卷内容预览")
         self.assertContains(preview_response, "原始题干 N")
         self.assertContains(preview_response, "原 A")
+        self.assertContains(preview_response, "cout &lt;&lt; 1;")
+        self.assertContains(preview_response, "重新解析")
 
         edit_response = self.client.get(reverse("teacher-exam-bank-paper-edit", args=[paper.id]))
         self.assertEqual(edit_response.status_code, 200)
@@ -1517,6 +1532,9 @@ class ExamMVPTests(TestCase):
         self.assertContains(edit_response, f'<textarea name="question_{question.id}_option_a"', html=False)
         self.assertContains(edit_response, "int main()")
         self.assertContains(edit_response, "```cpp")
+        self.assertContains(edit_response, "重新解析")
+        self.assertContains(edit_response, f'name="question_{question.id}_knowledge_level_1"', html=False)
+        self.assertContains(edit_response, f'id="exam-bank-question-analysis-{question.id}"', html=False)
 
         save_response = self.client.post(
             reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
@@ -1533,6 +1551,9 @@ class ExamMVPTests(TestCase):
                 f"question_{question.id}_option_c": "新增 C",
                 f"question_{question.id}_option_d": "",
                 f"question_{question.id}_analysis": "修改解析",
+                f"question_{question.id}_knowledge_level_1": "程序设计语言基础",
+                f"question_{question.id}_knowledge_level_2": "C++ 程序结构",
+                f"question_{question.id}_knowledge_level_3": "main 函数",
                 "new_question_1_type": ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
                 "new_question_1_stem_md": "新增题干：下列说法正确的是？",
                 "new_question_1_answer": "C",
@@ -1541,6 +1562,9 @@ class ExamMVPTests(TestCase):
                 "new_question_1_option_c": "新增 C",
                 "new_question_1_option_d": "",
                 "new_question_1_analysis": "",
+                "new_question_1_knowledge_level_1": "运算符与表达式",
+                "new_question_1_knowledge_level_2": "逻辑运算",
+                "new_question_1_knowledge_level_3": "",
             },
         )
         self.assertEqual(save_response.status_code, 302)
@@ -1555,6 +1579,9 @@ class ExamMVPTests(TestCase):
         self.assertIn("```cpp", question.stem_md)
         self.assertEqual(question.answer_json["correct_answer"], "B")
         self.assertEqual(question.analysis_md, "修改解析")
+        self.assertEqual(question.full_json["knowledge_level_1"], "程序设计语言基础")
+        self.assertEqual(question.full_json["knowledge_level_2"], "C++ 程序结构")
+        self.assertEqual(question.full_json["knowledge_level_3"], "main 函数")
         self.assertEqual(
             list(question.options.order_by("sort_order").values_list("option_key", "option_text_md")),
             [("A", "```cpp\ncout << 1;\n```"), ("B", "修改 B"), ("C", "新增 C")],
@@ -1563,6 +1590,8 @@ class ExamMVPTests(TestCase):
         self.assertEqual(added_question.answer_json["correct_answer"], "C")
         self.assertIn("新增题干", added_question.stem_md)
         self.assertIn("正确答案：C", added_question.analysis_md)
+        self.assertEqual(added_question.full_json["knowledge_level_1"], "运算符与表达式")
+        self.assertEqual(added_question.full_json["knowledge_level_2"], "逻辑运算")
         self.assertEqual(
             list(added_question.options.order_by("sort_order").values_list("option_key", "option_text_md")),
             [("A", "新增 A"), ("B", "新增 B"), ("C", "新增 C")],
@@ -1816,7 +1845,9 @@ class ExamMVPTests(TestCase):
         exam_page_response = self.client.get(reverse("teacher-exams"))
         self.assertContains(exam_page_response, "试卷管理")
         self.assertContains(exam_page_response, "解析状态")
+        self.assertContains(exam_page_response, "知识点识别状态")
         self.assertContains(exam_page_response, "增加解析")
+        self.assertContains(exam_page_response, "知识点识别")
 
         with patch("entry.views.start_exam_bank_paper_analysis_generation", return_value=True) as mock_start:
             response = self.client.post(
@@ -1831,6 +1862,278 @@ class ExamMVPTests(TestCase):
         self.assertIn("op=bank_paper_analysis_started", response["Location"])
         self.assertIn("#available-exam-papers", response["Location"])
         mock_start.assert_called_once_with(bank_paper.id)
+
+    def test_teacher_generates_bank_paper_knowledge_from_management_grid(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2026,
+            month=6,
+            source_pdf_id="knowledge_button_paper",
+            source_file="knowledge-button.pdf",
+            title="待识别知识点试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+
+        with patch("entry.views.start_exam_bank_paper_knowledge_generation", return_value=True) as mock_start:
+            response = self.client.post(
+                reverse("teacher-exams"),
+                {
+                    "form_action": "generate_bank_paper_knowledge",
+                    "bank_paper_id": str(bank_paper.id),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=bank_paper_knowledge_generated", response["Location"])
+        self.assertIn("#available-exam-papers", response["Location"])
+        mock_start.assert_called_once_with(bank_paper.id)
+
+    def test_missing_bank_paper_knowledge_mapping_shows_error_instead_of_500(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP8",
+            year=2026,
+            month=6,
+            source_pdf_id="missing_knowledge_mapping_paper",
+            source_file="missing-knowledge-mapping.pdf",
+            title="缺少知识对照表试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="missing-knowledge-mapping-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列说法正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={},
+        )
+
+        response = self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "generate_bank_paper_knowledge",
+                "bank_paper_id": str(bank_paper.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "未找到 GESP8 对应的知识对照表")
+
+    def test_teacher_exam_bank_paper_status_reports_running_knowledge_generation(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2026,
+            month=6,
+            source_pdf_id="knowledge_status_paper",
+            source_file="knowledge-status.pdf",
+            title="知识点状态试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="knowledge-status-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列说法正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={"knowledge_status": "pending"},
+        )
+
+        response = self.client.get(reverse("teacher-exam-bank-paper-status"))
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["rows"] if item["id"] == bank_paper.id)
+        self.assertEqual(row["knowledge_status_text"], "识别中 0/1")
+        self.assertFalse(row["can_generate_knowledge"])
+
+    def test_gesp2_cpp_knowledge_mapping_is_seeded_for_search_and_ai_prompt(self) -> None:
+        from entry.views import load_exam_knowledge_mapping_markdown, search_exam_knowledge_point_maps
+
+        seeded_rows = ExamKnowledgePointMap.objects.filter(subject="cpp", category_code="GESP2")
+        self.assertTrue(seeded_rows.filter(level_1="数学判断", level_2="奇偶判断").exists())
+        search_rows = list(search_exam_knowledge_point_maps(subject="cpp", category_code="GESP2", query="奇偶"))
+        self.assertTrue(any(row.level_2 == "奇偶判断" for row in search_rows))
+
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2026,
+            month=6,
+            source_pdf_id="knowledge_map_prompt_paper",
+            source_file="knowledge-map-prompt.pdf",
+            title="知识映射提示试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        mapping_markdown = load_exam_knowledge_mapping_markdown(bank_paper)
+
+        self.assertIn("| 数学判断 | 奇偶判断 |", mapping_markdown)
+
+    def test_bank_paper_knowledge_generation_updates_editable_fields_and_published_exam(self) -> None:
+        from entry.views import generate_bank_paper_knowledge_points
+
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2026,
+            month=6,
+            source_pdf_id="knowledge_generation_paper",
+            source_file="knowledge-generation.pdf",
+            title="知识点识别试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        bank_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="knowledge-generation-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列哪个表达式可以判断偶数？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="使用取余判断。",
+            programming_json={},
+            full_json={},
+        )
+        ExamQuestionBankOption.objects.create(question=bank_question, option_key="A", option_text_md="x % 2 == 0", sort_order=1)
+        ExamQuestionBankOption.objects.create(question=bank_question, option_key="B", option_text_md="x / 2 == 0", sort_order=2)
+        self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "create_exam_from_bank_paper",
+                "bank_paper_id": str(bank_paper.id),
+                "exam_schedule_mode": "countdown",
+                "exam_schedule_duration_minutes": "45",
+            },
+        )
+
+        with patch("entry.views.identify_bank_question_knowledge_points") as mock_identify:
+            mock_identify.return_value = {
+                "level_1": "数学判断",
+                "level_2": "奇偶判断",
+                "level_3": "x % 2 == 0",
+            }
+            updated_count = generate_bank_paper_knowledge_points(bank_paper.id)
+
+        self.assertEqual(updated_count, 1)
+        bank_question.refresh_from_db()
+        self.assertEqual(bank_question.full_json["knowledge_level_1"], "数学判断")
+        self.assertEqual(bank_question.full_json["knowledge_level_2"], "奇偶判断")
+        self.assertEqual(bank_question.full_json["knowledge_level_3"], "x % 2 == 0")
+        edit_response = self.client.get(reverse("teacher-exam-bank-paper-edit", args=[bank_paper.id]))
+        self.assertContains(edit_response, "一级目录")
+        self.assertContains(edit_response, "数学判断")
+        exam_page_response = self.client.get(reverse("teacher-exams"))
+        available_row = next(row for row in exam_page_response.context["available_paper_rows"] if row["id"] == bank_paper.id)
+        self.assertEqual(available_row["knowledge_status_text"], "识别完成")
+        exam_question = ExamQuestion.objects.get(paper__title="知识点识别试卷", question_no=1)
+        self.assertEqual(exam_question.wrong_point_label, "数学判断 / 奇偶判断 / x % 2 == 0")
+
+    def test_teacher_generates_single_missing_bank_question_analysis_from_preview(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2026,
+            month=6,
+            source_pdf_id="single-analysis-paper",
+            source_file="single-analysis.pdf",
+            title="单题解析试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="single-analysis-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列输出正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={},
+        )
+        ExamQuestionBankOption.objects.create(question=question, option_key="A", option_text_md="2", sort_order=1)
+        ExamQuestionBankOption.objects.create(question=question, option_key="B", option_text_md="3", sort_order=2)
+
+        preview_response = self.client.get(reverse("teacher-exam-bank-paper-preview", args=[bank_paper.id]))
+        self.assertContains(preview_response, "生成解析")
+        self.assertContains(preview_response, "当前没有解析。")
+
+        with patch("entry.views.generate_ai_analysis_for_bank_question") as mock_generate:
+            mock_generate.return_value = "单题解析已生成。\n\n```cpp\ncout << 2;\n```"
+            response = self.client.post(
+                reverse("teacher-exam-bank-paper-preview", args=[bank_paper.id]),
+                {
+                    "form_action": "generate_bank_question_analysis",
+                    "question_id": str(question.id),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=question_analysis_generated", response["Location"])
+        self.assertIn(f"#bank-question-{question.id}", response["Location"])
+        question.refresh_from_db()
+        bank_paper.refresh_from_db()
+        self.assertIn("单题解析已生成", question.analysis_md)
+        self.assertEqual(bank_paper.analysis_generation_done_count, 1)
+
+        updated_preview_response = self.client.get(reverse("teacher-exam-bank-paper-preview", args=[bank_paper.id]))
+        self.assertContains(updated_preview_response, "cout &lt;&lt; 2;")
+
+    def test_teacher_generates_single_bank_question_analysis_from_edit_page(self) -> None:
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP1",
+            year=2026,
+            month=6,
+            source_pdf_id="single-analysis-edit-paper",
+            source_file="single-analysis-edit.pdf",
+            title="编辑页单题解析试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="single-analysis-edit-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列输出正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={},
+        )
+        ExamQuestionBankOption.objects.create(question=question, option_key="A", option_text_md="2", sort_order=1)
+        ExamQuestionBankOption.objects.create(question=question, option_key="B", option_text_md="3", sort_order=2)
+
+        edit_response = self.client.get(reverse("teacher-exam-bank-paper-edit", args=[bank_paper.id]))
+        self.assertContains(edit_response, "单独解析")
+        self.assertContains(edit_response, f'id="exam-bank-question-analysis-{question.id}"', html=False)
+
+        with patch("entry.views.generate_ai_analysis_for_bank_question") as mock_generate:
+            mock_generate.return_value = "编辑页单题解析已生成。"
+            response = self.client.post(
+                reverse("teacher-exam-bank-paper-preview", args=[bank_paper.id]),
+                {
+                    "form_action": "generate_bank_question_analysis",
+                    "question_id": str(question.id),
+                    "return_to": "edit",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("teacher-exam-bank-paper-edit", args=[bank_paper.id]), response["Location"])
+        self.assertIn(f"#bank-question-{question.id}", response["Location"])
+        question.refresh_from_db()
+        self.assertIn("编辑页单题解析已生成", question.analysis_md)
 
     def test_bank_paper_analysis_generation_updates_snapshot_and_published_exam(self) -> None:
         from entry.views import run_exam_bank_paper_analysis_generation
@@ -3305,6 +3608,290 @@ class ExamMVPTests(TestCase):
         self.assertContains(record_response, "第 3 次")
         self.assertContains(record_response, "错题练习")
 
+    def test_student_exam_detail_shows_question_knowledge_attribution(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        question = session.paper.questions.get()
+        question.wrong_point_label = "数学判断 / 奇偶判断 / x % 2 == 0"
+        question.source_snapshot_json = {
+            "level_code": "GESP2",
+            "knowledge_level_1": "数学判断",
+            "knowledge_level_2": "奇偶判断",
+            "knowledge_level_3": "x % 2 == 0",
+        }
+        question.save(update_fields=["wrong_point_label", "source_snapshot_json", "updated_at"])
+
+        self.sign_in(self.student_user)
+        self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
+        self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {"form_action": "submit_exam", f"question_{question.id}": "A"},
+        )
+        response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertContains(response, "知识点：数学判断 / 奇偶判断 / x % 2 == 0")
+
+    def test_student_practice_exposes_free_practice_entry(self) -> None:
+        self.sign_in(self.student_user)
+        response = self.client.get(reverse("student-practice"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "自由练习")
+        self.assertContains(response, reverse("student-free-practice"))
+
+    def test_student_free_practice_requires_level_before_knowledge_directories(self) -> None:
+        self.sign_in(self.student_user)
+        response = self.client.get(reverse("student-free-practice"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["level1_disabled"])
+        self.assertTrue(response.context["level2_disabled"])
+        self.assertContains(response, "请先选择等级，再选择知识点一级目录。")
+        self.assertContains(response, 'data-free-practice-combobox="level1"', html=False)
+        self.assertContains(response, "disabled")
+
+    def test_student_free_practice_level_options_follow_cpp_permission_level(self) -> None:
+        for category_code in ["GESP1", "GESP5", "GESP8"]:
+            ExamKnowledgePointMap.objects.update_or_create(
+                subject="cpp",
+                category_code=category_code,
+                level_1="测试目录",
+                level_2=f"{category_code} 二级",
+                level_3="",
+                defaults={"is_active": True},
+        )
+        self.student.primary_level_name = "C1"
+        self.student.save(update_fields=["primary_level_name"])
+        self.sign_in(self.student_user)
+
+        c1_response = self.client.get(reverse("student-free-practice"))
+        c1_values = {item["value"] for item in c1_response.context["level_options"]}
+        self.assertIn("GESP1", c1_values)
+        self.assertIn("GESP2", c1_values)
+        self.assertNotIn("GESP5", c1_values)
+        self.assertNotIn("CSP-J", c1_values)
+
+        self.student.primary_level_name = "C3"
+        self.student.save(update_fields=["primary_level_name"])
+        c3_response = self.client.get(reverse("student-free-practice"))
+        c3_values = {item["value"] for item in c3_response.context["level_options"]}
+        self.assertIn("GESP8", c3_values)
+        self.assertIn("CSP-J", c3_values)
+        self.assertNotIn("CSP-S", c3_values)
+
+        self.student.primary_level_name = "C4"
+        self.student.save(update_fields=["primary_level_name"])
+        c4_response = self.client.get(reverse("student-free-practice"))
+        c4_values = {item["value"] for item in c4_response.context["level_options"]}
+        self.assertIn("GESP8", c4_values)
+        self.assertIn("CSP-J", c4_values)
+        self.assertIn("CSP-S", c4_values)
+
+    def test_student_free_practice_caps_selection_at_twenty(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="GESP2自由练习来源卷",
+            description="自由练习测试",
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now(),
+            end_at=timezone.now() + timedelta(days=1),
+            duration_minutes=45,
+            status=ExamPaper.STATUS_PUBLISHED,
+            is_active=True,
+        )
+        question_ids = []
+        for index in range(1, 22):
+            question = ExamQuestion.objects.create(
+                paper=paper,
+                question_no=index,
+                question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                stem=f"判断 {index} 是否为偶数？",
+                options_json={"A": "是", "B": "否", "C": "不确定", "D": "无法判断"},
+                correct_answer="A",
+                analysis="偶数可以被 2 整除。",
+                score="1",
+                wrong_point_label="数学判断 / 奇偶判断",
+                source_snapshot_json={
+                    "level_code": "GESP2",
+                    "knowledge_level_1": "数学判断",
+                    "knowledge_level_2": "奇偶判断",
+                },
+                is_active=True,
+            )
+            question_ids.append(question.id)
+
+        self.sign_in(self.student_user)
+        list_response = self.client.get(
+            reverse("student-free-practice"),
+            {"level_code": "GESP2", "knowledge_query": "数学"},
+        )
+        self.assertEqual(len(list_response.context["question_rows"]), 20)
+        over_limit_response = self.client.post(
+            reverse("student-free-practice"),
+            {
+                "form_action": "start_free_practice",
+                "level_code": "GESP2",
+                "knowledge_query": "数学",
+                "question_ids": [str(question_id) for question_id in question_ids],
+            },
+        )
+        self.assertEqual(over_limit_response.status_code, 200)
+        self.assertContains(over_limit_response, "练习不在多，而在精。")
+        self.assertEqual(len(over_limit_response.context["selected_question_ids"]), 20)
+
+    def test_student_free_practice_csp_j_all_level1_shows_twenty_questions(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="CSP-J自由练习综合来源卷",
+            description="自由练习测试",
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now(),
+            end_at=timezone.now() + timedelta(days=1),
+            duration_minutes=45,
+            status=ExamPaper.STATUS_PUBLISHED,
+            is_active=True,
+        )
+        for index in range(1, 26):
+            ExamQuestion.objects.create(
+                paper=paper,
+                question_no=index,
+                question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                stem=f"CSP 综合题 {index}",
+                options_json={"A": "正确", "B": "错误"},
+                correct_answer="A",
+                analysis="综合练习解析。",
+                score="1",
+                wrong_point_label="数学判断 / 奇偶判断",
+                source_snapshot_json={
+                    "level_code": "GESP2",
+                    "knowledge_level_1": "数学判断",
+                    "knowledge_level_2": "奇偶判断",
+                },
+                is_active=True,
+            )
+
+        self.sign_in(self.student_user)
+        response = self.client.get(reverse("student-free-practice"), {"level_code": "CSP-J"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["question_rows"]), 20)
+        self.assertContains(response, "CSP 综合题")
+
+    def test_student_can_start_free_practice_from_selected_questions(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="GESP2自由练习创建卷",
+            description="自由练习测试",
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now(),
+            end_at=timezone.now() + timedelta(days=1),
+            duration_minutes=45,
+            status=ExamPaper.STATUS_PUBLISHED,
+            is_active=True,
+        )
+        first_question = ExamQuestion.objects.create(
+            paper=paper,
+            question_no=1,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem="1 是否为奇数？",
+            options_json={"A": "是", "B": "否", "C": "不确定", "D": "无法判断"},
+            correct_answer="A",
+            analysis="1 是奇数。",
+            score="1",
+            wrong_point_label="数学判断 / 奇偶判断",
+            source_snapshot_json={
+                "level_code": "GESP2",
+                "knowledge_level_1": "数学判断",
+                "knowledge_level_2": "奇偶判断",
+            },
+            is_active=True,
+        )
+        second_question = ExamQuestion.objects.create(
+            paper=paper,
+            question_no=2,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem="2 是否为偶数？",
+            options_json={"A": "是", "B": "否", "C": "不确定", "D": "无法判断"},
+            correct_answer="A",
+            analysis="2 是偶数。",
+            score="1",
+            wrong_point_label="数学判断 / 奇偶判断",
+            source_snapshot_json={
+                "level_code": "GESP2",
+                "knowledge_level_1": "数学判断",
+                "knowledge_level_2": "奇偶判断",
+            },
+            is_active=True,
+        )
+
+        self.sign_in(self.student_user)
+        ExamSession.objects.create(
+            paper=paper,
+            student=self.student,
+            assigned_by=self.teacher,
+            attempt_no=1,
+            session_type=ExamSession.SESSION_TYPE_EXAM,
+            status=ExamSession.STATUS_ASSIGNED,
+            is_active=True,
+        )
+        paper_count_before = ExamPaper.objects.count()
+        response = self.client.post(
+            reverse("student-free-practice"),
+            {
+                "form_action": "start_free_practice",
+                "level_code": "GESP2",
+                "knowledge_query": "数学",
+                "question_ids": [str(first_question.id), str(second_question.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        practice_session = ExamSession.objects.get(student=self.student, session_type=ExamSession.SESSION_TYPE_FREE_PRACTICE)
+        self.assertEqual(practice_session.status, ExamSession.STATUS_IN_PROGRESS)
+        self.assertEqual(practice_session.attempt_no, 2)
+        self.assertEqual(ExamPaper.objects.count(), paper_count_before)
+        self.assertEqual(practice_session.paper_id, paper.id)
+        self.assertEqual(practice_session.paper.questions.filter(is_active=True).count(), 2)
+        detail_response = self.client.get(reverse("student-exam-detail", args=[practice_session.id]))
+        self.assertContains(detail_response, "自由练习")
+        self.assertContains(detail_response, "知识点：数学判断 / 奇偶判断")
+
+    def test_student_free_practice_question_list_renders_source_images(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.cpp_course,
+            title="GESP2截图题来源卷",
+            description="自由练习截图测试",
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now(),
+            end_at=timezone.now() + timedelta(days=1),
+            duration_minutes=45,
+            status=ExamPaper.STATUS_PUBLISHED,
+            is_active=True,
+        )
+        ExamQuestion.objects.create(
+            paper=paper,
+            question_no=23,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem="第 23 题（见截图）",
+            options_json={"A": "正确", "B": "错误"},
+            correct_answer="A",
+            analysis="看截图判断。",
+            score="1",
+            wrong_point_label="嵌套循环 / 嵌套枚举",
+            image_path="exam_assets/demo_questions/cpp/gesp2/2024_06/q023.png",
+            source_snapshot_json={
+                "level_code": "GESP2",
+                "knowledge_level_1": "嵌套循环",
+                "knowledge_level_2": "嵌套枚举",
+                "image_paths": ["exam_assets/demo_questions/cpp/gesp2/2024_06/q023.png"],
+            },
+            is_active=True,
+        )
+
+        self.sign_in(self.student_user)
+        response = self.client.get(reverse("student-free-practice"), {"level_code": "GESP2", "knowledge_query": "嵌套"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "/media/exam_assets/demo_questions/cpp/gesp2/2024_06/q023.png")
+        self.assertContains(response, "第 23 题（见截图）")
+
     def test_teacher_generates_access_code_and_student_enters_exam(self) -> None:
         session = self.create_exam_via_teacher_view()
         paper = session.paper
@@ -3931,7 +4518,7 @@ class ExamMVPTests(TestCase):
         self.assertEqual(normalize_exam_question_no_for_sort("第十一题"), 11)
         self.assertEqual(normalize_exam_question_no_for_sort("第二十题"), 20)
 
-    def test_proctor_event_records_switch_count(self) -> None:
+    def test_proctor_event_does_not_interrupt_student_session(self) -> None:
         session = self.create_exam_via_teacher_view()
         self.sign_in(self.student_user)
         self.client.post(reverse("student-exam-detail", args=[session.id]), {"form_action": "start_exam"})
@@ -3942,8 +4529,20 @@ class ExamMVPTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         session.refresh_from_db()
-        self.assertEqual(session.switch_count, 1)
+        self.assertEqual(session.switch_count, 0)
+        self.assertEqual(session.status, ExamSession.STATUS_IN_PROGRESS)
         self.assertEqual(session.proctor_events.filter(event_type=ExamProctorEvent.EVENT_VISIBILITY_HIDDEN).count(), 1)
+        for _ in range(2):
+            response = self.client.post(
+                reverse("api-student-exam-proctor-event", args=[session.id]),
+                data=json.dumps({"event_type": ExamProctorEvent.EVENT_VISIBILITY_HIDDEN}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], ExamSession.STATUS_IN_PROGRESS)
+        session.refresh_from_db()
+        self.assertEqual(session.switch_count, 0)
+        self.assertEqual(session.status, ExamSession.STATUS_IN_PROGRESS)
 
     def test_timed_exam_cannot_start_before_scheduled_time(self) -> None:
         session = self.create_exam_via_teacher_view(

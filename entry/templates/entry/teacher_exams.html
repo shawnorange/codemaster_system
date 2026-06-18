@@ -442,6 +442,7 @@
             const closeTeacherExamScheduleDialog = document.getElementById("close-teacher-exam-schedule-dialog");
             const cancelTeacherExamScheduleDialog = document.getElementById("cancel-teacher-exam-schedule-dialog");
             const csrfToken = "{{ csrf_token }}";
+            const availablePaperStatusUrl = "{% url 'teacher-exam-bank-paper-status' %}";
             const readJsonScript = (id, fallback) => {
                 const node = document.getElementById(id);
                 if (!node) {
@@ -787,15 +788,22 @@
             const buildAvailablePaperActions = (row) => {
                 const analysisDisabled = row.can_generate_analysis ? "" : " disabled";
                 const analysisLabel = row.can_generate_analysis ? "增加解析" : "解析中";
+                const knowledgeDisabled = row.can_generate_knowledge === false ? " disabled" : "";
+                const knowledgeLabel = row.can_generate_knowledge === false ? "识别中" : "知识点识别";
                 return [
                     '<div class="teacher-exam-actions available-paper-actions">',
-                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.preview_href || "#") + '">预览</a>',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
                     '<form method="post" class="teacher-exam-row-action">',
                     '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
                     '<input type="hidden" name="form_action" value="generate_bank_paper_analysis">',
                     '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
                     '<button type="submit" class="cm-tabulator-btn"' + analysisDisabled + '>' + analysisLabel + '</button>',
+                    '</form>',
+                    '<form method="post" class="teacher-exam-row-action">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="generate_bank_paper_knowledge">',
+                    '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn"' + knowledgeDisabled + '>' + knowledgeLabel + '</button>',
                     '</form>',
                     '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '">发布</button>',
                     '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
@@ -850,7 +858,7 @@
                         {
                             title: "解析状态",
                             field: "analysis_status_text",
-                            minWidth: 140,
+                            minWidth: 130,
                             formatter: (cell) => {
                                 const row = cell.getRow().getData();
                                 const title = row.analysis_error ? ' title="' + escapeHtml(row.analysis_error) + '"' : "";
@@ -858,10 +866,20 @@
                             },
                         },
                         {
+                            title: "知识点识别状态",
+                            field: "knowledge_status_text",
+                            minWidth: 150,
+                            formatter: (cell) => {
+                                const row = cell.getRow().getData();
+                                const tone = row.knowledge_status_tone || "trial";
+                                return '<span class="state-pill state-pill--' + escapeHtml(tone) + '">' + escapeHtml(row.knowledge_status_text || "未识别") + '</span>';
+                            },
+                        },
+                        {
                             title: "操作",
                             field: "id",
-                            minWidth: 430,
-                            width: 430,
+                            minWidth: 380,
+                            width: 380,
                             hozAlign: "center",
                             headerSort: false,
                             formatter: (cell) => buildAvailablePaperActions(cell.getRow().getData()),
@@ -871,6 +889,49 @@
                 if (availablePaperFallback) {
                     availablePaperFallback.hidden = true;
                 }
+            };
+            const hasRunningAvailablePaperWork = () => availablePaperRows.some((row) => {
+                return row.analysis_status === "running" || Number(row.knowledge_running_count || 0) > 0;
+            });
+            const refreshAvailablePaperStatuses = async () => {
+                if (!availablePaperStatusUrl || !availablePaperTable) {
+                    return;
+                }
+                try {
+                    const response = await window.fetch(availablePaperStatusUrl, {
+                        headers: { "X-Requested-With": "XMLHttpRequest" },
+                    });
+                    if (!response.ok) {
+                        return;
+                    }
+                    const payload = await response.json();
+                    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+                    rows.forEach((row) => {
+                        const index = availablePaperRows.findIndex((item) => Number(item.id) === Number(row.id));
+                        if (index >= 0) {
+                            availablePaperRows[index] = row;
+                        } else {
+                            availablePaperRows.push(row);
+                        }
+                    });
+                    availablePaperTable.replaceData(availablePaperRows);
+                    applyAvailablePaperFilter();
+                } catch (error) {
+                    console.warn("刷新试卷状态失败", error);
+                }
+            };
+            let availablePaperStatusTimer = null;
+            const startAvailablePaperStatusPolling = () => {
+                if (availablePaperStatusTimer || !availablePaperStatusUrl) {
+                    return;
+                }
+                availablePaperStatusTimer = window.setInterval(async () => {
+                    await refreshAvailablePaperStatuses();
+                    if (!hasRunningAvailablePaperWork()) {
+                        window.clearInterval(availablePaperStatusTimer);
+                        availablePaperStatusTimer = null;
+                    }
+                }, 3000);
             };
             const applyExamManagementFilter = () => {
                 if (!examManagementTable) {
@@ -1129,6 +1190,9 @@
             syncScheduleMode(teacherExamScheduleDialog);
             applyAvailablePaperFilter();
             applyExamManagementFilter();
+            if (hasRunningAvailablePaperWork()) {
+                startAvailablePaperStatusPolling();
+            }
         })();
     </script>
 {% endblock %}

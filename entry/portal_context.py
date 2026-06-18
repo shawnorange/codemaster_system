@@ -77,6 +77,7 @@ from .models import (
     ExamQuestionAnalysisSuggestion,
     ExamQuestionBankItem,
     ExamQuestionBankPaper,
+    ExamKnowledgePointMap,
     ExamSession,
     ExamSubmissionAnswer,
     HomeworkAssignment,
@@ -91,6 +92,7 @@ from .models import (
     Student,
     StudentContentAccess,
     StudentSiteMessage,
+    Teacher,
     TeacherEvaluation,
     TeacherStudentAssignment,
 )
@@ -99,6 +101,7 @@ from .student_import import teacher_can_import_students
 from .exam_online import (
     EXAM_PRACTICE_SESSION_TYPES,
     FINISHED_EXAM_SESSION_STATUSES,
+    FREE_PRACTICE_MAX_QUESTION_COUNT,
     build_exam_entry_state,
     get_first_finished_exam_session_for_wrong_practice,
     get_exam_session_questions,
@@ -185,10 +188,12 @@ EXAM_SESSION_TYPE_LABELS = {
     ExamSession.SESSION_TYPE_EXAM: "正式考试",
     ExamSession.SESSION_TYPE_FULL_PRACTICE: "整卷练习",
     ExamSession.SESSION_TYPE_WRONG_PRACTICE: "错题练习",
+    ExamSession.SESSION_TYPE_FREE_PRACTICE: "自由练习",
 }
 TEACHER_EXAM_PRACTICE_SESSION_TYPE_LABELS = {
     ExamSession.SESSION_TYPE_FULL_PRACTICE: "全卷练习",
     ExamSession.SESSION_TYPE_WRONG_PRACTICE: "只练错题",
+    ExamSession.SESSION_TYPE_FREE_PRACTICE: "自由练习",
 }
 TEACHER_HOMEWORK_ALL_LEVEL_FILTER_VALUE = "all"
 TEACHER_HOMEWORK_UNGROUPED_LEVEL_FILTER_VALUE = "__ungrouped__"
@@ -446,6 +451,43 @@ def get_teacher_active_assignments(portal_user: PortalUser) -> QuerySet[TeacherS
     )
 
 
+def sync_teacher_profile(portal_user: PortalUser) -> Teacher | None:
+    if portal_user.role != PortalUser.ROLE_TEACHER:
+        return None
+
+    teacher, _ = Teacher.objects.get_or_create(
+        user=portal_user,
+        defaults={
+            "display_name": portal_user.full_name,
+            "phone": portal_user.phone,
+        },
+    )
+    update_fields = []
+    if teacher.display_name != portal_user.full_name:
+        teacher.display_name = portal_user.full_name
+        update_fields.append("display_name")
+    if teacher.phone != portal_user.phone:
+        teacher.phone = portal_user.phone
+        update_fields.append("phone")
+    if update_fields:
+        teacher.save(update_fields=update_fields)
+
+    assignment_courses = Course.objects.filter(
+        teacher_student_assignments__teacher=portal_user,
+        teacher_student_assignments__is_active=True,
+    ).distinct()
+    if assignment_courses.exists():
+        teacher.courses.add(*assignment_courses)
+    return teacher
+
+
+def get_teacher_profile_courses(portal_user: PortalUser) -> list[Course]:
+    teacher = sync_teacher_profile(portal_user)
+    if teacher is None:
+        return []
+    return list(teacher.courses.all().order_by("id"))
+
+
 def summarize_teacher_assignment_scope(assignments: list[TeacherStudentAssignment]) -> str:
     return summarize_course_level_labels(
         [(assignment.course.title, assignment.level_code) for assignment in assignments]
@@ -578,10 +620,11 @@ def set_student_content_visibility(
 def get_teacher_course_scope(portal_user: PortalUser, course_slug: str) -> dict:
     course_assignments = list(get_teacher_active_assignments(portal_user).filter(course__slug=course_slug))
     if not course_assignments:
-        if teacher_can_import_students(portal_user) and course_slug == "cpp":
-            course = Course.objects.filter(slug=course_slug).order_by("id").first()
-            if course is None:
-                raise Course.DoesNotExist(course_slug)
+        profile_course_ids = {course.id for course in get_teacher_profile_courses(portal_user)}
+        course = Course.objects.filter(slug=course_slug).order_by("id").first()
+        if course is None:
+            raise Course.DoesNotExist(course_slug)
+        if course.id in profile_course_ids or (teacher_can_import_students(portal_user) and course_slug == "cpp"):
             return {
                 "course": course,
                 "course_assignments": [],
@@ -3081,6 +3124,35 @@ def serialize_available_exam_bank_paper(
         analysis_status_text = "解析失败"
     else:
         analysis_status_text = analysis_status_labels.get(analysis_status, "未生成")
+    knowledge_questions = list(paper.questions.all())
+    knowledge_total_count = len(knowledge_questions)
+    knowledge_done_count = 0
+    knowledge_running_count = 0
+    knowledge_failed_count = 0
+    for question in knowledge_questions:
+        full_json = question.full_json if isinstance(question.full_json, dict) else {}
+        if str(full_json.get("knowledge_level_1") or "").strip() and str(full_json.get("knowledge_level_2") or "").strip():
+            knowledge_done_count += 1
+        knowledge_status = str(full_json.get("knowledge_status") or "").strip()
+        if knowledge_status in {"pending", "running"}:
+            knowledge_running_count += 1
+        elif knowledge_status == "failed":
+            knowledge_failed_count += 1
+    if knowledge_total_count <= 0:
+        knowledge_status_text = "无题目"
+        knowledge_status_tone = "trial"
+    elif knowledge_running_count > 0:
+        knowledge_status_text = f"识别中 {knowledge_done_count}/{knowledge_total_count}"
+        knowledge_status_tone = "trial"
+    elif knowledge_done_count <= 0:
+        knowledge_status_text = "识别失败" if knowledge_failed_count else "未识别"
+        knowledge_status_tone = "trial"
+    elif knowledge_done_count >= knowledge_total_count:
+        knowledge_status_text = "识别完成"
+        knowledge_status_tone = "open"
+    else:
+        knowledge_status_text = f"部分识别 {knowledge_done_count}/{knowledge_total_count}"
+        knowledge_status_tone = "trial"
     return {
         "id": paper.id,
         "paper_id": paper.id,
@@ -3099,8 +3171,14 @@ def serialize_available_exam_bank_paper(
         "analysis_failed_count": analysis_failed_count,
         "analysis_error": paper.analysis_generation_error,
         "can_generate_analysis": analysis_status != ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING,
-        "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
+        "knowledge_status_text": knowledge_status_text,
+        "knowledge_status_tone": knowledge_status_tone,
+        "knowledge_total_count": knowledge_total_count,
+        "knowledge_done_count": knowledge_done_count,
+        "knowledge_running_count": knowledge_running_count,
+        "knowledge_failed_count": knowledge_failed_count,
+        "can_generate_knowledge": knowledge_running_count == 0,
         "operation_label": "发布",
         "has_exam_management_record": has_exam_management_record,
         "delete_label": "删除" if has_exam_management_record else "硬删除",
@@ -3118,6 +3196,7 @@ def serialize_available_exam_bank_paper(
                 paper.source_file or "",
                 paper.source_pdf_id or "",
                 analysis_status_text,
+                knowledge_status_text,
             ]
         ).lower(),
     }
@@ -3429,6 +3508,13 @@ def serialize_exam_question(
         if str(path or "").strip()
     ]
     analysis_blocks = build_exam_analysis_block_items(question)
+    knowledge_level_1 = str(snapshot.get("knowledge_level_1") or "").strip()
+    knowledge_level_2 = str(snapshot.get("knowledge_level_2") or "").strip()
+    knowledge_level_3 = str(snapshot.get("knowledge_level_3") or "").strip()
+    knowledge_parts = [part for part in [knowledge_level_1, knowledge_level_2, knowledge_level_3] if part]
+    knowledge_display = " / ".join(knowledge_parts)
+    if not knowledge_display:
+        knowledge_display = str(question.wrong_point_label or snapshot.get("knowledge_point") or "未标注").strip() or "未标注"
     pending_suggestions = (
         build_pending_analysis_suggestion_items(question)
         if include_teacher_analysis_suggestions
@@ -3464,6 +3550,10 @@ def serialize_exam_question(
         "important_note_html": render_exam_markdown_for_display(question.important_note.strip()) if question.important_note.strip() else "",
         "score": format_exam_score(question.score),
         "wrong_point_label": question.wrong_point_label or "未标注",
+        "knowledge_level_1": knowledge_level_1,
+        "knowledge_level_2": knowledge_level_2,
+        "knowledge_level_3": knowledge_level_3,
+        "knowledge_display": knowledge_display,
         "image_path": question.image_path,
         "image_paths": image_paths,
         "material_image_paths": material_image_paths,
@@ -3484,6 +3574,7 @@ def serialize_exam_question(
 
 def serialize_exam_session(session: ExamSession) -> dict:
     paper = session.paper
+    scope = session.question_scope_json if isinstance(session.question_scope_json, dict) else {}
     entry_state = build_exam_entry_state(session)
     window_end = entry_state.get("window_end")
     is_finished = session.status in {
@@ -3495,7 +3586,7 @@ def serialize_exam_session(session: ExamSession) -> dict:
     return {
         "id": session.id,
         "paper_id": paper.id,
-        "title": paper.title,
+        "title": str(scope.get("display_title") or "").strip() or paper.title,
         "description": paper.description or "当前老师没有补充考试说明。",
         "course_title": paper.course.title if paper.course_id and paper.course else "未绑定课程",
         "teacher_name": paper.teacher.full_name or paper.teacher.username,
@@ -3664,7 +3755,9 @@ def build_teacher_exam_page_context(
     )
     question_bank_rows = [serialize_exam_bank_item(item) for item in question_bank_items]
     available_papers = list(
-        ExamQuestionBankPaper.objects.filter(is_active=True).order_by("-year", "-month", "level", "source_pdf_id", "id")
+        ExamQuestionBankPaper.objects.filter(is_active=True)
+        .prefetch_related("questions")
+        .order_by("-year", "-month", "level", "source_pdf_id", "id")
     )
     current_teacher_name = portal_user.full_name or portal_user.username
     published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
@@ -4261,7 +4354,7 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
     )
     return {
         "page_mode": "entry_grid",
-        "grid_variant": "three",
+        "grid_variant": "courses",
         "hero_eyebrow": "Practice Portal",
         "page_title": "练习",
         "page_description": "先在这里看老师布置的任务，再按作业详情进入对应知识点练习。",
@@ -4273,9 +4366,22 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
             {"label": "我的作业", "value": f"{len(assignments)} 条"},
             {"label": "待完成", "value": f"{pending_count} 条"},
             {"label": "我的考试", "value": f"{len(exam_sessions)} 场"},
+            {"label": "自由练习", "value": f"最多 {FREE_PRACTICE_MAX_QUESTION_COUNT} 题"},
         ],
-        "entry_hint": "先看“我的作业”，再打开对应知识点页完成练习。",
+        "entry_hint": "可以按老师布置完成任务，也可以进入自由练习按知识点选题。",
         "portal_cards": [
+            {
+                "slug": "free-practice",
+                "title": "自由练习",
+                "meta": "自主选题",
+                "subtitle": "按等级和知识点一级目录筛题",
+                "note": f"单次最多 {FREE_PRACTICE_MAX_QUESTION_COUNT} 题，超过会自动回到上限。",
+                "state": "open",
+                "status_text": "已开放",
+                "featured": True,
+                "action_label": "进入自由练习",
+                "action_href": reverse("student-free-practice"),
+            },
             {
                 "slug": "homework",
                 "title": "我的作业",
@@ -4312,6 +4418,224 @@ def build_student_practice_page_shell(portal_user: PortalUser) -> dict:
                 "action_href": "http://oi.dashima.com:88",
             },
         ],
+    }
+
+
+def normalize_student_free_practice_level_code(value: object) -> str:
+    code = str(value or "").strip().upper().replace("_", "-")
+    if code in {"CSPJ", "CSP-J"}:
+        return "CSP-J"
+    if code in {"CSPS", "CSP-S"}:
+        return "CSP-S"
+    if re.fullmatch(r"GESP[1-8]", code):
+        return code
+    return ""
+
+
+def get_student_free_practice_level_options(student: Student | None = None) -> list[dict[str, str]]:
+    mapped_codes = {
+        str(code or "").strip().upper()
+        for code in ExamKnowledgePointMap.objects.filter(subject="cpp", is_active=True)
+        .exclude(category_code="")
+        .values_list("category_code", flat=True)
+    }
+    ordered_codes = [f"GESP{index}" for index in range(1, 9)] + ["CSP-J", "CSP-S"]
+    allowed_codes: set[str] = set(ordered_codes)
+    if student:
+        student_cpp_level_code = student.primary_level_name
+        visible_stage_codes = {normalize_student_free_practice_level_code(code) for code in get_visible_cpp_stage_codes(student_cpp_level_code)}
+        visible_stage_codes.discard("")
+        if visible_stage_codes:
+            allowed_codes = visible_stage_codes
+    return [
+        {"value": code, "label": code}
+        for code in ordered_codes
+        if code in allowed_codes and (code in mapped_codes or code.startswith("CSP-"))
+    ]
+
+
+def get_student_free_practice_level1_options(level_code: str) -> list[str]:
+    level_code = normalize_student_free_practice_level_code(level_code)
+    queryset = ExamKnowledgePointMap.objects.filter(subject="cpp", is_active=True)
+    if level_code and level_code not in {"CSP-J", "CSP-S"}:
+        queryset = queryset.filter(category_code=level_code)
+    rows = queryset.exclude(level_1="").values_list("level_1", flat=True).distinct().order_by("level_1")
+    return [str(row or "").strip() for row in rows if str(row or "").strip()]
+
+
+def get_student_free_practice_level2_options(level_code: str, level_1_query: str) -> list[dict[str, str]]:
+    level_code = normalize_student_free_practice_level_code(level_code)
+    queryset = ExamKnowledgePointMap.objects.filter(subject="cpp", is_active=True)
+    if level_code and level_code not in {"CSP-J", "CSP-S"}:
+        queryset = queryset.filter(category_code=level_code)
+    level_1_query = str(level_1_query or "").strip()
+    if level_1_query:
+        queryset = queryset.filter(level_1__icontains=level_1_query)
+    rows = queryset.exclude(level_2="").values("level_1", "level_2").distinct().order_by("level_1", "level_2")
+    return [
+        {
+            "level_1": str(row.get("level_1") or "").strip(),
+            "value": str(row.get("level_2") or "").strip(),
+        }
+        for row in rows
+        if str(row.get("level_2") or "").strip()
+    ]
+
+
+def _question_matches_free_practice_filters(
+    question: ExamQuestion,
+    *,
+    level_code: str,
+    level_1_query: str,
+    level_2_query: str,
+) -> bool:
+    snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+    if snapshot.get("free_practice_source_question_id"):
+        return False
+    question_level = str(snapshot.get("level_code") or "").strip().upper()
+    if level_code and level_code not in {"CSP-J", "CSP-S"} and question_level != level_code:
+        return False
+    knowledge_level_1 = str(snapshot.get("knowledge_level_1") or "").strip()
+    knowledge_level_2 = str(snapshot.get("knowledge_level_2") or "").strip()
+    search_text = " ".join(
+        [
+            knowledge_level_1,
+            knowledge_level_2,
+            str(snapshot.get("knowledge_level_3") or "").strip(),
+            str(question.wrong_point_label or "").strip(),
+            str(snapshot.get("knowledge_point") or "").strip(),
+        ]
+    )
+    if level_1_query and level_1_query.lower() not in search_text.lower():
+        return False
+    if level_2_query and level_2_query.lower() not in knowledge_level_2.lower():
+        return False
+    return True
+
+
+def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[ExamQuestion]:
+    level_code = normalize_student_free_practice_level_code(level_code)
+    queryset = (
+        ExamQuestion.objects.select_related("paper", "paper__teacher", "paper__course")
+        .prefetch_related("analysis_blocks")
+        .filter(is_active=True, paper__is_active=True)
+        .exclude(paper__title__startswith="自由练习 ·")
+        .order_by("-updated_at", "-id")
+    )
+    if not level_code:
+        return ExamQuestion.objects.none()
+    return queryset
+
+
+def build_student_free_practice_context(
+    portal_user: PortalUser,
+    *,
+    level_code: str = "",
+    knowledge_query: str = "",
+    knowledge_level_2: str = "",
+    selected_question_ids: list[int] | None = None,
+    error_message: str = "",
+    limit_warning: str = "",
+) -> dict:
+    normalized_level_code = normalize_student_free_practice_level_code(level_code)
+    normalized_level_1 = str(knowledge_query or "").strip()
+    normalized_level_2 = str(knowledge_level_2 or "").strip()
+    if not normalized_level_code:
+        normalized_level_1 = ""
+        normalized_level_2 = ""
+    if not normalized_level_1:
+        normalized_level_2 = ""
+    selected_ids = {int(question_id) for question_id in (selected_question_ids or [])}
+    queryset = get_student_free_practice_question_queryset(normalized_level_code)
+    candidate_questions = []
+    for question in queryset:
+        if _question_matches_free_practice_filters(
+            question,
+            level_code=normalized_level_code,
+            level_1_query=normalized_level_1,
+            level_2_query=normalized_level_2,
+        ):
+            candidate_questions.append(question)
+        if len(candidate_questions) >= FREE_PRACTICE_MAX_QUESTION_COUNT:
+            break
+    question_rows = []
+    for question in candidate_questions:
+        snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+        raw_image_paths = snapshot.get("image_paths") if isinstance(snapshot.get("image_paths"), list) else []
+        image_paths = [
+            str(path or "").strip()
+            for path in raw_image_paths
+            if str(path or "").strip()
+        ]
+        if question.image_path and question.image_path not in image_paths:
+            image_paths.insert(0, question.image_path)
+        material_image_paths = [
+            str(path or "").strip()
+            for path in (snapshot.get("material_image_paths") if isinstance(snapshot.get("material_image_paths"), list) else [])
+            if str(path or "").strip()
+        ]
+        question_image_paths = [
+            str(path or "").strip()
+            for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
+            if str(path or "").strip()
+        ]
+        level_parts = [
+            str(snapshot.get("knowledge_level_1") or "").strip(),
+            str(snapshot.get("knowledge_level_2") or "").strip(),
+            str(snapshot.get("knowledge_level_3") or "").strip(),
+        ]
+        knowledge_display = " / ".join(part for part in level_parts if part)
+        if not knowledge_display:
+            knowledge_display = str(question.wrong_point_label or snapshot.get("knowledge_point") or "未标注").strip() or "未标注"
+        question_rows.append(
+            {
+                "id": question.id,
+                "question_no": question.question_no,
+                "paper_title": question.paper.title,
+                "stem_preview": truncate_plain_text(question.stem, 90),
+                "stem_html": render_exam_markdown_for_display(question.stem),
+                "image_paths": image_paths,
+                "material_image_paths": material_image_paths,
+                "question_image_paths": question_image_paths,
+                "option_items": build_exam_option_items(question.options_json if isinstance(question.options_json, dict) else {}),
+                "knowledge_level_1": str(snapshot.get("knowledge_level_1") or "").strip() or "未标注",
+                "knowledge_level_2": str(snapshot.get("knowledge_level_2") or "").strip() or "未标注",
+                "knowledge_level_3": str(snapshot.get("knowledge_level_3") or "").strip() or "选填",
+                "knowledge_display": knowledge_display,
+                "level_code": str(snapshot.get("level_code") or "").strip() or normalized_level_code,
+                "is_selected": question.id in selected_ids,
+            }
+        )
+    level1_options = get_student_free_practice_level1_options(normalized_level_code)
+    level2_options = get_student_free_practice_level2_options(normalized_level_code, "")
+    return {
+        "page_title": "自由练习",
+        "page_description": "按等级和知识点一级目录、二级目录搜索题目，选择后生成一场自由练习。",
+        "breadcrumbs": [
+            {"label": "学生课程页", "href": reverse("student-courses")},
+            {"label": "练习", "href": reverse("student-practice")},
+            {"label": "自由练习"},
+        ],
+        "summary_cards": [
+            {"label": "单次上限", "value": f"{FREE_PRACTICE_MAX_QUESTION_COUNT} 题", "hint": "超过会自动回到上限"},
+            {"label": "候选题", "value": f"{len(question_rows)} 题", "hint": "按当前条件筛选"},
+            {"label": "所选等级", "value": normalized_level_code or "请选择", "hint": "CSP-J/S 可跨类别搜索知识点一级目录"},
+        ],
+        "level_options": get_student_free_practice_level_options(get_student_by_user(portal_user)),
+        "level1_options": level1_options,
+        "level2_options": level2_options,
+        "selected_level_code": normalized_level_code,
+        "knowledge_query": normalized_level_1,
+        "knowledge_level_2": normalized_level_2,
+        "level1_disabled": not normalized_level_code,
+        "level2_disabled": not normalized_level_1,
+        "question_rows": question_rows,
+        "selected_question_ids": [str(question_id) for question_id in selected_ids],
+        "max_question_count": FREE_PRACTICE_MAX_QUESTION_COUNT,
+        "error_message": error_message,
+        "limit_warning": limit_warning,
+        "csp_unrestricted": normalized_level_code in {"CSP-J", "CSP-S"},
+        "back_href": reverse("student-practice"),
     }
 
 
@@ -4567,7 +4891,7 @@ def build_student_exam_detail_context(
             {"label": "状态", "value": serialized["status_text"], "hint": serialized["session_type_text"]},
             {"label": "模式", "value": serialized["mode_text"], "hint": serialized["time_rule_text"]},
             {"label": "题数", "value": f"{len(question_rows)} 题", "hint": "支持单选、判断，编程题暂展示题面"},
-            {"label": "切屏次数", "value": f"{serialized['switch_count']} 次", "hint": "开启监考时记录"},
+            {"label": "答案缓存", "value": "已开启", "hint": "刷新或返回后会尽量恢复本次作答"},
         ],
         "session": serialized,
         "session_id": session.id,
@@ -6268,6 +6592,7 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
 
 def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "students") -> dict:
     page_shell = deepcopy(ROLE_SHELL_CONTENT["teacher"])
+    teacher_courses = {course.id: course for course in get_teacher_profile_courses(portal_user)}
     assignments = list(get_teacher_active_assignments(portal_user))
     active_tab = active_tab if active_tab in {"students", "courses", "messages"} else "students"
     assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
@@ -6275,6 +6600,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     for assignment in assignments:
         assignments_by_student[assignment.student_id].append(assignment)
         assignments_by_course[assignment.course_id].append(assignment)
+        teacher_courses[assignment.course_id] = assignment.course
 
     student_rows = []
     total_open_records = 0
@@ -6316,8 +6642,8 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     course_order_map = {
         definition["slug"]: index for index, definition in enumerate(TEACHER_COURSE_DEFINITIONS, start=1)
     }
-    for course_id, course_assignments in assignments_by_course.items():
-        course = course_assignments[0].course
+    for course_id, course in teacher_courses.items():
+        course_assignments = assignments_by_course.get(course_id, [])
         definition = TEACHER_COURSE_MAP.get(course.slug, build_default_teacher_course_definition(course))
         student_ids = {assignment.student_id for assignment in course_assignments}
         if course.slug == "cpp":
@@ -6336,7 +6662,11 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
                 "student_count": len(student_ids),
                 "open_content_count": open_content_count,
                 "state": "open",
-                "note": f"{definition['summary']} 当前负责级别：{format_assignment_levels(course_assignments)}",
+                "note": (
+                    f"{definition['summary']} 当前负责级别：{format_assignment_levels(course_assignments)}"
+                    if course_assignments
+                    else f"{definition['summary']} 当前课程暂未关联学生。"
+                ),
                 "action_href": reverse("teacher-course-detail", args=[course.slug]),
                 "student_pool_href": reverse("teacher-course-student-pool", args=[course.slug]),
                 "action_label": "查看分类" if course.slug == "cpp" else "查看课程",
@@ -6367,7 +6697,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     page_shell["message_count"] = message_count
     page_shell["student_pool_links"] = [
         {
-            "label": f"{course['title']} · 添加新学生",
+            "label": "添加新学生",
             "href": course["student_pool_href"],
             "import_label": "导入学生" if course["slug"] == "cpp" and teacher_can_import_students(portal_user) else "",
             "import_href": (
@@ -6385,8 +6715,8 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         {
             "label": "考试管理",
             "href": reverse("teacher-exams"),
-            "import_label": "导入考题",
-            "import_href": f"{reverse('teacher-exams')}#exam-question-bank-import",
+            "import_label": "",
+            "import_href": "",
             "homework_batch_label": "",
             "homework_batch_href": "",
         },
@@ -6408,7 +6738,7 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
             page_shell["student_pool_links"].insert(
                 0,
                 {
-                    "label": f"{cpp_course.title} · 添加新学生",
+                    "label": "添加新学生",
                     "href": reverse("teacher-course-student-pool", args=[cpp_course.slug]),
                     "import_label": "导入学生",
                     "import_href": f"{reverse('teacher-course-students-detail', args=[cpp_course.slug])}?open_import=1",
@@ -7443,10 +7773,23 @@ def build_teacher_course_student_pool_context(
     if default_primary_level_name not in single_student_level_name_options and single_student_level_name_options:
         default_primary_level_name = single_student_level_name_options[0]
 
+    teacher_courses = {item.id: item for item in get_teacher_profile_courses(portal_user)}
+    teacher_courses[course.id] = course
+    course_switch_options = [
+        {
+            "value": item.slug,
+            "label": item.title,
+            "href": reverse("teacher-course-student-pool", args=[item.slug]),
+            "selected": item.id == course.id,
+        }
+        for item in sorted(teacher_courses.values(), key=lambda item: (item.slug != "cpp", item.id))
+    ]
+
     return {
         "course": course,
         "course_slug": course_slug,
         "course_title": course.title,
+        "course_switch_options": course_switch_options,
         "selected_level_code": normalized_level_code,
         "available_level_codes": available_level_codes,
         "single_student_permission_level_codes": single_student_permission_level_codes,
@@ -7467,8 +7810,8 @@ def build_teacher_course_student_pool_context(
         },
         "single_student_error_message": "",
         "single_student_modal_should_open": False,
-        "page_title": f"{course.title} · 学生池",
-        "page_description": "这里集中展示当前不在你这个课程方向下的学生，用来批量加入我名下。学生主档不复制，只写 TeacherStudentAssignment。",
+        "page_title": "添加新学生",
+        "page_description": "这里集中展示当前不在这个课程方向下的学生，用来批量加入我名下。学生主档不复制，只写 TeacherStudentAssignment。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=courses"},
             {"label": course.title, "href": reverse("teacher-course-detail", args=[course_slug])},
