@@ -127,6 +127,8 @@ class Teacher(models.Model):
     user = models.OneToOneField(PortalUser, on_delete=models.CASCADE, related_name="teacher_profile")
     display_name = models.CharField("教师姓名", max_length=64)
     phone = models.CharField("手机号", max_length=32, blank=True)
+    subject = models.CharField("负责学科", max_length=64, blank=True)
+    is_active = models.BooleanField("是否在职", default=True)
     courses = models.ManyToManyField(Course, related_name="teacher_profiles", blank=True, verbose_name="关联课程")
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     updated_at = models.DateTimeField("更新时间", auto_now=True)

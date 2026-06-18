@@ -34,6 +34,109 @@
             margin-top: 24px;
         }
 
+        .student-exam-paper-layout {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .student-exam-question-nav {
+            align-content: flex-start;
+            display: grid;
+            gap: 10px;
+        }
+
+        .student-exam-question-nav-group {
+            border: 1px solid rgba(30, 94, 150, 0.12);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .student-exam-question-nav-group strong {
+            color: #16508c;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .student-exam-question-button {
+            background: #fff;
+            border: 1px solid rgba(30, 94, 150, 0.18);
+            border-radius: 999px;
+            color: #16508c;
+            cursor: pointer;
+            font-weight: 700;
+            margin: 0 6px 6px 0;
+            padding: 6px 10px;
+        }
+
+        .student-exam-question-button.is-active {
+            background: #16508c;
+            color: #fff;
+        }
+
+        .student-exam-question-button.is-answered {
+            background: #edf9f0;
+            border-color: #57b56a;
+            color: #166b2d;
+        }
+
+        .student-exam-question-button.is-wrong {
+            background: #fff0f0;
+            border-color: #e06767;
+            color: #9d1c1c;
+        }
+
+        .student-exam-question-button.is-active.is-answered {
+            background: #166b2d;
+            color: #fff;
+        }
+
+        .student-exam-question-button.is-active.is-wrong {
+            background: #9d1c1c;
+            color: #fff;
+        }
+
+        .student-exam-paper-panel {
+            min-width: 0;
+        }
+
+        .student-exam-question-card {
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            height: 760px;
+            min-height: 760px;
+            width: 100%;
+        }
+
+        .student-exam-question-card[hidden] {
+            display: none;
+        }
+
+        .student-exam-question-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: auto;
+            padding-right: 6px;
+        }
+
+        .student-exam-question-footer {
+            display: grid;
+            flex: 0 0 auto;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 12px;
+        }
+
+        .student-exam-question-footer .teacher-anchor-link,
+        .student-exam-question-footer .login-button {
+            box-sizing: border-box;
+            justify-content: center;
+            margin: 0;
+            text-align: center;
+            width: 100%;
+        }
+
         .exam-important-note {
             background: #fff8e8;
             border: 1px solid rgba(190, 126, 0, 0.18);
@@ -48,6 +151,17 @@
 
         .exam-important-note strong {
             color: #8a5700;
+        }
+
+        @media (max-width: 760px) {
+            .student-exam-paper-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .student-exam-question-card {
+                height: 680px;
+                min-height: 680px;
+            }
         }
     </style>
 {% endblock %}
@@ -89,84 +203,116 @@
             <p>这里按学生提交时的答案展示整张卷子，正确答案使用绿色标注，错误答案使用红色标注。</p>
         </div>
 
-        <div class="content-access-list">
-            {% for question in question_rows %}
-                <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %}">
-                    <div class="content-access-card__top">
-                        <div>
-                            <h5>第 {{ question.question_no }} 题</h5>
-                            <p>{{ question.question_type_text }} · {{ question.score }} 分 · {{ question.wrong_point_label }}</p>
-                        </div>
-                        {% if question.is_gradable %}
-                            <span class="state-pill state-pill--{% if question.is_correct %}open{% else %}locked{% endif %}">
-                                {% if question.is_correct %}正确{% else %}错误{% endif %}
-                            </span>
-                        {% endif %}
+        {% if question_rows %}
+            <div class="student-exam-paper-layout" id="teacher-exam-paper-layout">
+                <nav class="student-exam-question-nav" aria-label="题号导航">
+                    <div class="student-exam-question-nav-group">
+                        <strong>题号导航</strong>
+                        {% for question in question_rows %}
+                            <button
+                                type="button"
+                                class="student-exam-question-button{% if forloop.first %} is-active{% endif %}{% if question.is_wrong %} is-wrong{% elif question.is_correct %} is-answered{% endif %}"
+                                data-student-exam-question-button="{{ question.id }}"
+                            >第 {{ question.question_no }} 题</button>
+                        {% endfor %}
                     </div>
-                    <div class="exam-markdown-body">{{ question.stem_html }}</div>
-                    {% for image_path in question.image_paths %}
-                        <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
-                    {% endfor %}
-                    {% if question.is_important %}
-                        <div class="exam-important-note">
-                            <strong>老师标记重点</strong>
-                            {% if question.important_note_html %}
-                                <div class="exam-markdown-body">{{ question.important_note_html }}</div>
-                            {% else %}
-                                <span>这道题已被老师标记为重点题。</span>
-                            {% endif %}
-                        </div>
-                    {% endif %}
-                    <div class="record-form">
-                        {% if question.option_items %}
-                            {% for option in question.option_items %}
-                                <label class="topic-access-option{% if option.is_correct_answer %} teacher-exam-submission-option--correct{% elif option.is_wrong_selected %} teacher-exam-submission-option--wrong{% endif %}">
-                                    <input
-                                        type="radio"
-                                        name="question_{{ question.id }}"
-                                        value="{{ option.key }}"
-                                        {% if option.is_selected %}checked{% endif %}
-                                        disabled
-                                    >
-                                    <div class="topic-access-option__content">
-                                        <div class="topic-access-option__header">
-                                            <div>
-                                                <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
-                                                <div class="exam-markdown-body">{{ option.display_html }}</div>
-                                            </div>
-                                            {% if option.is_correct_answer %}
-                                                <span class="state-pill state-pill--open">正确答案</span>
-                                            {% elif option.is_wrong_selected %}
-                                                <span class="state-pill state-pill--locked">学生答案</span>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </label>
-                            {% endfor %}
-                        {% else %}
-                            <div class="teacher-exam-submission-placeholder">
-                                编程题在线提交与评测下一步接入；当前展示学生提交记录和解析。
+                </nav>
+                <div class="student-exam-paper-panel">
+                    {% for question in question_rows %}
+                        <article class="content-access-card content-access-card--{% if question.is_wrong %}locked{% elif question.is_correct %}open{% else %}trial{% endif %} student-exam-question-card" id="teacher-exam-question-{{ question.id }}" data-student-exam-question-card="{{ question.id }}"{% if not forloop.first %} hidden{% endif %}>
+                            <div class="content-access-card__top">
+                                <div>
+                                    <h5>第 {{ question.question_no }} 题</h5>
+                                    <p>{{ question.question_type_text }} · {{ question.score }} 分 · {{ question.wrong_point_label }}</p>
+                                    <p class="section-heading__eyebrow">知识点：{{ question.knowledge_display }}</p>
+                                </div>
+                                {% if question.is_gradable %}
+                                    <span class="state-pill state-pill--{% if question.is_correct %}open{% else %}locked{% endif %}">
+                                        {% if question.is_correct %}正确{% else %}错误{% endif %}
+                                    </span>
+                                {% endif %}
                             </div>
-                        {% endif %}
-                    </div>
-                    <div class="record-inline-feedback">
-                        <strong>解析</strong>
-                        <div class="exam-markdown-body">
-                            {% if question.is_gradable %}
-                                <p class="exam-markdown-body__paragraph">学生答案：{{ question.student_answer_text }}；正确答案：{{ question.correct_answer }}。</p>
-                            {% endif %}
-                            {{ question.analysis_html }}
-                        </div>
-                        {% if question.student_explanation_html %}
-                            <strong>学生解析</strong>
-                            <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
-                        {% endif %}
-                    </div>
-                </article>
-            {% empty %}
-                <div class="entry-hint-bar">当前提交没有题目。</div>
-            {% endfor %}
-        </div>
+                            <div class="student-exam-question-body">
+                                <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                                {% if question.material_image_paths or question.question_image_paths %}
+                                    {% for image_path in question.material_image_paths %}
+                                        <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题公共材料 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                    {% endfor %}
+                                    {% for image_path in question.question_image_paths %}
+                                        <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                    {% endfor %}
+                                {% else %}
+                                    {% for image_path in question.image_paths %}
+                                        <img src="/media/{{ image_path }}" alt="第 {{ question.question_no }} 题图片 {{ forloop.counter }}" style="max-width: 100%; border-radius: 8px; margin: 12px 0;">
+                                    {% endfor %}
+                                {% endif %}
+                                {% if question.is_important %}
+                                    <div class="exam-important-note">
+                                        <strong>老师标记重点</strong>
+                                        {% if question.important_note_html %}
+                                            <div class="exam-markdown-body">{{ question.important_note_html }}</div>
+                                        {% else %}
+                                            <span>这道题已被老师标记为重点题。</span>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                                <div class="record-form">
+                                    {% if question.option_items %}
+                                        {% for option in question.option_items %}
+                                            <label class="topic-access-option{% if option.is_correct_answer %} teacher-exam-submission-option--correct{% elif option.is_wrong_selected %} teacher-exam-submission-option--wrong{% endif %}">
+                                                <input
+                                                    type="radio"
+                                                    name="question_{{ question.id }}"
+                                                    value="{{ option.key }}"
+                                                    {% if option.is_selected %}checked{% endif %}
+                                                    disabled
+                                                >
+                                                <div class="topic-access-option__content">
+                                                    <div class="topic-access-option__header">
+                                                        <div>
+                                                            <p class="section-heading__eyebrow">选项 {{ option.key }}</p>
+                                                            <div class="exam-markdown-body">{{ option.display_html }}</div>
+                                                        </div>
+                                                        {% if option.is_correct_answer %}
+                                                            <span class="state-pill state-pill--open">正确答案</span>
+                                                        {% elif option.is_wrong_selected %}
+                                                            <span class="state-pill state-pill--locked">学生答案</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="teacher-exam-submission-placeholder">
+                                            编程题在线提交与评测下一步接入；当前展示学生提交记录和解析。
+                                        </div>
+                                    {% endif %}
+                                </div>
+                                <div class="record-inline-feedback">
+                                    <strong>解析</strong>
+                                    <div class="exam-markdown-body">
+                                        {% if question.is_gradable %}
+                                            <p class="exam-markdown-body__paragraph">学生答案：{{ question.student_answer_text }}；正确答案：{{ question.correct_answer }}。</p>
+                                        {% endif %}
+                                        {{ question.analysis_html }}
+                                    </div>
+                                    {% if question.student_explanation_html %}
+                                        <strong>学生解析</strong>
+                                        <div class="exam-markdown-body">{{ question.student_explanation_html }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="topic-access-modal__footer topic-access-modal__footer--course student-exam-question-footer">
+                                <button type="button" class="teacher-anchor-link" data-student-exam-prev-question>上一题</button>
+                                <button type="button" class="login-button" data-student-exam-next-question>下一题</button>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </div>
+        {% else %}
+            <div class="entry-hint-bar">当前提交没有题目。</div>
+        {% endif %}
     </section>
 
     <section class="surface-panel teacher-exam-submission-section">
@@ -191,4 +337,52 @@
             <a class="teacher-anchor-link" href="{{ back_href }}">返回考试详情</a>
         </div>
     </section>
+{% endblock %}
+
+{% block extra_body_end %}
+    <script>
+        (function () {
+            const layout = document.getElementById("teacher-exam-paper-layout");
+            if (!layout) {
+                return;
+            }
+            const buttons = Array.from(layout.querySelectorAll("[data-student-exam-question-button]"));
+            const cards = Array.from(layout.querySelectorAll("[data-student-exam-question-card]"));
+            let activeIndex = 0;
+
+            function activateByIndex(index) {
+                if (!cards.length) {
+                    return;
+                }
+                activeIndex = Math.max(0, Math.min(cards.length - 1, index));
+                const activeCard = cards[activeIndex];
+                const activeId = activeCard.dataset.studentExamQuestionCard || "";
+                cards.forEach((card) => {
+                    card.hidden = card !== activeCard;
+                });
+                buttons.forEach((button) => {
+                    button.classList.toggle("is-active", button.dataset.studentExamQuestionButton === activeId);
+                });
+            }
+
+            buttons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    const targetIndex = cards.findIndex((card) => card.dataset.studentExamQuestionCard === String(button.dataset.studentExamQuestionButton || ""));
+                    if (targetIndex >= 0) {
+                        activateByIndex(targetIndex);
+                    }
+                });
+            });
+            layout.addEventListener("click", (event) => {
+                if (event.target.closest("[data-student-exam-prev-question]")) {
+                    activateByIndex(activeIndex - 1);
+                    return;
+                }
+                if (event.target.closest("[data-student-exam-next-question]")) {
+                    activateByIndex(activeIndex + 1);
+                }
+            });
+            activateByIndex(0);
+        })();
+    </script>
 {% endblock %}

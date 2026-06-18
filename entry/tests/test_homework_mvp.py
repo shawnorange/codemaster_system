@@ -23,6 +23,7 @@ from entry.models import (
     PortalUser,
     Student,
     StudentContentAccess,
+    Teacher,
     TeacherStudentAssignment,
 )
 from entry.portal_context import student_has_content_access
@@ -582,6 +583,146 @@ class HomeworkMVPTests(TestCase):
         self.assertContains(course_detail_response, 'workbench-panel workbench-panel--topics', html=False)
         self.assertContains(course_detail_response, 'topic-work-grid', html=False)
         self.assertContains(course_detail_response, 'portal-action-row portal-action-row--leading', html=False)
+
+    def test_principal_workbench_reuses_teacher_workspace_with_teacher_tab(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_workbench",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="校长账号",
+            phone="13800000990",
+        )
+        self.sign_in(principal)
+
+        response = self.client.get(reverse("principal-dashboard"), {"tab": "teachers"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "校长工作台")
+        self.assertContains(response, "教师")
+        self.assertContains(response, "当前教师")
+        self.assertContains(response, 'id="principal-workbench-teachers-table"', html=False)
+        self.assertContains(response, "教师姓名")
+        self.assertContains(response, "所教授学科")
+        self.assertContains(response, "是否在职")
+        self.assertContains(response, 'name="teacher_course_id"', html=False)
+        self.assertContains(response, "20260618-principal-teacher-course-select")
+        teacher_rows = response.context["page_shell"]["teacher_table_rows"]
+        homework_teacher_row = next(row for row in teacher_rows if row["name"] == "作业老师")
+        self.assertEqual(homework_teacher_row["subject"], "C++")
+        self.assertIn("作业学生", homework_teacher_row["students_text"])
+
+    def test_principal_can_create_teacher_account_and_profile(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_create_teacher",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="新增教师校长",
+            phone="13800000991",
+        )
+        self.sign_in(principal)
+
+        response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "create_teacher",
+                "teacher_name": "新老师",
+                "teacher_course_id": str(self.cpp_course.id),
+                "teacher_phone": "13800000992",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("tab=teachers", response["Location"])
+        teacher_user = PortalUser.objects.get(username="新老师")
+        self.assertEqual(teacher_user.role, PortalUser.ROLE_TEACHER)
+        self.assertEqual(teacher_user.full_name, "新老师")
+        self.assertTrue(teacher_user.check_password("123456"))
+        teacher_profile = Teacher.objects.get(user=teacher_user)
+        self.assertEqual(teacher_profile.subject, "C++")
+        self.assertTrue(teacher_profile.courses.filter(id=self.cpp_course.id).exists())
+
+    def test_principal_create_teacher_rejects_duplicate_username(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_duplicate_teacher",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="重复教师校长",
+            phone="13800000995",
+        )
+        self.sign_in(principal)
+
+        response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "create_teacher",
+                "teacher_name": self.teacher.username,
+                "teacher_course_id": str(self.cpp_course.id),
+                "teacher_phone": "13800000996",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "当前用户名已被注册，请重新选择用户名。")
+        self.assertFalse(PortalUser.objects.filter(phone="13800000996").exists())
+
+    def test_principal_can_update_soft_delete_and_restore_teacher_profile(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_manage_teacher",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="管理教师校长",
+            phone="13800000993",
+        )
+        self.sign_in(principal)
+        teacher_profile = Teacher.objects.create(
+            user=self.peer_teacher,
+            display_name=self.peer_teacher.full_name,
+            phone=self.peer_teacher.phone,
+            subject="C++",
+        )
+        teacher_profile.courses.add(self.cpp_course)
+
+        update_response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "update_teacher",
+                "teacher_id": str(teacher_profile.id),
+                "teacher_name": "更新老师",
+                "teacher_course_id": str(self.uav_course.id),
+                "teacher_phone": "13800000994",
+            },
+        )
+        self.assertEqual(update_response.status_code, 302)
+        teacher_profile.refresh_from_db()
+        self.peer_teacher.refresh_from_db()
+        self.assertEqual(teacher_profile.display_name, "更新老师")
+        self.assertEqual(teacher_profile.phone, "13800000994")
+        self.assertEqual(teacher_profile.subject, "无人机")
+        self.assertEqual(self.peer_teacher.username, "peer_teacher_homework")
+        self.assertEqual(self.peer_teacher.full_name, "更新老师")
+        self.assertTrue(teacher_profile.courses.filter(id=self.uav_course.id).exists())
+
+        delete_response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "delete_teacher",
+                "teacher_id": str(teacher_profile.id),
+            },
+        )
+        self.assertEqual(delete_response.status_code, 302)
+        teacher_profile.refresh_from_db()
+        self.peer_teacher.refresh_from_db()
+        self.assertFalse(teacher_profile.is_active)
+        self.assertFalse(self.peer_teacher.is_active)
+
+        restore_response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "restore_teacher",
+                "teacher_id": str(teacher_profile.id),
+            },
+        )
+        self.assertEqual(restore_response.status_code, 302)
+        teacher_profile.refresh_from_db()
+        self.peer_teacher.refresh_from_db()
+        self.assertTrue(teacher_profile.is_active)
+        self.assertTrue(self.peer_teacher.is_active)
 
     def test_teacher_cannot_create_homework_for_out_of_scope_student(self) -> None:
         self.sign_in(self.outsider_teacher)
@@ -1427,6 +1568,8 @@ class HomeworkMVPTests(TestCase):
                 "form_action": "review_homework",
                 "homework_id": str(assignment.id),
                 "teacher_comment": "完成得不错，下一次把边界条件写得更稳一些。",
+                "highlights": "审题清楚，步骤完整。",
+                "areas_for_growth": "继续加强边界条件。",
             },
             follow=True,
         )
@@ -1439,6 +1582,8 @@ class HomeworkMVPTests(TestCase):
         assignment.refresh_from_db()
         self.assertEqual(assignment.status, HomeworkAssignment.STATUS_REVIEWED)
         self.assertEqual(assignment.teacher_comment, "完成得不错，下一次把边界条件写得更稳一些。")
+        self.assertEqual(assignment.highlights, "审题清楚，步骤完整。")
+        self.assertEqual(assignment.areas_for_growth, "继续加强边界条件。")
         self.assertIsNotNone(assignment.reviewed_at)
 
         self.sign_in(self.student_user)

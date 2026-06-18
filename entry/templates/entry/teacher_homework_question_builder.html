@@ -1,8 +1,15 @@
 {% extends "entry/system_shell.html" %}
+{% load static %}
 
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+{% endblock %}
+
 {% block system_content %}
+    <div class="student-homework-detail">
     <nav class="student-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}
@@ -250,30 +257,9 @@
                     <h3>当前正式题目</h3>
                 </div>
 
-                <div class="content-access-list">
+                <div class="homework-question-list">
                     {% for item in confirmed_questions %}
-                        <article class="content-access-card">
-                            <div class="content-access-card__top">
-                                <div>
-                                    <h5>第 {{ item.question_no }} 题</h5>
-                                    <p>{{ item.question_type_text }}</p>
-                                </div>
-                                <span class="state-pill state-pill--future">{{ item.correct_answer }}</span>
-                            </div>
-                            <p class="content-access-card__description">{{ item.stem }}</p>
-                            <div class="topic-work-card__meta">
-                                {% for option in item.option_items %}
-                                    <article class="topic-work-card__meta-item">
-                                        <span>{{ option.key }}</span>
-                                        <strong>{{ option.text }}</strong>
-                                    </article>
-                                {% endfor %}
-                            </div>
-                            <div class="record-inline-feedback" style="margin-top: 14px;">
-                                <strong>解析</strong>
-                                <span>{{ item.analysis }}</span>
-                            </div>
-                        </article>
+                        {% include "entry/includes/homework_questions/question_card_base.html" with question=item %}
                     {% empty %}
                         <div class="entry-hint-bar">
                             <strong>当前还没有正式题目</strong>
@@ -351,6 +337,7 @@
                 </ul>
             </section>
         </aside>
+    </div>
     </div>
 {% endblock %}
 

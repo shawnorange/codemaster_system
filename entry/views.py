@@ -125,6 +125,7 @@ from .models import (
     RewardRecord,
     Student,
     StudentSiteMessage,
+    Teacher,
     TeacherEvaluation,
     TeacherStudentAssignment,
 )
@@ -5209,10 +5210,13 @@ def create_or_update_exam_management_from_bank_paper(
 @role_required("teacher")
 def teacher_students(request: HttpRequest) -> HttpResponse:
     active_tab = request.GET.get("tab", "students")
+    portal_user = get_portal_user_from_request(request)
+    if portal_user.role == PortalUser.ROLE_PRINCIPAL:
+        return redirect(f"{reverse('principal-dashboard')}?tab={active_tab}")
     return render_role_page(
         request,
         "teacher",
-        build_teacher_page_shell(get_portal_user_from_request(request), active_tab=active_tab),
+        build_teacher_page_shell(portal_user, active_tab=active_tab),
     )
 
 
@@ -6068,11 +6072,15 @@ def teacher_exam_detail(request: HttpRequest, paper_id: int) -> HttpResponse:
         stats_student_id = normalize_positive_int(request.POST.get("stats_student_id"), default=0, minimum=0)
         question_id = normalize_positive_int(request.POST.get("question_id"), default=0, minimum=1)
         try:
-            question = (
-                ExamQuestion.objects.select_related("paper")
-                .filter(id=question_id, paper_id=paper_id, paper__teacher=portal_user, paper__is_active=True, is_active=True)
-                .get()
+            question_queryset = ExamQuestion.objects.select_related("paper").filter(
+                id=question_id,
+                paper_id=paper_id,
+                paper__is_active=True,
+                is_active=True,
             )
+            if portal_user.role != PortalUser.ROLE_PRINCIPAL:
+                question_queryset = question_queryset.filter(paper__teacher=portal_user)
+            question = question_queryset.get()
         except ExamQuestion.DoesNotExist as exc:
             raise Http404("未找到该考试题目") from exc
         redirect_params = {"question": question.question_no}
@@ -8253,6 +8261,8 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
         elif action == "review_homework":
             homework_id = normalize_positive_int(request.POST.get("homework_id"), default=0, minimum=1)
             teacher_comment = request.POST.get("teacher_comment", "").strip()
+            highlights = normalize_preserved_multiline_text(request.POST.get("highlights", "")).strip()
+            areas_for_growth = normalize_preserved_multiline_text(request.POST.get("areas_for_growth", "")).strip()
             assignment = (
                 HomeworkAssignment.objects.filter(
                     id=homework_id,
@@ -8268,10 +8278,18 @@ def teacher_student_detail(request: HttpRequest, student_id: int) -> HttpRespons
             previous_status = assignment.status
             previous_comment = assignment.teacher_comment
             previous_reviewed_at = assignment.reviewed_at
+            previous_highlights = assignment.highlights
+            previous_areas_for_growth = assignment.areas_for_growth
             assignment.mark_reviewed(teacher_comment=teacher_comment)
+            assignment.highlights = highlights
+            assignment.areas_for_growth = areas_for_growth
             update_fields = []
             if assignment.teacher_comment != previous_comment:
                 update_fields.append("teacher_comment")
+            if assignment.highlights != previous_highlights:
+                update_fields.append("highlights")
+            if assignment.areas_for_growth != previous_areas_for_growth:
+                update_fields.append("areas_for_growth")
             if assignment.status != previous_status:
                 update_fields.append("status")
             if assignment.reviewed_at != previous_reviewed_at:
@@ -8545,7 +8563,123 @@ def teacher_homework_builder(request: HttpRequest, student_id: int, assignment_i
 
 @role_required("principal")
 def principal_dashboard(request: HttpRequest) -> HttpResponse:
-    return render_role_page(request, "principal", build_principal_page_shell())
+    active_tab = request.GET.get("tab", "students")
+    page_shell = build_teacher_page_shell(get_portal_user_from_request(request), active_tab=active_tab)
+    page_shell["teacher_form_values"] = {
+        "name": "",
+        "username": "",
+        "course_id": "",
+        "phone": "",
+    }
+    page_shell["teacher_course_options"] = [
+        {"value": str(course.id), "label": course.title}
+        for course in Course.objects.order_by("id")
+    ]
+    page_shell["teacher_form_error"] = ""
+    success_messages = {
+        "1": "教师账号已新增，默认密码为 123456。",
+        "updated": "教师信息已更新。",
+        "deleted": "教师已标记为离职。",
+        "restored": "教师已恢复为在职。",
+    }
+    page_shell["teacher_form_success"] = success_messages.get(str(request.GET.get("teacher_saved") or request.GET.get("teacher_created") or ""), "")
+
+    if request.method == "POST":
+        form_action = str(request.POST.get("form_action") or "").strip()
+        if form_action not in {"create_teacher", "update_teacher", "delete_teacher", "restore_teacher"}:
+            return redirect(f"{reverse('principal-dashboard')}?tab=teachers")
+
+        page_shell["active_tab"] = "teachers"
+
+        if form_action in {"delete_teacher", "restore_teacher"}:
+            teacher_id = normalize_positive_int(request.POST.get("teacher_id"), default=0, minimum=1)
+            try:
+                teacher_profile = Teacher.objects.select_related("user").get(
+                    id=teacher_id,
+                    user__role=PortalUser.ROLE_TEACHER,
+                )
+            except Teacher.DoesNotExist as exc:
+                raise Http404("未找到该教师") from exc
+            is_active = form_action == "restore_teacher"
+            teacher_profile.is_active = is_active
+            teacher_profile.save(update_fields=["is_active", "updated_at"])
+            teacher_profile.user.is_active = is_active
+            teacher_profile.user.save(update_fields=["is_active", "updated_at"])
+            result_key = "restored" if is_active else "deleted"
+            return redirect(f"{reverse('principal-dashboard')}?tab=teachers&teacher_saved={result_key}")
+
+        teacher_name = str(request.POST.get("teacher_name") or "").strip()
+        teacher_username = str(request.POST.get("teacher_username") or "").strip()
+        teacher_course_id = normalize_positive_int(request.POST.get("teacher_course_id"), default=0, minimum=1)
+        teacher_phone = normalize_phone(request.POST.get("teacher_phone"))
+        course = Course.objects.filter(id=teacher_course_id).order_by("id").first()
+        teacher_subject = course.title if course is not None else ""
+        resolved_teacher_username = teacher_username or teacher_name
+        page_shell["teacher_form_values"] = {
+            "name": teacher_name,
+            "username": teacher_username,
+            "course_id": str(teacher_course_id) if teacher_course_id else "",
+            "phone": teacher_phone,
+        }
+
+        if not teacher_name or course is None or not teacher_phone:
+            page_shell["teacher_form_error"] = "请完整填写教师姓名、学科和手机号。"
+        elif form_action == "create_teacher" and PortalUser.objects.filter(username=resolved_teacher_username).exists():
+            page_shell["teacher_form_error"] = "当前用户名已被注册，请重新选择用户名。"
+        elif form_action == "create_teacher" and PortalUser.objects.filter(phone=teacher_phone).exists():
+            page_shell["teacher_form_error"] = "该手机号已存在账号，请换一个手机号或先核对已有账号。"
+        elif form_action == "update_teacher":
+            teacher_id = normalize_positive_int(request.POST.get("teacher_id"), default=0, minimum=1)
+            try:
+                teacher_profile = Teacher.objects.select_related("user").get(
+                    id=teacher_id,
+                    user__role=PortalUser.ROLE_TEACHER,
+                )
+            except Teacher.DoesNotExist as exc:
+                raise Http404("未找到该教师") from exc
+            duplicate_user = (
+                PortalUser.objects.filter(phone=teacher_phone)
+                .exclude(id=teacher_profile.user_id)
+                .exists()
+            )
+            if duplicate_user:
+                page_shell["teacher_form_error"] = "该手机号已存在账号，请换一个手机号或先核对已有账号。"
+            else:
+                with transaction.atomic():
+                    teacher_profile.display_name = teacher_name
+                    teacher_profile.phone = teacher_phone
+                    teacher_profile.subject = teacher_subject
+                    teacher_profile.save(update_fields=["display_name", "phone", "subject", "updated_at"])
+                    teacher_profile.user.full_name = teacher_name
+                    teacher_profile.user.phone = teacher_phone
+                    teacher_profile.user.save(update_fields=["full_name", "phone", "updated_at"])
+                    teacher_profile.courses.clear()
+                    if course is not None:
+                        teacher_profile.courses.add(course)
+                return redirect(f"{reverse('principal-dashboard')}?tab=teachers&teacher_saved=updated")
+        else:
+            with transaction.atomic():
+                teacher_user = PortalUser(
+                    username=resolved_teacher_username,
+                    role=PortalUser.ROLE_TEACHER,
+                    full_name=teacher_name,
+                    phone=teacher_phone,
+                    is_active=True,
+                )
+                teacher_user.set_password(DEFAULT_IMPORTED_ACCOUNT_PASSWORD)
+                teacher_user.save()
+                teacher_profile = Teacher.objects.create(
+                    user=teacher_user,
+                    display_name=teacher_name,
+                    phone=teacher_phone,
+                    subject=teacher_subject,
+                    is_active=True,
+                )
+                if course is not None:
+                    teacher_profile.courses.add(course)
+            return redirect(f"{reverse('principal-dashboard')}?tab=teachers&teacher_saved=1")
+
+    return render_role_page(request, "principal", page_shell)
 
 
 @api_role_required("principal")

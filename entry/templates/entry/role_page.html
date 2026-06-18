@@ -3,7 +3,7 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
-    {% if role_key == "teacher" %}
+    {% if role_key == "teacher" or role_key == "principal" %}
         {% include "entry/includes/teacher_tabulator_head.html" %}
         <style>
             .teacher-tab__badge {
@@ -60,7 +60,7 @@
 {% endblock %}
 
 {% block system_content %}
-    <section class="hero-panel{% if role_key == 'teacher' %} hero-panel--teacher-workbench{% endif %}">
+    <section class="hero-panel{% if role_key == 'teacher' or role_key == 'principal' %} hero-panel--teacher-workbench{% endif %}">
         <div class="hero-panel__copy">
             <p class="eyebrow">{{ page_shell.hero_eyebrow }}</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
@@ -70,7 +70,7 @@
             {% endif %}
         </div>
 
-        <div class="hero-panel__metrics{% if role_key == 'teacher' %} hero-panel__metrics--teacher-workbench{% endif %}">
+        <div class="hero-panel__metrics{% if role_key == 'teacher' or role_key == 'principal' %} hero-panel__metrics--teacher-workbench{% endif %}">
             {% for item in page_shell.summary_cards %}
                 <article class="metric-card">
                     <p class="metric-card__label">{{ item.label }}</p>
@@ -81,7 +81,7 @@
         </div>
     </section>
 
-    <div class="system-content-grid{% if role_key == 'teacher' %} system-content-grid--teacher-workbench{% endif %}">
+    <div class="system-content-grid{% if role_key == 'teacher' or role_key == 'principal' %} system-content-grid--teacher-workbench{% endif %}">
         <section class="surface-panel surface-panel--primary">
             <div class="section-heading">
                 <p class="section-heading__eyebrow">{{ page_shell.section_eyebrow }}</p>
@@ -331,7 +331,7 @@
                         </section>
                     </div>
                 </div>
-            {% elif role_key == "teacher" %}
+            {% elif role_key == "teacher" or role_key == "principal" %}
                 <div class="portal-workspace-shell teacher-workspace-shell">
                     <nav class="portal-tab-bar teacher-tab-bar" aria-label="教师工作台标签页">
                         {% for tab in page_shell.tabs %}
@@ -376,6 +376,117 @@
                                 </div>
                                 <div id="teacher-workbench-students-table" class="portal-grid-container teacher-tabulator-container"></div>
                             </div>
+                        </section>
+                    {% elif page_shell.active_tab == "teachers" %}
+                        <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
+                            <div class="section-heading section-heading--compact">
+                                <p class="section-heading__eyebrow">Teachers</p>
+                                <h3>当前教师</h3>
+                                <p>来自 entry_teacher 表，展示教师姓名、手机号和所教授学科。</p>
+                            </div>
+
+                            {% if page_shell.teacher_form_success %}
+                                <div class="entry-hint-bar">{{ page_shell.teacher_form_success }}</div>
+                            {% endif %}
+                            {% if page_shell.teacher_form_error %}
+                                <div class="entry-hint-bar">{{ page_shell.teacher_form_error }}</div>
+                            {% endif %}
+
+                            <form method="post" class="record-form portal-stack-spacing-sm">
+                                {% csrf_token %}
+                                <input type="hidden" name="form_action" value="create_teacher">
+                                <div class="record-form__row" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                                    <input
+                                        type="text"
+                                        name="teacher_name"
+                                        value="{{ page_shell.teacher_form_values.name }}"
+                                        placeholder="教师姓名"
+                                        required
+                                    >
+                                    <input
+                                        type="text"
+                                        name="teacher_username"
+                                        value="{{ page_shell.teacher_form_values.username }}"
+                                        placeholder="用户名（默认教师姓名）"
+                                    >
+                                    <select name="teacher_course_id" required>
+                                        <option value="">所教授学科</option>
+                                        {% for option in page_shell.teacher_course_options %}
+                                            <option value="{{ option.value }}" {% if option.value == page_shell.teacher_form_values.course_id %}selected{% endif %}>{{ option.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <input
+                                        type="text"
+                                        name="teacher_phone"
+                                        value="{{ page_shell.teacher_form_values.phone }}"
+                                        placeholder="手机号"
+                                        inputmode="tel"
+                                        required
+                                    >
+                                    <button type="submit" class="login-button record-form__button">新增教师</button>
+                                </div>
+                            </form>
+
+                            <div class="portal-grid-shell teacher-tabulator-shell">
+                                <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                                    <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                        <label for="principal-workbench-teacher-name-search">教师姓名</label>
+                                        <input id="principal-workbench-teacher-name-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按教师姓名查找">
+                                    </div>
+                                    <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                        <label for="principal-workbench-teacher-subject-search">所教授学科</label>
+                                        <input id="principal-workbench-teacher-subject-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按学科查找">
+                                    </div>
+                                    <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                        <label for="principal-workbench-teacher-phone-search">手机号</label>
+                                        <input id="principal-workbench-teacher-phone-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="按手机号查找">
+                                    </div>
+                                    <div class="portal-grid-filter-field teacher-tabulator-filter-field">
+                                        <label for="principal-workbench-teacher-status-search">是否在职</label>
+                                        <select id="principal-workbench-teacher-status-search" class="portal-grid-filter-control teacher-tabulator-filter-control">
+                                            <option value="">全部</option>
+                                            <option value="active">在职</option>
+                                            <option value="inactive">离职</option>
+                                        </select>
+                                    </div>
+                                    <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
+                                        <span class="portal-grid-note teacher-tabulator-note">新增教师会同步创建教师账号和 entry_teacher 记录</span>
+                                    </div>
+                                </div>
+                                <div id="principal-workbench-teachers-table" class="portal-grid-container teacher-tabulator-container"></div>
+                            </div>
+
+                            <dialog class="topic-access-modal" id="principal-teacher-edit-modal">
+                                <form method="post" class="topic-access-modal__panel">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="form_action" value="update_teacher">
+                                    <input type="hidden" name="teacher_id" id="principal-teacher-edit-id">
+
+                                    <div class="topic-access-modal__header">
+                                        <div>
+                                            <p class="section-heading__eyebrow">Edit Teacher</p>
+                                            <h3>修改教师</h3>
+                                        </div>
+                                        <button type="button" class="teacher-modal-close" id="principal-teacher-edit-close" aria-label="关闭弹窗">×</button>
+                                    </div>
+
+                                    <div class="record-form">
+                                        <input id="principal-teacher-edit-name" type="text" name="teacher_name" placeholder="教师姓名" required>
+                                        <input id="principal-teacher-edit-phone" type="text" name="teacher_phone" placeholder="手机号" inputmode="tel" required>
+                                        <select id="principal-teacher-edit-course" name="teacher_course_id" required>
+                                            <option value="">所教授学科</option>
+                                            {% for option in page_shell.teacher_course_options %}
+                                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+
+                                    <div class="topic-access-modal__footer">
+                                        <button type="button" class="teacher-anchor-link" id="principal-teacher-edit-cancel">取消</button>
+                                        <button type="submit" class="login-button">保存修改</button>
+                                    </div>
+                                </form>
+                            </dialog>
                         </section>
                     {% elif page_shell.active_tab == "courses" %}
                         <section class="portal-workbench-panel portal-workbench-panel--recent portal-tab-panel teacher-tab-panel workbench-panel">
@@ -513,7 +624,7 @@
             {% endif %}
         </section>
 
-        {% if role_key != "teacher" %}
+        {% if role_key != "teacher" and role_key != "principal" %}
             <aside class="system-aside">
                 <section class="surface-panel">
                     <div class="section-heading section-heading--compact">
@@ -559,8 +670,9 @@
 {% endblock %}
 
 {% block extra_body_end %}
-    {% if role_key == "teacher" %}
+    {% if role_key == "teacher" or role_key == "principal" %}
         {{ page_shell.student_table_rows|json_script:"teacher-workbench-students-data" }}
+        {{ page_shell.teacher_table_rows|json_script:"principal-workbench-teachers-data" }}
         {{ page_shell.course_table_rows|json_script:"teacher-workbench-courses-data" }}
         {{ page_shell.message_table_rows|json_script:"teacher-workbench-messages-data" }}
         {% include "entry/includes/teacher_tabulator_scripts.html" %}
@@ -581,6 +693,23 @@
                         tableId: "teacher-workbench-courses-table",
                         dataScriptId: "teacher-workbench-courses-data",
                         searchInputId: "teacher-workbench-course-search"
+                    });
+                }
+                if ("{{ page_shell.active_tab }}" === "teachers") {
+                    window.CodeMasterTeacherTabulator.initPrincipalWorkbenchTeachers({
+                        tableId: "principal-workbench-teachers-table",
+                        dataScriptId: "principal-workbench-teachers-data",
+                        nameSearchInputId: "principal-workbench-teacher-name-search",
+                        subjectSearchInputId: "principal-workbench-teacher-subject-search",
+                        phoneSearchInputId: "principal-workbench-teacher-phone-search",
+                        statusSearchInputId: "principal-workbench-teacher-status-search",
+                        editModalId: "principal-teacher-edit-modal",
+                        editIdInputId: "principal-teacher-edit-id",
+                        editNameInputId: "principal-teacher-edit-name",
+                        editPhoneInputId: "principal-teacher-edit-phone",
+                        editCourseSelectId: "principal-teacher-edit-course",
+                        editCloseButtonId: "principal-teacher-edit-close",
+                        editCancelButtonId: "principal-teacher-edit-cancel"
                     });
                 }
                 if ("{{ page_shell.active_tab }}" === "messages") {

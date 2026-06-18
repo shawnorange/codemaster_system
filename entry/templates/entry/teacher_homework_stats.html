@@ -68,6 +68,13 @@
                         <article class="topic-work-card__meta-item">
                             <span>统计窗口</span>
                             <strong>{{ period_range_text }}</strong>
+                            {% if selected_period == "week" %}
+                                <div class="teacher-homework-stats-week-control" aria-label="周度切换">
+                                    <a class="teacher-anchor-link teacher-homework-stats-week-control__button" href="{{ week_previous_href }}">上一周</a>
+                                    <span class="teacher-homework-stats-week-control__range">{{ week_range_display_text }}</span>
+                                    <a class="teacher-anchor-link teacher-homework-stats-week-control__button" href="{{ week_next_href }}">下一周</a>
+                                </div>
+                            {% endif %}
                         </article>
                         <article class="topic-work-card__meta-item">
                             <span>数据范围</span>

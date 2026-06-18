@@ -1153,6 +1153,186 @@
         return table;
     }
 
+    function buildPrincipalWorkbenchTeachersTable(config) {
+        var data = readJsonScript(config.dataScriptId);
+        var tableElement = document.getElementById(config.tableId);
+        var editModal = document.getElementById(config.editModalId);
+        var editIdInput = document.getElementById(config.editIdInputId);
+        var editNameInput = document.getElementById(config.editNameInputId);
+        var editPhoneInput = document.getElementById(config.editPhoneInputId);
+        var editCourseSelect = document.getElementById(config.editCourseSelectId);
+        var editCloseButton = document.getElementById(config.editCloseButtonId);
+        var editCancelButton = document.getElementById(config.editCancelButtonId);
+        var nameSearchInput = document.getElementById(config.nameSearchInputId);
+        var subjectSearchInput = document.getElementById(config.subjectSearchInputId);
+        var phoneSearchInput = document.getElementById(config.phoneSearchInputId);
+        var statusSearchInput = document.getElementById(config.statusSearchInputId);
+
+        function teacherActionButtons(row) {
+            var editButton =
+                '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" ' +
+                'data-principal-teacher-edit="1" ' +
+                'data-teacher-id="' +
+                escapeHtml(row.teacher_id || "") +
+                '" data-teacher-name="' +
+                escapeHtml(row.name || "") +
+                '" data-teacher-phone="' +
+                escapeHtml(row.phone || "") +
+                '" data-teacher-course-id="' +
+                escapeHtml(row.course_id || "") +
+                '">修改</button>';
+            var stateAction = row.is_active ? "delete_teacher" : "restore_teacher";
+            var stateLabel = row.is_active ? "删除" : "恢复";
+            var stateButton =
+                '<button type="button" class="cm-tabulator-btn" data-principal-teacher-state="' +
+                escapeHtml(stateAction) +
+                '" data-teacher-id="' +
+                escapeHtml(row.teacher_id || "") +
+                '">' +
+                escapeHtml(stateLabel) +
+                "</button>";
+            return '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">' + editButton + stateButton + "</div>";
+        }
+
+        var table = new Tabulator(
+            "#" + config.tableId,
+            defaultOptions(data, [
+                { title: "#", formatter: "rownum", hozAlign: "center", width: 72, headerSort: false },
+                { title: "教师姓名", field: "name", minWidth: 180 },
+                { title: "手机号", field: "phone", minWidth: 180 },
+                { title: "所教授学科", field: "subject", minWidth: 220 },
+                {
+                    title: "操作",
+                    field: "teacher_id",
+                    hozAlign: "center",
+                    width: 170,
+                    headerSort: false,
+                    formatter: function (cell) {
+                        return teacherActionButtons(cell.getRow().getData());
+                    },
+                },
+            ])
+        );
+
+        function normalizeSearch(value) {
+            return String(value || "").trim().toLowerCase();
+        }
+
+        function applyTeacherFilters() {
+            var nameQuery = normalizeSearch(nameSearchInput ? nameSearchInput.value : "");
+            var subjectQuery = normalizeSearch(subjectSearchInput ? subjectSearchInput.value : "");
+            var phoneQuery = normalizeSearch(phoneSearchInput ? phoneSearchInput.value : "");
+            var statusQuery = statusSearchInput ? String(statusSearchInput.value || "") : "";
+            var hasFilter = Boolean(nameQuery || subjectQuery || phoneQuery || statusQuery);
+            if (!hasFilter) {
+                table.clearFilter(true);
+                return;
+            }
+            table.setFilter(function (row) {
+                var matchesName = !nameQuery || normalizeSearch(row.name).indexOf(nameQuery) !== -1;
+                var matchesSubject = !subjectQuery || normalizeSearch(row.subject).indexOf(subjectQuery) !== -1;
+                var matchesPhone = !phoneQuery || normalizeSearch(row.phone).indexOf(phoneQuery) !== -1;
+                var matchesStatus =
+                    !statusQuery ||
+                    (statusQuery === "active" && row.is_active) ||
+                    (statusQuery === "inactive" && !row.is_active);
+                return matchesName && matchesSubject && matchesPhone && matchesStatus;
+            });
+        }
+
+        [nameSearchInput, subjectSearchInput, phoneSearchInput].forEach(function (input) {
+            if (input) {
+                input.addEventListener("input", debounce(applyTeacherFilters, 120));
+            }
+        });
+        if (statusSearchInput) {
+            statusSearchInput.addEventListener("change", applyTeacherFilters);
+        }
+
+        function showDialog(dialog) {
+            if (!dialog) {
+                return;
+            }
+            if (typeof dialog.showModal === "function") {
+                dialog.showModal();
+            } else {
+                dialog.setAttribute("open", "open");
+            }
+        }
+
+        function hideDialog(dialog) {
+            if (!dialog) {
+                return;
+            }
+            if (typeof dialog.close === "function") {
+                dialog.close();
+            } else {
+                dialog.removeAttribute("open");
+            }
+        }
+
+        function submitTeacherStateForm(actionName, teacherId) {
+            var csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+            var form = document.createElement("form");
+            form.method = "post";
+            form.action = window.location.pathname + "?tab=teachers";
+            form.style.display = "none";
+            form.innerHTML =
+                '<input type="hidden" name="csrfmiddlewaretoken" value="' +
+                escapeHtml(csrfInput ? csrfInput.value : "") +
+                '">' +
+                '<input type="hidden" name="form_action" value="' +
+                escapeHtml(actionName) +
+                '">' +
+                '<input type="hidden" name="teacher_id" value="' +
+                escapeHtml(teacherId) +
+                '">';
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        if (tableElement) {
+            tableElement.addEventListener("click", function (event) {
+                var editButton = event.target.closest("[data-principal-teacher-edit]");
+                if (editButton) {
+                    if (editIdInput) {
+                        editIdInput.value = editButton.getAttribute("data-teacher-id") || "";
+                    }
+                    if (editNameInput) {
+                        editNameInput.value = editButton.getAttribute("data-teacher-name") || "";
+                    }
+                    if (editPhoneInput) {
+                        editPhoneInput.value = editButton.getAttribute("data-teacher-phone") || "";
+                    }
+                    if (editCourseSelect) {
+                        editCourseSelect.value = editButton.getAttribute("data-teacher-course-id") || "";
+                    }
+                    showDialog(editModal);
+                    return;
+                }
+                var stateButton = event.target.closest("[data-principal-teacher-state]");
+                if (stateButton) {
+                    var actionName = stateButton.getAttribute("data-principal-teacher-state") || "";
+                    var teacherId = stateButton.getAttribute("data-teacher-id") || "";
+                    if (!actionName || !teacherId) {
+                        return;
+                    }
+                    submitTeacherStateForm(actionName, teacherId);
+                }
+            });
+        }
+
+        [editCloseButton, editCancelButton].forEach(function (button) {
+            if (button) {
+                button.addEventListener("click", function () {
+                    hideDialog(editModal);
+                });
+            }
+        });
+
+        return table;
+    }
+
     function buildTeacherWorkbenchMessagesTable(config) {
         var data = readJsonScript(config.dataScriptId);
         var table = new Tabulator(
@@ -2075,6 +2255,7 @@
         initTeacherHomeworkStatsStudents: buildTeacherHomeworkStatsStudentsTable,
         initTeacherWorkbenchStudents: buildTeacherWorkbenchStudentsTable,
         initTeacherWorkbenchCourses: buildTeacherWorkbenchCoursesTable,
+        initPrincipalWorkbenchTeachers: buildPrincipalWorkbenchTeachersTable,
         initTeacherWorkbenchMessages: buildTeacherWorkbenchMessagesTable,
         initStudentAssignmentGrid: buildStudentAssignmentsTable,
         initLevelGrid: buildLevelTable,

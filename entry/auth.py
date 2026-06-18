@@ -41,8 +41,8 @@ ROLE_CONFIG = {
     "principal": {
         "label": "校长",
         "landing_url_name": "principal-dashboard",
-        "page_title": "校长校区概览",
-        "page_description": "校长端当前提供 GESP4 多专题开放与教师记录的最基础概览，用来验证最小真实闭环已经打通。",
+        "page_title": "校长工作台",
+        "page_description": "",
     },
 }
 
@@ -227,6 +227,12 @@ def clear_auth_cookie(response: HttpResponse) -> None:
     response.delete_cookie(AUTH_COOKIE_NAME)
 
 
+def role_matches(user_role: str, expected_role: str) -> bool:
+    if user_role == expected_role:
+        return True
+    return expected_role == "teacher" and user_role == "principal"
+
+
 def role_required(expected_role: str):
     def decorator(view_func):
         @wraps(view_func)
@@ -235,7 +241,7 @@ def role_required(expected_role: str):
             if not user:
                 return redirect("login")
 
-            if user["role"] != expected_role:
+            if not role_matches(user["role"], expected_role):
                 return redirect(user["landing_url"])
 
             request.codemaster_user = user
@@ -254,7 +260,7 @@ def api_role_required(expected_role: str):
             if not user:
                 return JsonResponse({"error": "未登录"}, status=401)
 
-            if user["role"] != expected_role:
+            if not role_matches(user["role"], expected_role):
                 return JsonResponse({"error": "无权访问"}, status=403)
 
             request.codemaster_user = user

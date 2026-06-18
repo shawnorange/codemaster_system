@@ -438,17 +438,21 @@ def get_teacher_students(portal_user: PortalUser) -> QuerySet[Student]:
 
 
 def get_teacher_active_assignments(portal_user: PortalUser) -> QuerySet[TeacherStudentAssignment]:
-    return (
+    queryset = (
         TeacherStudentAssignment.objects.select_related(
+            "teacher",
             "course",
             "student",
             "student__user",
             "student__parent_user",
             "student__teacher_user",
         )
-        .filter(teacher=portal_user, is_active=True)
+        .filter(is_active=True)
         .order_by("course_id", "level_code", "student_id", "id")
     )
+    if portal_user.role == PortalUser.ROLE_PRINCIPAL:
+        return queryset
+    return queryset.filter(teacher=portal_user)
 
 
 def sync_teacher_profile(portal_user: PortalUser) -> Teacher | None:
@@ -478,6 +482,11 @@ def sync_teacher_profile(portal_user: PortalUser) -> Teacher | None:
     ).distinct()
     if assignment_courses.exists():
         teacher.courses.add(*assignment_courses)
+    if not teacher.subject:
+        course_titles = list(teacher.courses.values_list("title", flat=True))
+        if course_titles:
+            teacher.subject = "、".join(course_titles)
+            teacher.save(update_fields=["subject"])
     return teacher
 
 
@@ -624,7 +633,11 @@ def get_teacher_course_scope(portal_user: PortalUser, course_slug: str) -> dict:
         course = Course.objects.filter(slug=course_slug).order_by("id").first()
         if course is None:
             raise Course.DoesNotExist(course_slug)
-        if course.id in profile_course_ids or (teacher_can_import_students(portal_user) and course_slug == "cpp"):
+        if (
+            portal_user.role == PortalUser.ROLE_PRINCIPAL
+            or course.id in profile_course_ids
+            or (teacher_can_import_students(portal_user) and course_slug == "cpp")
+        ):
             return {
                 "course": course,
                 "course_assignments": [],
@@ -1194,24 +1207,42 @@ def format_completion_rate(rate: float) -> str:
     return f"{normalized:.1f}%"
 
 
-def build_teacher_workbench_tabs(active_key: str, *, message_count: int = 0) -> list[dict[str, object]]:
-    return [
+def build_teacher_workbench_tabs(
+    active_key: str,
+    *,
+    message_count: int = 0,
+    workspace_role: str = "teacher",
+) -> list[dict[str, object]]:
+    base_href = reverse("principal-dashboard") if workspace_role == "principal" else reverse("teacher-students")
+    tabs = [
         {
             "key": "students",
             "label": "学生",
-            "href": f"{reverse('teacher-students')}?tab=students",
+            "href": f"{base_href}?tab=students",
             "is_active": active_key == "students",
         },
+    ]
+    if workspace_role == "principal":
+        tabs.append(
+            {
+                "key": "teachers",
+                "label": "教师",
+                "href": f"{base_href}?tab=teachers",
+                "is_active": active_key == "teachers",
+            }
+        )
+    tabs.extend(
+        [
         {
             "key": "courses",
             "label": "课程",
-            "href": f"{reverse('teacher-students')}?tab=courses",
+            "href": f"{base_href}?tab=courses",
             "is_active": active_key == "courses",
         },
         {
             "key": "messages",
             "label": "消息",
-            "href": f"{reverse('teacher-students')}?tab=messages",
+            "href": f"{base_href}?tab=messages",
             "is_active": active_key == "messages",
             "badge_count": message_count,
         },
@@ -1221,7 +1252,69 @@ def build_teacher_workbench_tabs(active_key: str, *, message_count: int = 0) -> 
             "href": reverse("teacher-homework-stats"),
             "is_active": active_key == "homework-stats",
         },
-    ]
+        ]
+    )
+    return tabs
+
+
+def build_principal_teacher_rows() -> list[dict[str, object]]:
+    for user in PortalUser.objects.filter(role=PortalUser.ROLE_TEACHER, is_active=True).order_by("id"):
+        sync_teacher_profile(user)
+
+    teachers = list(
+        Teacher.objects.select_related("user")
+        .prefetch_related("courses")
+        .filter(user__role=PortalUser.ROLE_TEACHER)
+        .order_by("display_name", "id")
+    )
+    assignments = list(
+        TeacherStudentAssignment.objects.select_related("teacher", "student", "course")
+        .filter(teacher__role=PortalUser.ROLE_TEACHER, teacher__is_active=True, is_active=True)
+        .order_by("teacher_id", "course_id", "student__display_name", "id")
+    )
+    assignments_by_teacher: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
+    for assignment in assignments:
+        assignments_by_teacher[assignment.teacher_id].append(assignment)
+
+    rows = []
+    for teacher in teachers:
+        teacher_assignments = assignments_by_teacher.get(teacher.user_id, [])
+        student_names = sorted({assignment.student.display_name for assignment in teacher_assignments})
+        teacher_course_items = list(teacher.courses.all())
+        course_titles = [course.title for course in teacher_course_items]
+        if not course_titles:
+            course_titles = sorted({assignment.course.title for assignment in teacher_assignments})
+        primary_course_id = str(teacher_course_items[0].id) if teacher_course_items else ""
+        rows.append(
+            {
+                "teacher_id": teacher.id,
+                "portal_user_id": teacher.user_id,
+                "name": teacher.display_name,
+                "phone": teacher.phone or teacher.user.phone or "未录入",
+                "subject": teacher.subject or "、".join(course_titles) or "未设置",
+                "course_id": primary_course_id,
+                "is_active": teacher.is_active,
+                "status_text": "在职" if teacher.is_active else "离职",
+                "course_titles": "、".join(course_titles) if course_titles else "未关联课程",
+                "student_count": len(student_names),
+                "students_text": "、".join(student_names) if student_names else "暂未负责学生",
+                "edit_action": reverse("principal-dashboard"),
+                "delete_action": reverse("principal-dashboard"),
+                "restore_action": reverse("principal-dashboard"),
+                "search_text": " ".join(
+                    [
+                        teacher.display_name,
+                        teacher.phone or "",
+                        teacher.user.phone or "",
+                        teacher.subject or "",
+                        "在职" if teacher.is_active else "离职",
+                        " ".join(course_titles),
+                        " ".join(student_names),
+                    ]
+                ),
+            }
+        )
+    return rows
 
 
 def normalize_teacher_homework_stats_period(period: str) -> str:
@@ -3337,19 +3430,20 @@ def build_student_analysis_suggestion_items(question: ExamQuestion, student: Stu
 
 
 def build_teacher_analysis_message_rows(portal_user: PortalUser) -> list[dict[str, object]]:
+    suggestions = ExamQuestionAnalysisSuggestion.objects.select_related(
+        "student",
+        "question",
+        "question__paper",
+        "session",
+    ).filter(
+        question__paper__is_active=True,
+        question__is_active=True,
+        status=ExamQuestionAnalysisSuggestion.STATUS_PENDING,
+    )
+    if portal_user.role != PortalUser.ROLE_PRINCIPAL:
+        suggestions = suggestions.filter(question__paper__teacher=portal_user)
     suggestions = (
-        ExamQuestionAnalysisSuggestion.objects.select_related(
-            "student",
-            "question",
-            "question__paper",
-            "session",
-        )
-        .filter(
-            question__paper__teacher=portal_user,
-            question__paper__is_active=True,
-            question__is_active=True,
-            status=ExamQuestionAnalysisSuggestion.STATUS_PENDING,
-        )
+        suggestions
         .order_by("-created_at", "-id")
     )
     rows = []
@@ -3968,11 +4062,10 @@ def build_teacher_exam_detail_context(
     selected_student_id: int = 0,
     selected_exam_run_id: int = 0,
 ) -> dict:
-    paper = (
-        ExamPaper.objects.select_related("teacher", "course")
-        .filter(id=paper_id, teacher=portal_user, is_active=True)
-        .get()
-    )
+    paper_queryset = ExamPaper.objects.select_related("teacher", "course").filter(id=paper_id, is_active=True)
+    if portal_user.role != PortalUser.ROLE_PRINCIPAL:
+        paper_queryset = paper_queryset.filter(teacher=portal_user)
+    paper = paper_queryset.get()
     all_sessions = list(
         paper.sessions.select_related("student", "exam_run")
         .filter(is_active=True)
@@ -5314,10 +5407,10 @@ def build_teacher_homework_builder_context(
     latest_job = next((job for job in serialized_jobs if job["id"] == selected_import_job_id), None)
     if latest_job is None:
         latest_job = serialized_jobs[0] if serialized_jobs else None
-    confirmed_questions = [
-        serialize_homework_question(question)
-        for question in get_homework_assignment_questions(assignment)
-    ]
+    confirmed_questions = build_homework_question_view_models(
+        get_homework_assignment_questions(assignment),
+        state=QUESTION_STATE_PRINT_BLANK,
+    )
     return {
         "student": student,
         "assignment": serialize_homework_assignment(assignment),
@@ -6591,10 +6684,15 @@ def build_parent_page_shell(portal_user: PortalUser) -> dict:
 
 
 def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "students") -> dict:
+    workspace_role = "principal" if portal_user.role == PortalUser.ROLE_PRINCIPAL else "teacher"
     page_shell = deepcopy(ROLE_SHELL_CONTENT["teacher"])
     teacher_courses = {course.id: course for course in get_teacher_profile_courses(portal_user)}
+    if workspace_role == "principal":
+        for course in Course.objects.filter(teacher_profiles__user__is_active=True).distinct().order_by("id"):
+            teacher_courses[course.id] = course
     assignments = list(get_teacher_active_assignments(portal_user))
-    active_tab = active_tab if active_tab in {"students", "courses", "messages"} else "students"
+    allowed_tabs = {"students", "courses", "messages", "teachers"} if workspace_role == "principal" else {"students", "courses", "messages"}
+    active_tab = active_tab if active_tab in allowed_tabs else "students"
     assignments_by_student: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     assignments_by_course: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     for assignment in assignments:
@@ -6676,23 +6774,35 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
     course_rows.sort(key=lambda row: (row["order"], row["title"]))
 
     current_course_count = len(course_rows)
+    teacher_rows = build_principal_teacher_rows() if workspace_role == "principal" else []
     message_rows = build_teacher_analysis_message_rows(portal_user)
     message_count = len(message_rows)
     page_shell["summary_cards"] = [
         {"label": "负责学生", "value": f"{len(assignments_by_student)} 人", "hint": "当前 assignment 覆盖的学生数"},
-        {"label": "当前课程", "value": f"{current_course_count} 门", "hint": "当前有学生在学的课程方向"},
+        {
+            "label": "教师数量" if workspace_role == "principal" else "当前课程",
+            "value": f"{len(teacher_rows)} 位" if workspace_role == "principal" else f"{current_course_count} 门",
+            "hint": "当前可登录教师账号数" if workspace_role == "principal" else "当前有学生在学的课程方向",
+        },
         {"label": "已开放内容", "value": f"{total_open_records} 项", "hint": "GESP4 多专题的已开放记录总数"},
         {"label": "消息", "value": f"{message_count} 条", "hint": "待处理的学生解析挑战"},
     ]
-    page_shell["section_eyebrow"] = "Teacher Workbench"
-    page_shell["section_title"] = "教师工作台"
+    page_shell["section_eyebrow"] = "Principal Workbench" if workspace_role == "principal" else "Teacher Workbench"
+    page_shell["section_title"] = "校长工作台" if workspace_role == "principal" else "教师工作台"
     page_shell["section_description"] = ""
-    page_shell["tabs"] = build_teacher_workbench_tabs(active_tab, message_count=message_count)
+    page_shell["tabs"] = build_teacher_workbench_tabs(
+        active_tab,
+        message_count=message_count,
+        workspace_role=workspace_role,
+    )
     page_shell["active_tab"] = active_tab
+    page_shell["workspace_role"] = workspace_role
     page_shell["students"] = student_rows
     page_shell["courses"] = course_rows
+    page_shell["teachers"] = teacher_rows
     page_shell["student_table_rows"] = student_rows
     page_shell["course_table_rows"] = course_rows
+    page_shell["teacher_table_rows"] = teacher_rows
     page_shell["message_table_rows"] = message_rows
     page_shell["message_count"] = message_count
     page_shell["student_pool_links"] = [
@@ -6979,6 +7089,22 @@ def build_teacher_homework_stats_context(
         "completion_rate": completion_rate,
         "completion_rate_text": format_completion_rate(completion_rate),
     }
+    week_previous_anchor_date = selected_anchor_date - timedelta(days=7)
+    week_next_anchor_date = selected_anchor_date + timedelta(days=7)
+    week_control_params = {"period": "week"}
+    week_previous_href = (
+        f"{reverse('teacher-homework-stats')}?"
+        f"{urlencode({**week_control_params, 'anchor_date': week_previous_anchor_date.isoformat()})}"
+    )
+    week_next_href = (
+        f"{reverse('teacher-homework-stats')}?"
+        f"{urlencode({**week_control_params, 'anchor_date': week_next_anchor_date.isoformat()})}"
+    )
+    week_range_display_text = (
+        f"{period_start.month}月{period_start.day}日 至 {period_end.month}月{period_end.day}日"
+        if selected_period == "week"
+        else ""
+    )
 
     return {
         "page_title": "学生作业统计",
@@ -6997,6 +7123,9 @@ def build_teacher_homework_stats_context(
         "selected_period": selected_period,
         "period_label": period_label,
         "period_range_text": f"{period_start.isoformat()} 至 {period_end.isoformat()}",
+        "week_range_display_text": week_range_display_text,
+        "week_previous_href": week_previous_href,
+        "week_next_href": week_next_href,
         "period_field_label": period_field_label,
         "anchor_date_iso": selected_anchor_date.isoformat(),
         "period_options": [
@@ -7010,7 +7139,7 @@ def build_teacher_homework_stats_context(
                 "is_active": selected_period == option_key,
             }
             for option_key, option_label in (
-                ("week", "本周"),
+                ("week", "周度"),
                 ("month", "本月"),
                 ("quarter", "本季度"),
             )
@@ -8298,6 +8427,73 @@ def build_teacher_student_detail_context(
         exam_success_message=exam_success_message,
     )
     content_restriction_context = build_teacher_student_content_restriction_context(portal_user, student)
+    topic_access_table_rows = [
+        {
+            "title": item["title"],
+            "content_mode_text": item["content_mode_text"],
+            "status_text": item["status_text"],
+            "state": item["state"],
+            "summary": item["summary"],
+            "action_label": "管理权限",
+        }
+        for item in topic_items
+    ]
+    content_restriction_table_rows = [
+        {
+            "title": item["title"],
+            "course_title": item["course_title"],
+            "level_label": item["level_label"],
+            "permission_code": item["permission_code"],
+            "course_level_code": item["course_level_code"],
+            "status_text": item["status_text"],
+            "state": item["state"],
+            "note": item["note"],
+            "action_label": "批量限制",
+        }
+        for item in content_restriction_context["content_restriction_items"]
+    ]
+    homework_table_rows = []
+    homework_item_map = {item["id"]: item for item in homework_context["homework_items"]}
+    for row in build_homework_assignment_table_rows(homework_context["homework_items"]):
+        item = homework_item_map.get(row["id"], {})
+        homework_table_rows.append(
+            {
+                **row,
+                "due_date_text": item.get("due_date_text", ""),
+                "teacher_comment": item.get("teacher_comment", ""),
+                "teacher_comment_text": item.get("teacher_comment_text", ""),
+                "highlights": item.get("highlights", ""),
+                "areas_for_growth": item.get("areas_for_growth", ""),
+                "review_action_label": item.get("review_action_label", "写评语"),
+                "can_cancel": bool(item.get("can_cancel")),
+                "question_builder_href": item.get("question_builder_href", ""),
+                "question_builder_label": item.get("question_builder_label", "管理在线题目"),
+            }
+        )
+    exam_table_rows = [
+        {
+            "id": item["id"],
+            "title": item["title"],
+            "course_title": item["course_title"],
+            "teacher_name": item["teacher_name"],
+            "status_text": item["status_text"],
+            "status_tone": item["status_tone"],
+            "earned_score": item["earned_score"],
+            "total_score": item["total_score"],
+            "score_text": f"{item['earned_score']} / {item['total_score']}",
+            "correct_count": item["correct_count"],
+            "wrong_count": item["wrong_count"],
+            "mode_text": item["mode_text"],
+            "time_rule_text": item["time_rule_text"],
+            "proctoring_text": "已开启" if item["proctoring_enabled"] else "未开启",
+            "switch_count": item["switch_count"],
+            "started_at_text": item["started_at_text"],
+            "submitted_at_text": item["submitted_at_text"],
+            "teacher_detail_href": item["teacher_detail_href"],
+            "detail_label": "查看详情",
+        }
+        for item in exam_context["exam_items"]
+    ]
 
     return {
         "student": student,
@@ -8310,7 +8506,6 @@ def build_teacher_student_detail_context(
                 "hint": "该学生当前可进入的 GESP4 专题数量" if topic_items else "当前负责课程暂无专题开放链路",
             },
             {"label": "教师评价", "value": f"{len(evaluation_records)} 条", "hint": "当前学生已有的评价记录数"},
-            {"label": "课时余额", "value": lesson_hour_summary["balance_text"], "hint": lesson_hour_summary["latest_note"]},
             {"label": "最近开放", "value": latest_open["title"] if latest_open else "暂无", "hint": latest_open["granted_at_text"] if latest_open else "等待教师第一次开放"},
         ],
         "breadcrumbs": [
@@ -8374,6 +8569,10 @@ def build_teacher_student_detail_context(
         "lesson_hour_records": lesson_hour_items,
         "recent_record_sections": recent_record_sections,
         "lesson_hour_summary": lesson_hour_summary,
+        "topic_access_table_rows": topic_access_table_rows,
+        "content_restriction_table_rows": content_restriction_table_rows,
+        "homework_table_rows": homework_table_rows,
+        "exam_table_rows": exam_table_rows,
         "support_items": [
             {"title": "当前负责范围", "description": f"本页按 assignment 判定访问权限，当前教师负责：{assignment_scope_text}。"},
             {

@@ -2,6 +2,62 @@
 
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <style>
+        .teacher-student-detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .teacher-student-detail-grid > .system-aside,
+        .teacher-student-detail-grid .portal-workbench-shell.teacher-workbench {
+            display: none;
+        }
+
+        .hero-panel--teacher-student-detail {
+            grid-template-columns: 1fr;
+        }
+
+        .hero-panel__metrics--teacher-student-detail {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .teacher-student-detail-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .teacher-student-detail-panel[hidden] {
+            display: none;
+        }
+
+        .teacher-student-detail-panel-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .teacher-student-detail-table-actions {
+            align-items: center;
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 960px) {
+            .hero-panel__metrics--teacher-student-detail {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
 {% block system_content %}
     <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
@@ -16,7 +72,7 @@
         {% endfor %}
     </nav>
 
-    <section class="hero-panel">
+    <section class="hero-panel hero-panel--teacher-student-detail">
         <div class="hero-panel__copy">
             <p class="eyebrow">Teacher Workbench</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
@@ -24,7 +80,7 @@
             <p class="role-description">{{ page_description }}</p>
         </div>
 
-        <div class="hero-panel__metrics">
+        <div class="hero-panel__metrics hero-panel__metrics--teacher-student-detail">
             {% for item in summary_cards %}
                 <article class="metric-card">
                     <p class="metric-card__label">{{ item.label }}</p>
@@ -35,8 +91,118 @@
         </div>
     </section>
 
-    <div class="system-content-grid">
+    <div class="system-content-grid teacher-student-detail-grid">
         <section class="surface-panel surface-panel--primary">
+            <div class="teacher-student-detail-modern">
+                <div class="teacher-student-detail-tabs" role="tablist" aria-label="教师学生详情标签页">
+                    <button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" data-student-detail-tab="permission" role="tab" aria-selected="true">权限统计</button>
+                    <button type="button" class="cm-tabulator-btn" data-student-detail-tab="restriction" role="tab" aria-selected="false">内容限制</button>
+                    <button type="button" class="cm-tabulator-btn" data-student-detail-tab="homework" role="tab" aria-selected="false">家庭作业记录</button>
+                    <button type="button" class="cm-tabulator-btn" data-student-detail-tab="exam" role="tab" aria-selected="false">考试记录</button>
+                </div>
+
+                <section class="teacher-student-detail-panel" data-student-detail-panel="permission" role="tabpanel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">权限统计</p>
+                        <h3>已开放内容摘要</h3>
+                        <p>{{ topic_access_summary_text }}</p>
+                    </div>
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                <label for="teacher-student-permission-search">按专题查找</label>
+                                <input id="teacher-student-permission-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入专题名称、状态或说明">
+                            </div>
+                            <div class="teacher-student-detail-panel-actions">
+                                <button type="button" class="login-button" id="modern-open-topic-access-modal">管理专题权限</button>
+                            </div>
+                        </div>
+                        <div id="teacher-student-permission-table" class="portal-grid-container teacher-tabulator-container"></div>
+                    </div>
+                </section>
+
+                <section class="teacher-student-detail-panel" data-student-detail-panel="restriction" role="tabpanel" hidden>
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">内容限制</p>
+                        <h3>批量限制内容访问</h3>
+                        <p>{{ content_restriction_summary_text }}</p>
+                    </div>
+                    {% if content_restriction_success_message %}
+                        <div class="entry-hint-bar">
+                            <strong>内容限制已保存</strong>
+                            <span>{{ content_restriction_success_message }}</span>
+                        </div>
+                    {% endif %}
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                <label for="teacher-student-restriction-search">按内容查找</label>
+                                <input id="teacher-student-restriction-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入内容、级别或状态">
+                            </div>
+                            <div class="teacher-student-detail-panel-actions">
+                                <button type="button" class="login-button" id="modern-open-content-restriction-modal" {% if not content_restriction_items %}disabled{% endif %}>批量限制访问</button>
+                            </div>
+                        </div>
+                        <div id="teacher-student-restriction-table" class="portal-grid-container teacher-tabulator-container"></div>
+                    </div>
+                </section>
+
+                <section class="teacher-student-detail-panel" data-student-detail-panel="homework" role="tabpanel" hidden>
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">家庭作业记录</p>
+                        <h3>当前学生作业记录</h3>
+                        <p>当前学生固定来自详情页上下文；老师在这里直接布置作业、查看在线题目和填写评语。</p>
+                    </div>
+                    {% if homework_success_message %}
+                        <div class="entry-hint-bar">
+                            <strong>作业区反馈</strong>
+                            <span>{{ homework_success_message }}</span>
+                        </div>
+                    {% endif %}
+                    {% if homework_error_message %}
+                        <div class="entry-hint-bar">
+                            <strong>作业区错误</strong>
+                            <span>{{ homework_error_message }}</span>
+                        </div>
+                    {% endif %}
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                <label for="teacher-student-homework-search">按作业查找</label>
+                                <input id="teacher-student-homework-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入作业、知识点或状态">
+                            </div>
+                            <div class="teacher-student-detail-panel-actions">
+                                <button type="button" class="login-button" id="modern-open-homework-create-modal" {% if not homework_content_options %}disabled title="{{ homework_create_disabled_reason }}"{% endif %}>
+                                    {% if homework_content_options %}布置作业{% else %}暂无可布置内容{% endif %}
+                                </button>
+                                <a class="teacher-anchor-link" href="{% url 'teacher-homework-batch-create' %}">前往布置作业页</a>
+                            </div>
+                        </div>
+                        <div id="teacher-student-homework-table" class="portal-grid-container teacher-tabulator-container"></div>
+                    </div>
+                </section>
+
+                <section class="teacher-student-detail-panel" data-student-detail-panel="exam" role="tabpanel" hidden>
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">考试记录</p>
+                        <h3>考试记录</h3>
+                        <p>考试从教师端“考试管理”统一发布。这里仅查看当前学生的考试结果、错题和监考记录。</p>
+                    </div>
+                    <div class="portal-grid-shell teacher-tabulator-shell">
+                        <div class="portal-grid-toolbar teacher-tabulator-toolbar">
+                            <div class="portal-grid-toolbar__search teacher-tabulator-toolbar__search">
+                                <label for="teacher-student-exam-search">按考试查找</label>
+                                <input id="teacher-student-exam-search" class="portal-grid-search teacher-tabulator-search" type="text" placeholder="输入考试、课程或状态">
+                            </div>
+                            <div class="teacher-student-detail-panel-actions">
+                                <a class="teacher-anchor-link" href="{% url 'teacher-exams' %}">进入考试管理</a>
+                            </div>
+                        </div>
+                        <div id="teacher-student-exam-table" class="portal-grid-container teacher-tabulator-container"></div>
+                    </div>
+                </section>
+            </div>
+
             <div class="portal-workbench-shell teacher-workbench">
                 <section class="portal-overview-card teacher-overview-card">
                     <div class="teacher-overview-card__header">
@@ -477,6 +643,8 @@
                                                     data-homework-content="{{ item.content_title|escape }}"
                                                     data-homework-status="{{ item.status_text|escape }}"
                                                     data-homework-comment="{{ item.teacher_comment|escapejs }}"
+                                                    data-homework-highlights="{{ item.highlights|escapejs }}"
+                                                    data-homework-areas="{{ item.areas_for_growth|escapejs }}"
                                                 >
                                                     {{ item.review_action_label }}
                                                 </button>
@@ -860,7 +1028,18 @@
             </div>
 
             <div class="record-form">
-                <textarea name="teacher_comment" id="homework-review-comment" rows="5" placeholder="例如：完成速度不错，但要再关注边界处理。" required></textarea>
+                <label>
+                    <span>作业评语</span>
+                    <textarea name="teacher_comment" id="homework-review-comment" rows="4" placeholder="例如：完成速度不错，但要再关注边界处理。" required></textarea>
+                </label>
+                <label>
+                    <span>表现亮点</span>
+                    <textarea name="highlights" id="homework-review-highlights" rows="3" placeholder="填写学生这次作业中表现突出的点"></textarea>
+                </label>
+                <label>
+                    <span>待加强</span>
+                    <textarea name="areas_for_growth" id="homework-review-areas" rows="3" placeholder="填写后续需要加强的地方"></textarea>
+                </label>
             </div>
 
             <div class="topic-access-modal__footer">
@@ -870,8 +1049,196 @@
         </form>
     </dialog>
 
+    {{ topic_access_table_rows|json_script:"teacher-student-permission-data" }}
+    {{ content_restriction_table_rows|json_script:"teacher-student-restriction-data" }}
+    {{ homework_table_rows|json_script:"teacher-student-homework-data" }}
+    {{ exam_table_rows|json_script:"teacher-student-exam-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
     <script>
         (function () {
+            const readJsonScript = (id) => {
+                const element = document.getElementById(id);
+                if (!element) {
+                    return [];
+                }
+                try {
+                    return JSON.parse(element.textContent);
+                } catch (error) {
+                    console.error("Failed to parse table data", id, error);
+                    return [];
+                }
+            };
+            const escapeHtml = (value) => String(value == null ? "" : value)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+            const buildTable = (tableId, dataScriptId, searchInputId, columns, searchFields) => {
+                if (!window.Tabulator || !document.getElementById(tableId)) {
+                    return null;
+                }
+                const data = readJsonScript(dataScriptId);
+                const table = new Tabulator("#" + tableId, {
+                    data,
+                    layout: "fitColumns",
+                    responsiveLayout: false,
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    paginationSizeSelector: [10, 15, 50, 100],
+                    placeholder: "暂无数据",
+                    columns,
+                });
+                const searchInput = document.getElementById(searchInputId);
+                if (searchInput) {
+                    searchInput.addEventListener("input", () => {
+                        const keyword = searchInput.value.trim().toLowerCase();
+                        if (!keyword) {
+                            table.clearFilter(true);
+                            return;
+                        }
+                        table.setFilter((row) => searchFields.some((field) => String(row[field] || "").toLowerCase().includes(keyword)));
+                    });
+                }
+                return table;
+            };
+            const statusPill = (label, tone) => `<span class="cm-tabulator-pill cm-tabulator-pill--${escapeHtml(tone || "locked")}">${escapeHtml(label)}</span>`;
+
+            const detailTabs = Array.from(document.querySelectorAll("[data-student-detail-tab]"));
+            const detailPanels = Array.from(document.querySelectorAll("[data-student-detail-panel]"));
+            detailTabs.forEach((tab) => {
+                tab.addEventListener("click", () => {
+                    const key = tab.dataset.studentDetailTab;
+                    detailTabs.forEach((item) => {
+                        const active = item.dataset.studentDetailTab === key;
+                        item.classList.toggle("cm-tabulator-btn--primary", active);
+                        item.setAttribute("aria-selected", active ? "true" : "false");
+                    });
+                    detailPanels.forEach((panel) => {
+                        panel.hidden = panel.dataset.studentDetailPanel !== key;
+                    });
+                });
+            });
+
+            buildTable(
+                "teacher-student-permission-table",
+                "teacher-student-permission-data",
+                "teacher-student-permission-search",
+                [
+                    { title: "#", formatter: "rownum", hozAlign: "center", width: 72, headerSort: false },
+                    { title: "专题", field: "title", minWidth: 180 },
+                    { title: "内容类型", field: "content_mode_text", minWidth: 120 },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        minWidth: 120,
+                        formatter: (cell) => statusPill(cell.getValue(), cell.getRow().getData().state),
+                    },
+                    { title: "说明", field: "summary", minWidth: 280 },
+                    {
+                        title: "操作",
+                        field: "action_label",
+                        width: 130,
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: () => '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" data-modern-open-topic-access>管理权限</button>',
+                    },
+                ],
+                ["title", "content_mode_text", "status_text", "summary"]
+            );
+
+            buildTable(
+                "teacher-student-restriction-table",
+                "teacher-student-restriction-data",
+                "teacher-student-restriction-search",
+                [
+                    { title: "#", formatter: "rownum", hozAlign: "center", width: 72, headerSort: false },
+                    { title: "内容", field: "title", minWidth: 180 },
+                    { title: "课程", field: "course_title", minWidth: 120 },
+                    { title: "级别", field: "level_label", minWidth: 120 },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        minWidth: 120,
+                        formatter: (cell) => statusPill(cell.getValue(), cell.getRow().getData().state),
+                    },
+                    { title: "说明", field: "note", minWidth: 280 },
+                    {
+                        title: "操作",
+                        field: "action_label",
+                        width: 130,
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: () => '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" data-modern-open-content-restriction>批量限制</button>',
+                    },
+                ],
+                ["title", "course_title", "level_label", "status_text", "note"]
+            );
+
+            buildTable(
+                "teacher-student-homework-table",
+                "teacher-student-homework-data",
+                "teacher-student-homework-search",
+                [
+                    { title: "#", formatter: "rownum", hozAlign: "center", width: 72, headerSort: false },
+                    { title: "作业", field: "display_title", minWidth: 190 },
+                    { title: "知识点", field: "knowledge_point", minWidth: 180 },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        minWidth: 120,
+                        formatter: (cell) => statusPill(cell.getValue(), cell.getRow().getData().status_tone),
+                    },
+                    { title: "截止日期", field: "due_date_text", minWidth: 120 },
+                    { title: "评语", field: "teacher_comment_text", minWidth: 220 },
+                    {
+                        title: "操作",
+                        field: "id",
+                        width: 260,
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: (cell) => {
+                            const row = cell.getRow().getData();
+                            const reviewButton = `<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" data-modern-homework-review data-homework-id="${escapeHtml(row.id)}" data-homework-title="${escapeHtml(row.display_title)}" data-homework-content="${escapeHtml(row.knowledge_point)}" data-homework-status="${escapeHtml(row.status_text)}" data-homework-comment="${escapeHtml(row.teacher_comment || "")}" data-homework-highlights="${escapeHtml(row.highlights || "")}" data-homework-areas="${escapeHtml(row.areas_for_growth || "")}">${escapeHtml(row.review_action_label || "写评语")}</button>`;
+                            const builderLink = row.question_builder_href ? `<a class="cm-tabulator-btn" href="${escapeHtml(row.question_builder_href)}">${escapeHtml(row.question_builder_label || "题目")}</a>` : "";
+                            return `<div class="teacher-student-detail-table-actions">${reviewButton}${builderLink}</div>`;
+                        },
+                    },
+                ],
+                ["display_title", "knowledge_point", "status_text", "teacher_comment_text", "due_date_text"]
+            );
+
+            buildTable(
+                "teacher-student-exam-table",
+                "teacher-student-exam-data",
+                "teacher-student-exam-search",
+                [
+                    { title: "#", formatter: "rownum", hozAlign: "center", width: 72, headerSort: false },
+                    { title: "考试", field: "title", minWidth: 200 },
+                    { title: "课程", field: "course_title", minWidth: 120 },
+                    {
+                        title: "状态",
+                        field: "status_text",
+                        minWidth: 120,
+                        formatter: (cell) => statusPill(cell.getValue(), cell.getRow().getData().status_tone),
+                    },
+                    { title: "得分", field: "score_text", minWidth: 120 },
+                    { title: "正确 / 错误", field: "correct_count", minWidth: 130, formatter: (cell) => `${escapeHtml(cell.getValue())} / ${escapeHtml(cell.getRow().getData().wrong_count)}` },
+                    { title: "监考", field: "proctoring_text", minWidth: 100 },
+                    { title: "提交时间", field: "submitted_at_text", minWidth: 160 },
+                    {
+                        title: "操作",
+                        field: "teacher_detail_href",
+                        width: 120,
+                        hozAlign: "center",
+                        headerSort: false,
+                        formatter: (cell) => `<a class="cm-tabulator-btn cm-tabulator-btn--primary" href="${escapeHtml(cell.getValue())}">查看详情</a>`,
+                    },
+                ],
+                ["title", "course_title", "status_text", "score_text", "submitted_at_text"]
+            );
+
             const topicAccessDialog = document.getElementById("topic-access-modal");
             const topicAccessOpenButton = document.getElementById("open-topic-access-modal");
             const topicAccessCloseButton = document.getElementById("close-topic-access-modal");
@@ -903,6 +1270,8 @@
             const homeworkReviewContent = document.getElementById("homework-review-content");
             const homeworkReviewStatus = document.getElementById("homework-review-status");
             const homeworkReviewComment = document.getElementById("homework-review-comment");
+            const homeworkReviewHighlights = document.getElementById("homework-review-highlights");
+            const homeworkReviewAreas = document.getElementById("homework-review-areas");
             const topicItems = Array.from(document.querySelectorAll("[data-topic-item]"));
             const contentRestrictionItems = Array.from(document.querySelectorAll("[data-content-restriction-item]"));
 
@@ -927,6 +1296,80 @@
                     dialog.removeAttribute("open");
                 }
             };
+
+            const submitHiddenPost = (fields) => {
+                const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                const form = document.createElement("form");
+                form.method = "post";
+                form.style.display = "none";
+                form.innerHTML = `<input type="hidden" name="csrfmiddlewaretoken" value="${escapeHtml(csrfInput ? csrfInput.value : "")}">`;
+                Object.entries(fields).forEach(([name, value]) => {
+                    form.innerHTML += `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`;
+                });
+                document.body.appendChild(form);
+                form.submit();
+            };
+
+            document.addEventListener("click", (event) => {
+                if (event.target.closest("#modern-open-topic-access-modal") || event.target.closest("[data-modern-open-topic-access]")) {
+                    showDialog(topicAccessDialog);
+                    if (topicAccessSearchInput) {
+                        topicAccessSearchInput.focus();
+                    }
+                    return;
+                }
+                if (event.target.closest("#modern-open-content-restriction-modal") || event.target.closest("[data-modern-open-content-restriction]")) {
+                    showDialog(contentRestrictionDialog);
+                    if (contentRestrictionSearchInput) {
+                        contentRestrictionSearchInput.focus();
+                    }
+                    return;
+                }
+                if (event.target.closest("#modern-open-homework-create-modal")) {
+                    showDialog(homeworkCreateDialog);
+                    updateHomeworkContentPreview();
+                    if (homeworkContentSearch) {
+                        homeworkContentSearch.focus();
+                    }
+                    return;
+                }
+                const reviewButton = event.target.closest("[data-modern-homework-review]");
+                if (reviewButton) {
+                    if (homeworkReviewIdInput) {
+                        homeworkReviewIdInput.value = reviewButton.dataset.homeworkId || "";
+                    }
+                    if (homeworkReviewTitle) {
+                        homeworkReviewTitle.textContent = reviewButton.dataset.homeworkTitle || "-";
+                    }
+                    if (homeworkReviewContent) {
+                        homeworkReviewContent.textContent = reviewButton.dataset.homeworkContent || "-";
+                    }
+                    if (homeworkReviewStatus) {
+                        homeworkReviewStatus.textContent = reviewButton.dataset.homeworkStatus || "-";
+                    }
+                    if (homeworkReviewComment) {
+                        homeworkReviewComment.value = reviewButton.dataset.homeworkComment || "";
+                    }
+                    if (homeworkReviewHighlights) {
+                        homeworkReviewHighlights.value = reviewButton.dataset.homeworkHighlights || "";
+                    }
+                    if (homeworkReviewAreas) {
+                        homeworkReviewAreas.value = reviewButton.dataset.homeworkAreas || "";
+                    }
+                    showDialog(homeworkReviewDialog);
+                    if (homeworkReviewComment) {
+                        homeworkReviewComment.focus();
+                    }
+                    return;
+                }
+                const cancelButton = event.target.closest("[data-modern-homework-cancel]");
+                if (cancelButton) {
+                    submitHiddenPost({
+                        form_action: "cancel_homework",
+                        homework_id: cancelButton.dataset.homeworkId || "",
+                    });
+                }
+            });
 
             if (topicAccessOpenButton) {
                 topicAccessOpenButton.addEventListener("click", () => {
@@ -1098,6 +1541,12 @@
                     }
                     if (homeworkReviewComment) {
                         homeworkReviewComment.value = button.dataset.homeworkComment || "";
+                    }
+                    if (homeworkReviewHighlights) {
+                        homeworkReviewHighlights.value = button.dataset.homeworkHighlights || "";
+                    }
+                    if (homeworkReviewAreas) {
+                        homeworkReviewAreas.value = button.dataset.homeworkAreas || "";
                     }
                     showDialog(homeworkReviewDialog);
                     if (homeworkReviewComment) {
