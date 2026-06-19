@@ -31,6 +31,13 @@
             flex: 0 0 auto;
         }
 
+        .available-paper-actions .cm-tabulator-btn:disabled {
+            background: #f1f5f9;
+            border-color: #e2e8f0;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
         .teacher-exam-toolbar--aligned {
             align-items: flex-end;
             justify-content: flex-end;
@@ -965,9 +972,9 @@
             };
             const buildAvailablePaperActions = (row) => {
                 const analysisDisabled = row.can_generate_analysis ? "" : " disabled";
-                const analysisLabel = row.can_generate_analysis ? "增加解析" : "解析中";
+                const analysisTitle = !row.can_generate_analysis && row.analysis_action_disabled_reason ? ' title="' + escapeHtml(row.analysis_action_disabled_reason) + '"' : "";
                 const knowledgeDisabled = row.can_generate_knowledge === false ? " disabled" : "";
-                const knowledgeLabel = row.can_generate_knowledge === false ? "识别中" : "知识点识别";
+                const knowledgeTitle = row.can_generate_knowledge === false && row.knowledge_action_disabled_reason ? ' title="' + escapeHtml(row.knowledge_action_disabled_reason) + '"' : "";
                 return [
                     '<div class="teacher-exam-actions available-paper-actions">',
                     '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
@@ -975,13 +982,13 @@
                     '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
                     '<input type="hidden" name="form_action" value="generate_bank_paper_analysis">',
                     '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
-                    '<button type="submit" class="cm-tabulator-btn"' + analysisDisabled + '>' + analysisLabel + '</button>',
+                    '<button type="submit" class="cm-tabulator-btn"' + analysisDisabled + analysisTitle + '>增加解析</button>',
                     '</form>',
                     '<form method="post" class="teacher-exam-row-action">',
                     '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
                     '<input type="hidden" name="form_action" value="generate_bank_paper_knowledge">',
                     '<input type="hidden" name="bank_paper_id" value="' + escapeHtml(row.id) + '">',
-                    '<button type="submit" class="cm-tabulator-btn"' + knowledgeDisabled + '>' + knowledgeLabel + '</button>',
+                    '<button type="submit" class="cm-tabulator-btn"' + knowledgeDisabled + knowledgeTitle + '>知识点识别</button>',
                     '</form>',
                     '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '">发布</button>',
                     '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',

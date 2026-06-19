@@ -4951,6 +4951,16 @@ def start_exam_bank_paper_knowledge_generation(bank_paper_id: int) -> bool:
     with transaction.atomic():
         bank_paper = ExamQuestionBankPaper.objects.select_for_update().get(id=bank_paper_id, is_active=True)
         questions = list(get_exam_bank_paper_knowledge_questions(bank_paper))
+        total_count = len(questions)
+        done_count = sum(1 for question in questions if bank_question_has_knowledge_points(question))
+        running_count = sum(
+            1
+            for question in questions
+            if str((question.full_json if isinstance(question.full_json, dict) else {}).get("knowledge_status") or "") in {"pending", "running"}
+        )
+        can_start = total_count > 0 and running_count == 0 and done_count <= 0
+        if not can_start:
+            return False
         if any(
             str((question.full_json if isinstance(question.full_json, dict) else {}).get("knowledge_status") or "") in {"pending", "running"}
             for question in questions
@@ -5297,7 +5307,10 @@ def run_exam_bank_paper_analysis_generation(bank_paper_id: int) -> None:
 def start_exam_bank_paper_analysis_generation(bank_paper_id: int) -> bool:
     with transaction.atomic():
         bank_paper = ExamQuestionBankPaper.objects.select_for_update().get(id=bank_paper_id, is_active=True)
-        if bank_paper.analysis_generation_status == ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING:
+        if bank_paper.analysis_generation_status not in {
+            ExamQuestionBankPaper.ANALYSIS_STATUS_NOT_STARTED,
+            ExamQuestionBankPaper.ANALYSIS_STATUS_FAILED,
+        }:
             return False
         bank_paper.analysis_generation_status = ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING
         bank_paper.analysis_generation_started_at = timezone.now()
@@ -5535,6 +5548,11 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
             success_message = f"{paper.title} 正在生成 AI 解析，请稍后刷新查看状态。" if paper else "这张试卷正在生成 AI 解析。"
+        elif op == "bank_paper_analysis_unavailable":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            paper_title = paper.title if paper else "这张试卷"
+            success_message = f"{paper_title} 当前解析状态不可重复生成；只有未生成或解析失败时才允许点击增加解析。"
         elif op == "bank_paper_knowledge_generated":
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
@@ -5544,6 +5562,11 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
             success_message = f"{paper.title} 正在识别知识点，请稍后查看状态。" if paper else "这张试卷正在识别知识点。"
+        elif op == "bank_paper_knowledge_unavailable":
+            paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
+            paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
+            paper_title = paper.title if paper else "这张试卷"
+            success_message = f"{paper_title} 当前知识点识别状态不可重复识别；只有未识别或识别失败时才允许点击知识点识别。"
         elif op == "knowledge_uploaded":
             imported_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
             success_message = f"知识点 md 文件已识别，已写入 {imported_count} 条目录。"
@@ -5627,7 +5650,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 build_redirect_with_query(
                     reverse("teacher-exams"),
                     params={
-                        "op": "bank_paper_analysis_started" if started else "bank_paper_analysis_running",
+                        "op": "bank_paper_analysis_started" if started else "bank_paper_analysis_unavailable",
                         "paper_id": bank_paper_id,
                     },
                     anchor="available-exam-papers",
@@ -5646,7 +5669,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 build_redirect_with_query(
                     reverse("teacher-exams"),
                     params={
-                        "op": "bank_paper_knowledge_generated" if started else "bank_paper_knowledge_running",
+                        "op": "bank_paper_knowledge_generated" if started else "bank_paper_knowledge_unavailable",
                         "paper_id": bank_paper_id,
                     },
                     anchor="available-exam-papers",

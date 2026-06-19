@@ -3248,6 +3248,15 @@ def serialize_available_exam_bank_paper(
     else:
         knowledge_status_text = f"部分识别 {knowledge_done_count}/{knowledge_total_count}"
         knowledge_status_tone = "trial"
+    can_generate_analysis = analysis_status in {
+        ExamQuestionBankPaper.ANALYSIS_STATUS_NOT_STARTED,
+        ExamQuestionBankPaper.ANALYSIS_STATUS_FAILED,
+    }
+    can_generate_knowledge = (
+        knowledge_total_count > 0
+        and knowledge_running_count == 0
+        and knowledge_done_count <= 0
+    )
     return {
         "id": paper.id,
         "paper_id": paper.id,
@@ -3265,7 +3274,8 @@ def serialize_available_exam_bank_paper(
         "analysis_done_count": analysis_done_count,
         "analysis_failed_count": analysis_failed_count,
         "analysis_error": paper.analysis_generation_error,
-        "can_generate_analysis": analysis_status != ExamQuestionBankPaper.ANALYSIS_STATUS_RUNNING,
+        "can_generate_analysis": can_generate_analysis,
+        "analysis_action_disabled_reason": "" if can_generate_analysis else "解析已开始处理，只有解析失败时才允许重新生成。",
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
         "knowledge_status_text": knowledge_status_text,
         "knowledge_status_tone": knowledge_status_tone,
@@ -3273,7 +3283,8 @@ def serialize_available_exam_bank_paper(
         "knowledge_done_count": knowledge_done_count,
         "knowledge_running_count": knowledge_running_count,
         "knowledge_failed_count": knowledge_failed_count,
-        "can_generate_knowledge": knowledge_running_count == 0,
+        "can_generate_knowledge": can_generate_knowledge,
+        "knowledge_action_disabled_reason": "" if can_generate_knowledge else "知识点识别已开始处理，只有识别失败时才允许重新识别。",
         "operation_label": "发布",
         "has_exam_management_record": has_exam_management_record,
         "delete_label": "删除" if has_exam_management_record else "硬删除",
