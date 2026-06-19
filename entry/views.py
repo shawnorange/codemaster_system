@@ -3407,7 +3407,7 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
         *,
         error_message: str = "",
         limit_warning: str = "",
-        selected_question_ids: list[int] | None = None,
+        selected_question_ids: list[object] | None = None,
     ) -> HttpResponse:
         context = build_student_free_practice_context(
             portal_user,
@@ -3424,23 +3424,63 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
         action = request.POST.get("form_action", "").strip()
         if action != "start_free_practice":
             return render_free_practice(error_message="请选择有效的自由练习操作。")
-        selected_question_ids = normalize_positive_int_list(request.POST.getlist("question_ids"))
-        if not selected_question_ids:
+        selected_question_tokens = []
+        seen_question_tokens = set()
+        for raw_token in request.POST.getlist("question_ids"):
+            token = str(raw_token or "").strip()
+            if not token or token in seen_question_tokens:
+                continue
+            if token.isdigit():
+                normalized_token = str(normalize_positive_int(token, default=0, minimum=1))
+                if normalized_token != "0" and normalized_token not in seen_question_tokens:
+                    selected_question_tokens.append(normalized_token)
+                    seen_question_tokens.add(normalized_token)
+                continue
+            bank_match = re.fullmatch(r"bank:(\d+)", token)
+            if bank_match:
+                normalized_id = normalize_positive_int(bank_match.group(1), default=0, minimum=1)
+                normalized_token = f"bank:{normalized_id}"
+                if normalized_id and normalized_token not in seen_question_tokens:
+                    selected_question_tokens.append(normalized_token)
+                    seen_question_tokens.add(normalized_token)
+        if not selected_question_tokens:
             return render_free_practice(error_message="请至少选择一道题。")
-        if len(selected_question_ids) > 20:
+        if len(selected_question_tokens) > 20:
             return render_free_practice(
                 limit_warning="练习不在多，而在精。",
-                selected_question_ids=selected_question_ids[:20],
+                selected_question_ids=selected_question_tokens[:20],
             )
+        ordered_question_refs = []
+        exam_question_ids = []
+        bank_question_ids = []
+        for token in selected_question_tokens:
+            if token.isdigit():
+                question_id = normalize_positive_int(token, default=0, minimum=1)
+                if question_id:
+                    ordered_question_refs.append(("exam", question_id))
+                    exam_question_ids.append(question_id)
+                continue
+            bank_match = re.fullmatch(r"bank:(\d+)", token)
+            if bank_match:
+                bank_question_id = normalize_positive_int(bank_match.group(1), default=0, minimum=1)
+                if bank_question_id:
+                    ordered_question_refs.append(("bank", bank_question_id))
+                    bank_question_ids.append(bank_question_id)
         questions_by_id = {
             question.id: question
             for question in ExamQuestion.objects.select_related("paper", "paper__teacher", "paper__course")
             .prefetch_related("analysis_blocks")
-            .filter(id__in=selected_question_ids, is_active=True, paper__is_active=True)
+            .filter(id__in=exam_question_ids, is_active=True, paper__is_active=True)
         }
-        source_questions = [questions_by_id[question_id] for question_id in selected_question_ids if question_id in questions_by_id]
+        bank_questions_by_id = materialize_free_practice_bank_questions(bank_question_ids)
+        source_questions = []
+        for ref_type, question_id in ordered_question_refs:
+            if ref_type == "exam" and question_id in questions_by_id:
+                source_questions.append(questions_by_id[question_id])
+            if ref_type == "bank" and question_id in bank_questions_by_id:
+                source_questions.append(bank_questions_by_id[question_id])
         if not source_questions:
-            return render_free_practice(error_message="没有找到可练习的题目。")
+            return render_free_practice(error_message="没有找到可练习的题目。", selected_question_ids=selected_question_tokens)
         try:
             practice_session = create_free_exam_practice_session(
                 student=student,
@@ -3449,7 +3489,7 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
                 knowledge_query=" / ".join(part for part in [knowledge_query.strip(), knowledge_level_2.strip()] if part),
             )
         except ExamError as exc:
-            return render_free_practice(error_message=str(exc), selected_question_ids=selected_question_ids)
+            return render_free_practice(error_message=str(exc), selected_question_ids=selected_question_tokens)
         return redirect(
             build_redirect_with_query(
                 reverse("student-exam-detail", args=[practice_session.id]),
@@ -5077,6 +5117,90 @@ def sync_exam_questions_for_bank_paper_usage(bank_paper: ExamQuestionBankPaper) 
     for exam_paper in ExamPaper.objects.filter(is_active=True, description__contains=marker).order_by("id"):
         synced_count += sync_exam_questions_from_bank_paper(exam_paper=exam_paper, bank_paper=bank_paper)
     return synced_count
+
+
+def build_free_practice_bank_paper_source_marker(bank_paper_id: int) -> str:
+    return f"free_practice_exam_question_bank_paper_id={bank_paper_id}"
+
+
+def resolve_free_practice_source_owner() -> PortalUser:
+    owner = (
+        PortalUser.objects.filter(role=PortalUser.ROLE_PRINCIPAL, is_active=True).order_by("id").first()
+        or PortalUser.objects.filter(role=PortalUser.ROLE_TEACHER, is_active=True).order_by("id").first()
+        or PortalUser.objects.filter(is_active=True).order_by("id").first()
+    )
+    if owner is None:
+        raise ExamError("当前没有可用教师账号，暂时不能生成自由练习。")
+    return owner
+
+
+def get_or_create_free_practice_source_exam_paper(bank_paper: ExamQuestionBankPaper) -> ExamPaper:
+    marker = build_free_practice_bank_paper_source_marker(bank_paper.id)
+    existing_paper = (
+        ExamPaper.objects.select_related("course", "teacher")
+        .filter(is_active=True, description__contains=marker)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if existing_paper:
+        return existing_paper
+
+    subject_title = infer_exam_bank_paper_subject(bank_paper)
+    course = Course.objects.filter(title__iexact=subject_title).order_by("id").first()
+    owner = resolve_free_practice_source_owner()
+    description = "\n".join(
+        [
+            f"来源题库试卷：{bank_paper.title}",
+            marker,
+            f"source_pdf_id={bank_paper.source_pdf_id}",
+            f"level={bank_paper.level}",
+            "用途：自由练习题库源，不代表已发布考试。",
+        ]
+    )
+    return ExamPaper.objects.create(
+        teacher=owner,
+        course=course,
+        title=f"题库自由练习源 · {bank_paper.title}",
+        description=description,
+        mode=ExamPaper.MODE_DEADLINE,
+        duration_minutes=60,
+        proctoring_enabled=False,
+        status=ExamPaper.STATUS_DRAFT,
+        is_active=True,
+    )
+
+
+def materialize_free_practice_bank_questions(bank_question_ids: list[int]) -> dict[int, ExamQuestion]:
+    if not bank_question_ids:
+        return {}
+
+    bank_questions = list(
+        ExamQuestionBankQuestion.objects.select_related("paper")
+        .prefetch_related("options", "assets")
+        .filter(id__in=bank_question_ids, paper__is_active=True)
+        .order_by("paper_id", "question_no", "id")
+    )
+    bank_questions_by_paper: dict[int, list[ExamQuestionBankQuestion]] = {}
+    for bank_question in bank_questions:
+        bank_questions_by_paper.setdefault(bank_question.paper_id, []).append(bank_question)
+
+    materialized_questions: dict[int, ExamQuestion] = {}
+    for paper_id, paper_questions in bank_questions_by_paper.items():
+        bank_paper = paper_questions[0].paper
+        materialize_raw_ocr_paper_questions(bank_paper)
+        separate_programming_reference_solutions_for_paper(bank_paper)
+        exam_paper = get_or_create_free_practice_source_exam_paper(bank_paper)
+        sync_exam_questions_from_bank_paper(exam_paper=exam_paper, bank_paper=bank_paper)
+        synced_questions = ExamQuestion.objects.select_related("paper", "paper__teacher", "paper__course").filter(
+            paper=exam_paper,
+            is_active=True,
+        )
+        for question in synced_questions:
+            snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+            bank_question_id = normalize_positive_int(snapshot.get("bank_question_id"), default=0, minimum=1)
+            if bank_question_id:
+                materialized_questions[bank_question_id] = question
+    return materialized_questions
 
 
 def run_exam_bank_paper_analysis_generation(bank_paper_id: int) -> None:

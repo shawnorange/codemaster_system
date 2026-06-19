@@ -298,7 +298,7 @@
             <div class="free-practice-question-list">
                 {% for question in question_rows %}
                     <article class="content-access-card content-access-card--trial free-practice-question-card">
-                        <input class="free-practice-question-card__checkbox" type="checkbox" name="question_ids" value="{{ question.id }}" {% if question.is_selected %}checked{% endif %} data-free-practice-question-checkbox>
+                        <input class="free-practice-question-card__checkbox" type="checkbox" name="question_ids" value="{{ question.source_key }}" {% if question.is_selected %}checked{% endif %} data-free-practice-question-checkbox>
                         <div class="free-practice-question-card__body">
                             <div class="content-access-card__top">
                                 <div>
@@ -354,6 +354,7 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {{ knowledge_map_rows|json_script:"student-free-practice-knowledge-map-data" }}
     <script>
         (function () {
             const maxCount = Number("{{ max_question_count }}");
@@ -364,6 +365,29 @@
             const levelValue = document.querySelector("[data-free-practice-level-value]");
             const level1Value = document.querySelector("[data-free-practice-level1-value]");
             const level2Value = document.querySelector("[data-free-practice-level2-value]");
+
+            function readJsonScript(id, fallback) {
+                const node = document.getElementById(id);
+                if (!node) {
+                    return fallback;
+                }
+                try {
+                    return JSON.parse(node.textContent || "");
+                } catch (error) {
+                    return fallback;
+                }
+            }
+
+            function escapeHtml(value) {
+                return String(value || "")
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            const knowledgeMapRows = readJsonScript("student-free-practice-knowledge-map-data", []);
 
             function setComboboxDisabled(type, disabled) {
                 const root = document.querySelector('[data-free-practice-combobox="' + type + '"]');
@@ -383,6 +407,111 @@
                 const hasLevel1 = Boolean(level1Value && level1Value.value);
                 setComboboxDisabled("level1", !hasLevel);
                 setComboboxDisabled("level2", !hasLevel1);
+            }
+
+            function normalizeLevelCode(value) {
+                const code = String(value || "").trim().toUpperCase().replace(/_/g, "-");
+                if (code === "CSPJ" || code === "CSP-J") {
+                    return "CSP-J";
+                }
+                if (code === "CSPS" || code === "CSP-S") {
+                    return "CSP-S";
+                }
+                return /^GESP[1-8]$/.test(code) ? code : "";
+            }
+
+            function getRowsForLevel(levelCode) {
+                const normalizedLevel = normalizeLevelCode(levelCode);
+                if (!normalizedLevel) {
+                    return [];
+                }
+                return knowledgeMapRows.filter((row) => {
+                    const subject = String(row.subject || "").trim().toLowerCase();
+                    const category = String(row.category_code || "").trim().toUpperCase();
+                    if (subject && subject !== "cpp") {
+                        return false;
+                    }
+                    if (normalizedLevel === "CSP-J" || normalizedLevel === "CSP-S") {
+                        return true;
+                    }
+                    return category === normalizedLevel;
+                });
+            }
+
+            function uniqueSorted(values) {
+                return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+            }
+
+            function setComboboxLabel(type, value) {
+                const root = document.querySelector('[data-free-practice-combobox="' + type + '"]');
+                const label = root ? root.querySelector("[data-free-practice-combobox-label]") : null;
+                if (!label) {
+                    return;
+                }
+                if (value) {
+                    label.textContent = value;
+                } else if (type === "level") {
+                    label.textContent = "请选择等级";
+                } else if (type === "level1") {
+                    label.textContent = "全部知识点一级目录";
+                } else {
+                    label.textContent = "全部知识点二级目录";
+                }
+            }
+
+            function renderOptionHtml(value, label, parent) {
+                return '<button type="button" class="free-practice-combobox__option" data-value="' + escapeHtml(value) + '" data-parent="' + escapeHtml(parent || "") + '">' + escapeHtml(label) + '</button>';
+            }
+
+            function rebuildKnowledgeOptions() {
+                const levelCode = levelValue ? levelValue.value : "";
+                const rowsForLevel = getRowsForLevel(levelCode);
+                const level1Root = document.querySelector('[data-free-practice-combobox="level1"]');
+                const level2Root = document.querySelector('[data-free-practice-combobox="level2"]');
+                const level1Options = level1Root ? level1Root.querySelector(".free-practice-combobox__options") : null;
+                const level2Options = level2Root ? level2Root.querySelector(".free-practice-combobox__options") : null;
+                const level1Values = uniqueSorted(rowsForLevel.map((row) => row.level_1));
+                if (level1Value && level1Value.value && !level1Values.includes(level1Value.value)) {
+                    level1Value.value = "";
+                    setComboboxLabel("level1", "");
+                }
+                if (level1Options) {
+                    level1Options.innerHTML = renderOptionHtml("", "全部知识点一级目录", "") + level1Values
+                        .map((value) => renderOptionHtml(value, value, ""))
+                        .join("");
+                    Array.from(level1Options.querySelectorAll("[data-value]")).forEach((option) => {
+                        option.classList.toggle("is-selected", String(option.dataset.value || "") === String(level1Value ? level1Value.value : ""));
+                    });
+                }
+                const selectedLevel1 = level1Value ? level1Value.value : "";
+                const level2Rows = selectedLevel1
+                    ? rowsForLevel.filter((row) => String(row.level_1 || "") === selectedLevel1)
+                    : rowsForLevel;
+                const seenLevel2Keys = new Set();
+                const level2Items = [];
+                level2Rows.forEach((row) => {
+                    const value = String(row.level_2 || "").trim();
+                    const parent = String(row.level_1 || "").trim();
+                    const key = parent + "\u241f" + value;
+                    if (value && !seenLevel2Keys.has(key)) {
+                        seenLevel2Keys.add(key);
+                        level2Items.push({ value, parent });
+                    }
+                });
+                level2Items.sort((left, right) => (left.parent + left.value).localeCompare(right.parent + right.value, "zh-Hans-CN"));
+                if (level2Value && level2Value.value && !level2Items.some((item) => item.value === level2Value.value && (!selectedLevel1 || item.parent === selectedLevel1))) {
+                    level2Value.value = "";
+                    setComboboxLabel("level2", "");
+                }
+                if (level2Options) {
+                    level2Options.innerHTML = renderOptionHtml("", "全部知识点二级目录", "") + level2Items
+                        .map((item) => renderOptionHtml(item.value, item.value, item.parent))
+                        .join("");
+                    Array.from(level2Options.querySelectorAll("[data-value]")).forEach((option) => {
+                        option.classList.toggle("is-selected", String(option.dataset.value || "") === String(level2Value ? level2Value.value : ""));
+                    });
+                }
+                updateDependentComboboxes();
             }
 
             function showLimitWarning() {
@@ -429,7 +558,7 @@
                 const button = root.querySelector("[data-free-practice-combobox-button]");
                 const label = root.querySelector("[data-free-practice-combobox-label]");
                 const search = root.querySelector("[data-free-practice-combobox-search]");
-                const options = Array.from(root.querySelectorAll("[data-value]"));
+                const optionsContainer = root.querySelector(".free-practice-combobox__options");
                 const type = root.dataset.freePracticeCombobox;
                 const hiddenInput = type === "level" ? levelValue : type === "level1" ? level1Value : level2Value;
 
@@ -450,6 +579,7 @@
                 function filterOptions() {
                     const query = search ? search.value.trim().toLowerCase() : "";
                     const parent = visibleParent();
+                    const options = Array.from(root.querySelectorAll("[data-value]"));
                     options.forEach((option) => {
                         const parentValue = option.dataset.parent || "";
                         const parentMatches = type !== "level2" || !parent || !parentValue || parentValue === parent;
@@ -478,8 +608,12 @@
                     search.addEventListener("input", filterOptions);
                 }
 
-                options.forEach((option) => {
-                    option.addEventListener("click", () => {
+                if (optionsContainer) {
+                    optionsContainer.addEventListener("click", (event) => {
+                        const option = event.target.closest("[data-value]");
+                        if (!option || !optionsContainer.contains(option)) {
+                            return;
+                        }
                         const value = option.dataset.value || "";
                         if (hiddenInput) {
                             hiddenInput.value = value;
@@ -487,6 +621,7 @@
                         if (label) {
                             label.textContent = value || defaultLabel();
                         }
+                        const options = Array.from(root.querySelectorAll("[data-value]"));
                         options.forEach((item) => item.classList.toggle("is-selected", item === option));
                         root.classList.remove("is-open");
                         if (type === "level" && level1Value && level2Value) {
@@ -502,7 +637,7 @@
                             if (level2Label) {
                                 level2Label.textContent = "全部知识点二级目录";
                             }
-                            updateDependentComboboxes();
+                            rebuildKnowledgeOptions();
                         }
                         if (type === "level1" && level2Value) {
                             level2Value.value = "";
@@ -511,11 +646,11 @@
                             if (level2Label) {
                                 level2Label.textContent = "全部知识点二级目录";
                             }
-                            updateDependentComboboxes();
+                            rebuildKnowledgeOptions();
                         }
                         updateDependentComboboxes();
                     });
-                });
+                }
             }
 
             document.querySelectorAll("[data-free-practice-combobox]").forEach(setupCombobox);
@@ -525,6 +660,7 @@
                 }
             });
             updateSelectionState();
+            rebuildKnowledgeOptions();
             updateDependentComboboxes();
         })();
     </script>

@@ -4,6 +4,7 @@ from collections import defaultdict
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 import json
+import random
 import re
 from urllib.parse import urlencode
 
@@ -77,6 +78,7 @@ from .models import (
     ExamQuestionAnalysisSuggestion,
     ExamQuestionBankItem,
     ExamQuestionBankPaper,
+    ExamQuestionBankQuestion,
     ExamKnowledgePointMap,
     ExamSession,
     ExamSubmissionAnswer,
@@ -3921,6 +3923,7 @@ def build_teacher_exam_page_context(
     papers = list(
         ExamPaper.objects.select_related("course", "teacher")
         .filter(teacher=portal_user, is_active=True)
+        .exclude(description__contains="free_practice_exam_question_bank_paper_id=")
         .annotate(
             question_count=Count("questions", filter=Q(questions__is_active=True)),
             session_count=Count("sessions", filter=Q(sessions__is_active=True)),
@@ -4756,20 +4759,84 @@ def _question_matches_free_practice_filters(
         return False
     knowledge_level_1 = str(snapshot.get("knowledge_level_1") or "").strip()
     knowledge_level_2 = str(snapshot.get("knowledge_level_2") or "").strip()
-    search_text = " ".join(
-        [
-            knowledge_level_1,
-            knowledge_level_2,
-            str(snapshot.get("knowledge_level_3") or "").strip(),
-            str(question.wrong_point_label or "").strip(),
-            str(snapshot.get("knowledge_point") or "").strip(),
-        ]
-    )
-    if level_1_query and level_1_query.lower() not in search_text.lower():
+    level_1_search_text = knowledge_level_1
+    if not level_1_search_text:
+        level_1_search_text = " ".join(
+            [
+                str(question.wrong_point_label or "").strip(),
+                str(snapshot.get("knowledge_point") or "").strip(),
+            ]
+        )
+    if level_1_query and level_1_query.lower() not in level_1_search_text.lower():
         return False
     if level_2_query and level_2_query.lower() not in knowledge_level_2.lower():
         return False
     return True
+
+
+def _knowledge_values_match_free_practice_filters(
+    *,
+    question_level: str,
+    knowledge_level_1: str,
+    knowledge_level_2: str,
+    level_code: str,
+    level_1_query: str,
+    level_2_query: str,
+) -> bool:
+    question_level = normalize_student_free_practice_level_code(question_level)
+    if level_code and level_code not in {"CSP-J", "CSP-S"} and question_level != level_code:
+        return False
+    if level_1_query and level_1_query.lower() not in str(knowledge_level_1 or "").lower():
+        return False
+    if level_2_query and level_2_query.lower() not in str(knowledge_level_2 or "").lower():
+        return False
+    return True
+
+
+def get_bank_question_exam_options_for_free_practice(question: ExamQuestionBankQuestion) -> dict[str, str]:
+    full_json = question.full_json if isinstance(question.full_json, dict) else {}
+    raw_options = full_json.get("options") if isinstance(full_json.get("options"), dict) else {}
+    options = {key: str(raw_options.get(key) or raw_options.get(key.lower()) or "").strip() for key in ["A", "B", "C", "D"]}
+    for option in question.options.all():
+        key = str(option.option_key or "").strip().upper()[:1]
+        if key in options and not options[key]:
+            options[key] = str(option.option_text_md or "").strip()
+    if question.question_type == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE and not any(options.values()):
+        options = {"A": "正确", "B": "错误", "C": "", "D": ""}
+    return options
+
+
+def get_bank_question_exam_answer_for_free_practice(question: ExamQuestionBankQuestion) -> str:
+    full_json = question.full_json if isinstance(question.full_json, dict) else {}
+    answer_json = question.answer_json if isinstance(question.answer_json, dict) else {}
+    raw_answer = full_json.get("correct_answer") or full_json.get("answer") or answer_json.get("correct_answer") or answer_json.get("answer")
+    if isinstance(raw_answer, list):
+        raw_answer = raw_answer[0] if raw_answer else ""
+    answer = str(raw_answer or "").strip().upper()[:1]
+    if question.question_type == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE:
+        if answer in {"T", "Y", "对", "正"}:
+            return "A"
+        if answer in {"F", "N", "错", "误"}:
+            return "B"
+    return answer if answer in {"A", "B", "C", "D"} else ""
+
+
+def _bank_question_matches_free_practice_filters(
+    question: ExamQuestionBankQuestion,
+    *,
+    level_code: str,
+    level_1_query: str,
+    level_2_query: str,
+) -> bool:
+    full_json = question.full_json if isinstance(question.full_json, dict) else {}
+    return _knowledge_values_match_free_practice_filters(
+        question_level=str(question.paper.level if question.paper_id and question.paper else full_json.get("level_code") or "").strip(),
+        knowledge_level_1=str(full_json.get("knowledge_level_1") or "").strip(),
+        knowledge_level_2=str(full_json.get("knowledge_level_2") or "").strip(),
+        level_code=level_code,
+        level_1_query=level_1_query,
+        level_2_query=level_2_query,
+    )
 
 
 def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[ExamQuestion]:
@@ -4786,19 +4853,46 @@ def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[Exa
     return queryset
 
 
+def get_student_free_practice_bank_question_queryset(level_code: str) -> QuerySet[ExamQuestionBankQuestion]:
+    level_code = normalize_student_free_practice_level_code(level_code)
+    queryset = (
+        ExamQuestionBankQuestion.objects.select_related("paper")
+        .prefetch_related("options", "assets")
+        .filter(
+            paper__is_active=True,
+            question_type__in=[
+                ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+                ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+                ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+            ],
+        )
+        .exclude(full_json__knowledge_level_1="")
+        .order_by("-updated_at", "-id")
+    )
+    if not level_code:
+        return ExamQuestionBankQuestion.objects.none()
+    return queryset
+
+
 def build_free_practice_question_rows_for_filters(
     *,
     level_code: str,
     knowledge_query: str = "",
     knowledge_level_2: str = "",
-    selected_question_ids: list[int] | None = None,
+    selected_question_ids: list[object] | None = None,
 ) -> list[dict[str, object]]:
     normalized_level_code = normalize_student_free_practice_level_code(level_code)
     normalized_level_1 = str(knowledge_query or "").strip()
     normalized_level_2 = str(knowledge_level_2 or "").strip()
-    selected_ids = {int(question_id) for question_id in (selected_question_ids or [])}
+    selected_keys = {str(question_id) for question_id in (selected_question_ids or [])}
+    selected_ids = {
+        int(question_id)
+        for question_id in (selected_question_ids or [])
+        if str(question_id).strip().isdigit()
+    }
     queryset = get_student_free_practice_question_queryset(normalized_level_code)
-    candidate_questions = []
+    candidate_items = []
+    seen_bank_question_ids = set()
     for question in queryset:
         if _question_matches_free_practice_filters(
             question,
@@ -4806,56 +4900,137 @@ def build_free_practice_question_rows_for_filters(
             level_1_query=normalized_level_1,
             level_2_query=normalized_level_2,
         ):
-            candidate_questions.append(question)
-        if len(candidate_questions) >= FREE_PRACTICE_MAX_QUESTION_COUNT:
-            break
+            candidate_items.append(("exam", question))
+            snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+            bank_question_id = normalize_positive_value(snapshot.get("bank_question_id"), default=0, minimum=1)
+            if bank_question_id:
+                seen_bank_question_ids.add(bank_question_id)
+
+    bank_queryset = get_student_free_practice_bank_question_queryset(normalized_level_code)
+    for bank_question in bank_queryset:
+        if bank_question.id in seen_bank_question_ids:
+            continue
+        if not _bank_question_matches_free_practice_filters(
+            bank_question,
+            level_code=normalized_level_code,
+            level_1_query=normalized_level_1,
+            level_2_query=normalized_level_2,
+        ):
+            continue
+        candidate_items.append(("bank", bank_question))
+        seen_bank_question_ids.add(bank_question.id)
+
+    selected_candidate_items = []
+    remaining_candidate_items = []
+    for source_type, source_question in candidate_items:
+        source_key = str(source_question.id) if source_type == "exam" else f"bank:{source_question.id}"
+        is_selected = source_key in selected_keys or (source_type == "exam" and int(source_question.id) in selected_ids)
+        if is_selected:
+            selected_candidate_items.append((source_type, source_question))
+        else:
+            remaining_candidate_items.append((source_type, source_question))
+    random.shuffle(remaining_candidate_items)
+    candidate_items = (selected_candidate_items + remaining_candidate_items)[:FREE_PRACTICE_MAX_QUESTION_COUNT]
 
     question_rows = []
-    for question in candidate_questions:
-        snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
-        raw_image_paths = snapshot.get("image_paths") if isinstance(snapshot.get("image_paths"), list) else []
-        image_paths = [
-            str(path or "").strip()
-            for path in raw_image_paths
-            if str(path or "").strip()
+    for source_type, source_question in candidate_items:
+        if source_type == "exam":
+            question = source_question
+            snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+            raw_image_paths = snapshot.get("image_paths") if isinstance(snapshot.get("image_paths"), list) else []
+            image_paths = [
+                str(path or "").strip()
+                for path in raw_image_paths
+                if str(path or "").strip()
+            ]
+            if question.image_path and question.image_path not in image_paths:
+                image_paths.insert(0, question.image_path)
+            material_image_paths = [
+                str(path or "").strip()
+                for path in (snapshot.get("material_image_paths") if isinstance(snapshot.get("material_image_paths"), list) else [])
+                if str(path or "").strip()
+            ]
+            question_image_paths = [
+                str(path or "").strip()
+                for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
+                if str(path or "").strip()
+            ]
+            level_parts = [
+                str(snapshot.get("knowledge_level_1") or "").strip(),
+                str(snapshot.get("knowledge_level_2") or "").strip(),
+                str(snapshot.get("knowledge_level_3") or "").strip(),
+            ]
+            knowledge_display = " / ".join(part for part in level_parts if part)
+            if not knowledge_display:
+                knowledge_display = str(question.wrong_point_label or snapshot.get("knowledge_point") or "未标注").strip() or "未标注"
+            question_rows.append(
+                {
+                    "id": question.id,
+                    "source_key": str(question.id),
+                    "source_type": "exam",
+                    "question_no": question.question_no,
+                    "paper_title": question.paper.title,
+                    "stem_preview": truncate_plain_text(question.stem, 90),
+                    "stem_html": render_exam_markdown_for_display(question.stem),
+                    "image_paths": image_paths,
+                    "material_image_paths": material_image_paths,
+                    "question_image_paths": question_image_paths,
+                    "option_items": build_exam_option_items(question.options_json if isinstance(question.options_json, dict) else {}),
+                    "knowledge_level_1": str(snapshot.get("knowledge_level_1") or "").strip() or "未标注",
+                    "knowledge_level_2": str(snapshot.get("knowledge_level_2") or "").strip() or "未标注",
+                    "knowledge_level_3": str(snapshot.get("knowledge_level_3") or "").strip() or "选填",
+                    "knowledge_display": knowledge_display,
+                    "level_code": str(snapshot.get("level_code") or "").strip() or normalized_level_code,
+                    "is_selected": question.id in selected_ids or str(question.id) in selected_keys,
+                }
+            )
+            continue
+
+        bank_question = source_question
+        full_json = bank_question.full_json if isinstance(bank_question.full_json, dict) else {}
+        options = get_bank_question_exam_options_for_free_practice(bank_question)
+        content_assets = [
+            asset
+            for asset in bank_question.assets.all()
+            if asset.asset_role == "content" and asset.relative_path
         ]
-        if question.image_path and question.image_path not in image_paths:
-            image_paths.insert(0, question.image_path)
+        image_paths = [asset.relative_path for asset in content_assets if asset.relative_path]
         material_image_paths = [
             str(path or "").strip()
-            for path in (snapshot.get("material_image_paths") if isinstance(snapshot.get("material_image_paths"), list) else [])
+            for path in (full_json.get("material_image_paths") if isinstance(full_json.get("material_image_paths"), list) else [])
             if str(path or "").strip()
         ]
         question_image_paths = [
             str(path or "").strip()
-            for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
+            for path in (full_json.get("question_image_paths") if isinstance(full_json.get("question_image_paths"), list) else [])
             if str(path or "").strip()
         ]
         level_parts = [
-            str(snapshot.get("knowledge_level_1") or "").strip(),
-            str(snapshot.get("knowledge_level_2") or "").strip(),
-            str(snapshot.get("knowledge_level_3") or "").strip(),
+            str(full_json.get("knowledge_level_1") or "").strip(),
+            str(full_json.get("knowledge_level_2") or "").strip(),
+            str(full_json.get("knowledge_level_3") or "").strip(),
         ]
         knowledge_display = " / ".join(part for part in level_parts if part)
-        if not knowledge_display:
-            knowledge_display = str(question.wrong_point_label or snapshot.get("knowledge_point") or "未标注").strip() or "未标注"
+        source_key = f"bank:{bank_question.id}"
         question_rows.append(
             {
-                "id": question.id,
-                "question_no": question.question_no,
-                "paper_title": question.paper.title,
-                "stem_preview": truncate_plain_text(question.stem, 90),
-                "stem_html": render_exam_markdown_for_display(question.stem),
+                "id": source_key,
+                "source_key": source_key,
+                "source_type": "bank",
+                "question_no": bank_question.question_no,
+                "paper_title": bank_question.paper.title if bank_question.paper_id and bank_question.paper else "试卷管理题库",
+                "stem_preview": truncate_plain_text(bank_question.stem_md, 90),
+                "stem_html": render_exam_markdown_for_display(bank_question.stem_md),
                 "image_paths": image_paths,
                 "material_image_paths": material_image_paths,
                 "question_image_paths": question_image_paths,
-                "option_items": build_exam_option_items(question.options_json if isinstance(question.options_json, dict) else {}),
-                "knowledge_level_1": str(snapshot.get("knowledge_level_1") or "").strip() or "未标注",
-                "knowledge_level_2": str(snapshot.get("knowledge_level_2") or "").strip() or "未标注",
-                "knowledge_level_3": str(snapshot.get("knowledge_level_3") or "").strip() or "选填",
-                "knowledge_display": knowledge_display,
-                "level_code": str(snapshot.get("level_code") or "").strip() or normalized_level_code,
-                "is_selected": question.id in selected_ids,
+                "option_items": build_exam_option_items(options),
+                "knowledge_level_1": str(full_json.get("knowledge_level_1") or "").strip() or "未标注",
+                "knowledge_level_2": str(full_json.get("knowledge_level_2") or "").strip() or "未标注",
+                "knowledge_level_3": str(full_json.get("knowledge_level_3") or "").strip() or "选填",
+                "knowledge_display": knowledge_display or "未标注",
+                "level_code": str(bank_question.paper.level if bank_question.paper_id and bank_question.paper else "").strip() or normalized_level_code,
+                "is_selected": source_key in selected_keys,
             }
         )
     return question_rows
@@ -4867,7 +5042,7 @@ def build_student_free_practice_context(
     level_code: str = "",
     knowledge_query: str = "",
     knowledge_level_2: str = "",
-    selected_question_ids: list[int] | None = None,
+    selected_question_ids: list[object] | None = None,
     error_message: str = "",
     limit_warning: str = "",
 ) -> dict:
@@ -4879,7 +5054,7 @@ def build_student_free_practice_context(
         normalized_level_2 = ""
     if not normalized_level_1:
         normalized_level_2 = ""
-    selected_ids = {int(question_id) for question_id in (selected_question_ids or [])}
+    selected_ids = {str(question_id).strip() for question_id in (selected_question_ids or []) if str(question_id).strip()}
     question_rows = build_free_practice_question_rows_for_filters(
         level_code=normalized_level_code,
         knowledge_query=normalized_level_1,
@@ -4904,13 +5079,14 @@ def build_student_free_practice_context(
         "level_options": get_student_free_practice_level_options(get_student_by_user(portal_user)),
         "level1_options": level1_options,
         "level2_options": level2_options,
+        "knowledge_map_rows": get_knowledge_map_rows_for_selector(),
         "selected_level_code": normalized_level_code,
         "knowledge_query": normalized_level_1,
         "knowledge_level_2": normalized_level_2,
         "level1_disabled": not normalized_level_code,
         "level2_disabled": not normalized_level_1,
         "question_rows": question_rows,
-        "selected_question_ids": [str(question_id) for question_id in selected_ids],
+        "selected_question_ids": sorted(selected_ids),
         "max_question_count": FREE_PRACTICE_MAX_QUESTION_COUNT,
         "error_message": error_message,
         "limit_warning": limit_warning,
