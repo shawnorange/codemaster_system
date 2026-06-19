@@ -3909,6 +3909,7 @@ def build_teacher_exam_page_context(
         for level in levels:
             if level not in level_filter_options:
                 level_filter_options.append(level)
+    knowledge_management_rows = build_exam_knowledge_management_rows(portal_user)
 
     now = timezone.localtime(timezone.now())
     default_start_at = now + timedelta(minutes=10)
@@ -4010,6 +4011,7 @@ def build_teacher_exam_page_context(
         "level_filter_options": level_filter_options,
         "level_filter_options_by_subject": level_filter_options_by_subject,
         "question_bank_rows": question_bank_rows,
+        "knowledge_management_rows": knowledge_management_rows,
         "available_paper_rows": available_paper_rows,
         "selected_question_ids": selected_question_ids,
         "exam_items": exam_items,
@@ -4575,6 +4577,170 @@ def get_student_free_practice_level2_options(level_code: str, level_1_query: str
     ]
 
 
+def normalize_knowledge_map_subject(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    compact = normalized.replace(" ", "").replace("+", "p")
+    if normalized in {"c++", "cpp"} or compact in {"cpp", "cxx", "cpptype"}:
+        return "cpp"
+    if normalized in {"python", "py"}:
+        return "python"
+    if normalized == "scratch":
+        return "scratch"
+    if normalized in {"drone", "uav", "无人机"}:
+        return "drone"
+    return normalized
+
+
+def format_knowledge_map_subject_label(subject: object) -> str:
+    normalized = normalize_knowledge_map_subject(subject)
+    if normalized == "cpp":
+        return "C++"
+    if normalized == "python":
+        return "Python"
+    if normalized == "scratch":
+        return "Scratch"
+    if normalized == "drone":
+        return "无人机"
+    return str(subject or normalized).strip() or "未标注学科"
+
+
+def build_exam_knowledge_management_rows(portal_user: PortalUser | None = None) -> list[dict[str, object]]:
+    grouped_rows: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    current_operator_name = ""
+    if portal_user is not None:
+        current_operator_name = portal_user.full_name or portal_user.username
+    queryset = (
+        ExamKnowledgePointMap.objects.select_related("uploaded_by")
+        .filter(is_active=True)
+        .exclude(subject="")
+        .exclude(category_code="")
+        .exclude(level_1="")
+        .order_by("subject", "course_level_code", "category_code", "level_1", "sort_order", "id")
+    )
+    for item in queryset:
+        subject = normalize_knowledge_map_subject(item.subject)
+        category_code = str(item.category_code or "").strip().upper()
+        course_level_code = str(item.course_level_code or "").strip().upper()
+        if not course_level_code:
+            category_match = re.fullmatch(r"GESP([1-8])", category_code)
+            if category_match:
+                course_level_code = "C1" if int(category_match.group(1)) <= 4 else "C2"
+            elif category_code == "CSP-J":
+                course_level_code = "C3"
+            elif category_code == "CSP-S":
+                course_level_code = "C4"
+        level_1 = str(item.level_1 or "").strip()
+        if not subject or not category_code or not level_1:
+            continue
+        key = (subject, course_level_code, category_code, level_1)
+        operator_name = ""
+        if item.uploaded_by_id and item.uploaded_by:
+            operator_name = item.uploaded_by.full_name or item.uploaded_by.username
+        imported_at = item.updated_at or item.created_at
+        existing = grouped_rows.get(key)
+        if not existing:
+            grouped_rows[key] = {
+                "id": item.id,
+                "subject": subject,
+                "subject_title": format_knowledge_map_subject_label(subject),
+                "course_level_code": course_level_code,
+                "course_level_text": course_level_code or "未设置",
+                "category_code": category_code,
+                "level_1": level_1,
+                "imported_at": imported_at,
+                "imported_at_text": format_datetime(imported_at),
+                "operator_name": operator_name or current_operator_name or "未记录",
+                "row_count": 1,
+                "search_text": " ".join(
+                    [
+                        format_knowledge_map_subject_label(subject),
+                        subject,
+                        course_level_code,
+                        category_code,
+                        level_1,
+                        operator_name,
+                    ]
+                ),
+            }
+            continue
+        existing["row_count"] = int(existing.get("row_count") or 0) + 1
+        existing_imported_at = existing.get("imported_at")
+        if imported_at and (not existing_imported_at or imported_at >= existing_imported_at):
+            existing["id"] = item.id
+            existing["imported_at"] = imported_at
+            existing["imported_at_text"] = format_datetime(imported_at)
+            existing["operator_name"] = operator_name or current_operator_name or str(existing.get("operator_name") or "未记录")
+
+    rows = list(grouped_rows.values())
+    for row in rows:
+        row["detail_href"] = reverse("teacher-exam-knowledge-detail", args=[row["id"]])
+    rows.sort(
+        key=lambda row: (
+            str(row.get("subject_title") or ""),
+            str(row.get("course_level_code") or ""),
+            str(row.get("category_code") or ""),
+            str(row.get("level_1") or ""),
+        )
+    )
+    return rows
+
+
+def get_knowledge_map_rows_for_selector() -> list[dict[str, str]]:
+    rows = (
+        ExamKnowledgePointMap.objects.filter(is_active=True)
+        .exclude(subject="")
+        .exclude(category_code="")
+        .values("subject", "category_code", "level_1", "level_2", "level_3")
+        .distinct()
+        .order_by("subject", "category_code", "level_1", "level_2", "level_3")
+    )
+    return [
+        {
+            "subject": normalize_knowledge_map_subject(row.get("subject")),
+            "category_code": str(row.get("category_code") or "").strip().upper(),
+            "level_1": str(row.get("level_1") or "").strip(),
+            "level_2": str(row.get("level_2") or "").strip(),
+            "level_3": str(row.get("level_3") or "").strip(),
+        }
+        for row in rows
+        if normalize_knowledge_map_subject(row.get("subject")) and str(row.get("category_code") or "").strip()
+    ]
+
+
+def build_knowledge_map_selector_context(*, default_subject: str = "cpp") -> dict[str, object]:
+    rows = get_knowledge_map_rows_for_selector()
+    subject_values = {row["subject"] for row in rows if row["subject"]}
+    subject_values.update(
+        normalize_knowledge_map_subject(value)
+        for value in Course.objects.values_list("title", flat=True)
+    )
+    subject_values.discard("")
+    subject_options = [
+        {"value": subject, "label": format_knowledge_map_subject_label(subject)}
+        for subject in sorted(subject_values, key=lambda value: format_knowledge_map_subject_label(value).lower())
+    ]
+    category_order = {f"GESP{index}": index for index in range(1, 9)}
+    category_options_by_subject: dict[str, list[dict[str, str]]] = {}
+    for subject in subject_values:
+        categories = {
+            row["category_code"]
+            for row in rows
+            if row["subject"] == subject and row["category_code"]
+        }
+        category_options_by_subject[subject] = [
+            {"value": category, "label": category}
+            for category in sorted(categories, key=lambda value: (category_order.get(value, 99), value))
+        ]
+    normalized_default_subject = normalize_knowledge_map_subject(default_subject) or (subject_options[0]["value"] if subject_options else "")
+    return {
+        "knowledge_subject_options": subject_options,
+        "knowledge_category_options_by_subject": category_options_by_subject,
+        "knowledge_map_rows": rows,
+        "default_knowledge_subject": normalized_default_subject,
+        "knowledge_create_href": reverse("teacher-question-source-create-content"),
+    }
+
+
 def _question_matches_free_practice_filters(
     question: ExamQuestion,
     *,
@@ -4620,24 +4786,16 @@ def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[Exa
     return queryset
 
 
-def build_student_free_practice_context(
-    portal_user: PortalUser,
+def build_free_practice_question_rows_for_filters(
     *,
-    level_code: str = "",
+    level_code: str,
     knowledge_query: str = "",
     knowledge_level_2: str = "",
     selected_question_ids: list[int] | None = None,
-    error_message: str = "",
-    limit_warning: str = "",
-) -> dict:
+) -> list[dict[str, object]]:
     normalized_level_code = normalize_student_free_practice_level_code(level_code)
     normalized_level_1 = str(knowledge_query or "").strip()
     normalized_level_2 = str(knowledge_level_2 or "").strip()
-    if not normalized_level_code:
-        normalized_level_1 = ""
-        normalized_level_2 = ""
-    if not normalized_level_1:
-        normalized_level_2 = ""
     selected_ids = {int(question_id) for question_id in (selected_question_ids or [])}
     queryset = get_student_free_practice_question_queryset(normalized_level_code)
     candidate_questions = []
@@ -4651,6 +4809,7 @@ def build_student_free_practice_context(
             candidate_questions.append(question)
         if len(candidate_questions) >= FREE_PRACTICE_MAX_QUESTION_COUNT:
             break
+
     question_rows = []
     for question in candidate_questions:
         snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
@@ -4699,6 +4858,34 @@ def build_student_free_practice_context(
                 "is_selected": question.id in selected_ids,
             }
         )
+    return question_rows
+
+
+def build_student_free_practice_context(
+    portal_user: PortalUser,
+    *,
+    level_code: str = "",
+    knowledge_query: str = "",
+    knowledge_level_2: str = "",
+    selected_question_ids: list[int] | None = None,
+    error_message: str = "",
+    limit_warning: str = "",
+) -> dict:
+    normalized_level_code = normalize_student_free_practice_level_code(level_code)
+    normalized_level_1 = str(knowledge_query or "").strip()
+    normalized_level_2 = str(knowledge_level_2 or "").strip()
+    if not normalized_level_code:
+        normalized_level_1 = ""
+        normalized_level_2 = ""
+    if not normalized_level_1:
+        normalized_level_2 = ""
+    selected_ids = {int(question_id) for question_id in (selected_question_ids or [])}
+    question_rows = build_free_practice_question_rows_for_filters(
+        level_code=normalized_level_code,
+        knowledge_query=normalized_level_1,
+        knowledge_level_2=normalized_level_2,
+        selected_question_ids=selected_question_ids,
+    )
     level1_options = get_student_free_practice_level1_options(normalized_level_code)
     level2_options = get_student_free_practice_level2_options(normalized_level_code, "")
     return {
@@ -5115,15 +5302,18 @@ def build_homework_option_items(
 def serialize_homework_question(question: HomeworkQuestion) -> dict:
     decoded_options = decode_sql_ascii_json_text(question.options_json)
     options = decoded_options if isinstance(decoded_options, dict) else {}
+    analysis = question.analysis or "当前老师没有补充解析。"
     return {
         "id": question.id,
         "question_no": question.question_no,
         "question_type": question.question_type,
         "question_type_text": "单选题",
         "stem": question.stem,
+        "stem_display_html": render_exam_markdown_for_display(question.stem),
         "option_items": build_homework_option_items(options),
         "correct_answer": question.correct_answer,
-        "analysis": question.analysis or "当前老师没有补充解析。",
+        "analysis": analysis,
+        "analysis_display_html": render_exam_markdown_for_display(analysis),
     }
 
 
@@ -5552,6 +5742,7 @@ def build_teacher_question_source_import_context(
         "content_options": content_options,
         "content_create_level_options": content_create_level_options,
         "content_create_href": reverse("teacher-question-source-create-content"),
+        **build_knowledge_map_selector_context(default_subject=selected_course.slug),
         "content_create_disabled_message": (
             "当前课程下还没有可创建知识点的 Level，请先检查 TeacherStudentAssignment 的课程 / 级别范围。"
             if not content_create_level_options
@@ -7664,6 +7855,16 @@ def build_teacher_homework_batch_create_context(
     }
     selected_student_ids.discard(0)
     selected_import_job_id = normalize_positive_value((form_values or {}).get("import_job_id"), default=0, minimum=1)
+    target_subject = normalize_knowledge_map_subject((form_values or {}).get("target_subject") or "cpp")
+    target_category_code = normalize_student_free_practice_level_code((form_values or {}).get("target_category_code") or "")
+    target_level_1 = str((form_values or {}).get("target_level_1") or "").strip()
+    target_level_2 = str((form_values or {}).get("target_level_2") or "").strip()
+    target_level_3 = str((form_values or {}).get("target_level_3") or "").strip()
+    free_question_ids = [
+        normalize_positive_value(value, default=0, minimum=1)
+        for value in (form_values or {}).get("free_question_ids", [])
+    ]
+    free_question_ids = [value for value in free_question_ids if value]
     batch_content_options = [
         serialize_homework_content_option(content)
         for content in get_teacher_batch_homework_contents(
@@ -7682,11 +7883,15 @@ def build_teacher_homework_batch_create_context(
     student_rows = []
     for student in teacher_students:
         student_assignments = assignments_by_student.get(student.id, [])
+        primary_course_name = str(student.primary_course_name or "").strip()
+        primary_level_name = str(student.primary_level_name or "").strip()
         student_rows.append(
             {
                 "student_id": student.id,
                 "name": student.display_name,
                 "grade": student.grade or "待补充",
+                "primary_course_name": primary_course_name,
+                "primary_level_name": primary_level_name,
                 "parent_phone": student.parent_user.phone if student.parent_user and student.parent_user.phone else "未录入",
                 "scope_text": (
                     summarize_teacher_assignment_scope(student_assignments)
@@ -7697,6 +7902,22 @@ def build_teacher_homework_batch_create_context(
             }
         )
 
+    student_level_options_by_subject: dict[str, list[str]] = defaultdict(list)
+    permission_order = {code: index for index, code in enumerate(CONTENT_PERMISSION_ORDER)}
+    for row in student_rows:
+        subject = str(row.get("primary_course_name") or "").strip()
+        level = str(row.get("primary_level_name") or "").strip()
+        if subject and level:
+            student_level_options_by_subject[subject].append(level)
+    student_subject_filter_options = [
+        {"value": subject, "label": subject}
+        for subject in sorted(student_level_options_by_subject.keys(), key=lambda value: value.lower())
+    ]
+    student_level_filter_options_by_subject = {
+        subject: sorted(set(levels), key=lambda value: (permission_order.get(value, len(permission_order)), value.upper(), value))
+        for subject, levels in student_level_options_by_subject.items()
+    }
+
     visible_import_jobs = list(
         get_visible_homework_import_jobs(
             portal_user,
@@ -7706,6 +7927,58 @@ def build_teacher_homework_batch_create_context(
     import_job_rows = []
     for import_job in visible_import_jobs:
         question_count = len(build_homework_import_job_question_payloads(import_job))
+        stored_questions = list(import_job.questions.filter(is_active=True).order_by("question_no", "id"))
+        analysis_done_count = 0
+        analysis_running_count = 0
+        analysis_failed_count = 0
+        knowledge_done_count = 0
+        knowledge_running_count = 0
+        knowledge_failed_count = 0
+        for question in stored_questions:
+            snapshot = decode_sql_ascii_json_text(question.source_snapshot_json)
+            snapshot = snapshot if isinstance(snapshot, dict) else {}
+            analysis_status = str(snapshot.get("analysis_status") or "").strip()
+            knowledge_status = str(snapshot.get("knowledge_status") or "").strip()
+            if analysis_status in {"pending", "running"}:
+                analysis_running_count += 1
+            elif analysis_status == "failed":
+                analysis_failed_count += 1
+            elif str(question.analysis or "").strip() or analysis_status == "done":
+                analysis_done_count += 1
+            if knowledge_status in {"pending", "running"}:
+                knowledge_running_count += 1
+            elif knowledge_status == "failed":
+                knowledge_failed_count += 1
+            elif (
+                str(snapshot.get("knowledge_level_1") or "").strip()
+                and str(snapshot.get("knowledge_level_2") or "").strip()
+            ):
+                knowledge_done_count += 1
+        recognition_total = len(stored_questions) or question_count
+        if recognition_total <= 0:
+            analysis_status_text = "无题目"
+            knowledge_status_text = "无题目"
+            can_generate_analysis = False
+            can_generate_knowledge = False
+        else:
+            if analysis_running_count:
+                analysis_status_text = f"识别中 {analysis_done_count}/{recognition_total}"
+            elif analysis_done_count >= recognition_total:
+                analysis_status_text = "识别完成"
+            elif analysis_failed_count:
+                analysis_status_text = f"部分失败 {analysis_done_count}/{recognition_total}"
+            else:
+                analysis_status_text = "未识别"
+            if knowledge_running_count:
+                knowledge_status_text = f"识别中 {knowledge_done_count}/{recognition_total}"
+            elif knowledge_done_count >= recognition_total:
+                knowledge_status_text = "识别完成"
+            elif knowledge_failed_count:
+                knowledge_status_text = f"部分失败 {knowledge_done_count}/{recognition_total}"
+            else:
+                knowledge_status_text = "未识别"
+            can_generate_analysis = analysis_running_count == 0
+            can_generate_knowledge = knowledge_running_count == 0
         source_metadata = build_homework_import_job_source_metadata(import_job)
         import_job_rows.append(
             {
@@ -7717,6 +7990,12 @@ def build_teacher_homework_batch_create_context(
                 "question_count": question_count,
                 "created_at_text": format_datetime(import_job.created_at),
                 "preview_href": reverse("teacher-homework-import-job-preview", args=[import_job.id]),
+                "analysis_status_text": analysis_status_text,
+                "knowledge_status_text": knowledge_status_text,
+                "can_generate_analysis": can_generate_analysis,
+                "can_generate_knowledge": can_generate_knowledge,
+                "analysis_action_href": reverse("teacher-homework-import-job-recognition", args=[import_job.id, "analysis"]),
+                "knowledge_action_href": reverse("teacher-homework-import-job-recognition", args=[import_job.id, "knowledge"]),
                 "selected": import_job.id == selected_import_job_id,
             }
         )
@@ -7746,6 +8025,30 @@ def build_teacher_homework_batch_create_context(
     question_source_import_href = reverse("teacher-question-source-import")
     if selected_course is not None:
         question_source_import_href += "?" + urlencode({"course": selected_course.slug})
+    knowledge_selector_context = build_knowledge_map_selector_context(default_subject=target_subject)
+    target_level1_options = [
+        row["level_1"]
+        for row in knowledge_selector_context["knowledge_map_rows"]
+        if row["subject"] == target_subject
+        and (not target_category_code or row["category_code"] == target_category_code)
+        and row["level_1"]
+    ]
+    target_level2_options = [
+        {
+            "level_1": row["level_1"],
+            "value": row["level_2"],
+        }
+        for row in knowledge_selector_context["knowledge_map_rows"]
+        if row["subject"] == target_subject
+        and (not target_category_code or row["category_code"] == target_category_code)
+        and row["level_2"]
+    ]
+    free_question_rows = build_free_practice_question_rows_for_filters(
+        level_code=target_category_code,
+        knowledge_query=target_level_1,
+        knowledge_level_2=target_level_2,
+        selected_question_ids=free_question_ids,
+    )
 
     return {
         "page_title": "批量布置作业",
@@ -7754,20 +8057,12 @@ def build_teacher_homework_batch_create_context(
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "批量布置作业"},
         ],
-        "summary_cards": [
-            {"label": "当前老师", "value": portal_user.full_name, "hint": portal_user.username},
-            {"label": "课程筛选", "value": course_filter_label, "hint": "按钮从课程入口进入时会自动带上当前课程"},
-            {"label": "可选学生", "value": f"{len(student_rows)} 人", "hint": "按 Student.teacher_user 列出当前老师名下学生"},
-            {"label": "可选题目记录", "value": f"{len(import_job_rows)} 条", "hint": "显示当前老师可见且已有正式题目或已 confirmed 的 HomeworkImportJob"},
-        ],
-        "identity_items": [
-            {"label": "当前老师", "value": portal_user.full_name},
-            {"label": "课程筛选", "value": course_filter_label},
-            {"label": "已选学生", "value": f"{len(selected_student_ids)} 人"},
-            {"label": "已选题目", "value": selected_import_job_row["source_filename"] if selected_import_job_row else "尚未选择"},
-        ],
+        "summary_cards": [],
+        "identity_items": [],
         "student_rows": student_rows,
         "student_table_rows": student_rows,
+        "student_subject_filter_options": student_subject_filter_options,
+        "student_level_filter_options_by_subject": student_level_filter_options_by_subject,
         "import_job_rows": import_job_rows,
         "import_job_table_rows": import_job_rows,
         "selected_course_slug": selected_course.slug if selected_course is not None else "",
@@ -7775,6 +8070,13 @@ def build_teacher_homework_batch_create_context(
         "selected_import_job_row": selected_import_job_row,
         "batch_content_options": batch_content_options,
         "batch_selected_content_option": selected_content_option,
+        **knowledge_selector_context,
+        "target_level1_options": sorted(set(target_level1_options)),
+        "target_level2_options": sorted(
+            {f"{item['level_1']}\u241f{item['value']}" for item in target_level2_options}
+        ),
+        "free_question_rows": free_question_rows,
+        "free_practice_max_question_count": FREE_PRACTICE_MAX_QUESTION_COUNT,
         "selected_student_ids": sorted(selected_student_ids),
         "batch_create_error_message": error_message,
         "batch_create_success_message": success_message,
@@ -7783,8 +8085,14 @@ def build_teacher_homework_batch_create_context(
             "student_ids": sorted(selected_student_ids),
             "import_job_id": selected_import_job_id or "",
             "content_id": selected_content_id or "",
+            "target_subject": target_subject,
+            "target_category_code": target_category_code,
+            "target_level_1": target_level_1,
+            "target_level_2": target_level_2,
+            "target_level_3": target_level_3,
+            "free_question_ids": free_question_ids,
             "assignment_requirement": str((form_values or {}).get("assignment_requirement") or ""),
-            "due_date": str((form_values or {}).get("due_date") or timezone.localdate().isoformat()),
+            "due_date": str((form_values or {}).get("due_date") or (timezone.localdate() + timedelta(days=6 - timezone.localdate().weekday())).isoformat()),
             "summary_title": str((form_values or {}).get("summary_title") or ""),
             "summary_html": str((form_values or {}).get("summary_html") or ""),
             "summary_highlights": str((form_values or {}).get("summary_highlights") or ""),
@@ -7798,9 +8106,8 @@ def build_teacher_homework_batch_create_context(
         "support_items": [
             {"title": "学生范围", "description": "后端会再次校验 student_ids 必须都属于当前老师。"},
             {"title": "题目来源", "description": "HomeworkImportJob 现在是可选项；如果选了题源，整批 assignment 会共享同一条 source_import_job。"},
-            {"title": "作业要求", "description": "页面填写的作业要求复用 HomeworkAssignment.description；如果不选题源，也可以作为纯要求型作业保存。"},
-            {"title": "目标知识点", "description": "纯要求型作业仍需绑定一个 CourseContent，因为 HomeworkAssignment.content 是现有必填字段。"},
-            {"title": "课后总结", "description": "上传 / 粘贴 HTML 时会创建 1 条 HomeworkSummary；亮点表现 / 待提升点会分别写入每个学生自己的 HomeworkAssignment。"},
+            {"title": "目标知识点", "description": "目标知识点来自知识点映射表，新增后会同步进入当前课程可选知识点。"},
+            {"title": "课后总结", "description": "上传 / 粘贴 HTML 时会创建 1 条 HomeworkSummary，并绑定到整批学生作业。"},
             {"title": "交互边界", "description": "整批校验通过后再统一创建，避免半成功半失败让老师难以判断结果。"},
         ],
     }

@@ -1,0 +1,322 @@
+{% extends "entry/system_shell.html" %}
+
+{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
+    <style>
+        .knowledge-detail-toolbar {
+            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .knowledge-detail-meta {
+            color: #4c719c;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .knowledge-detail-form-grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 12px;
+        }
+
+        .knowledge-detail-actions {
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 720px) {
+            .knowledge-detail-toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .knowledge-detail-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block system_content %}
+    <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+        {% for item in breadcrumbs %}
+            {% if item.href %}
+                <a href="{{ item.href }}">{{ item.label }}</a>
+            {% else %}
+                <span>{{ item.label }}</span>
+            {% endif %}
+            {% if not forloop.last %}<i></i>{% endif %}
+        {% endfor %}
+    </nav>
+
+    <section class="hero-panel">
+        <div class="hero-panel__copy">
+            <p class="eyebrow">Knowledge Management</p>
+            <span class="role-badge">当前角色：{{ role_label }}</span>
+            <h2>{{ page_title }}</h2>
+            <div class="knowledge-detail-meta">
+                <span>{{ subject_title }}</span>
+                <span>{{ course_level_text }}</span>
+                <span>{{ category_code }}</span>
+                <span>{{ level_1 }}</span>
+            </div>
+        </div>
+    </section>
+
+    {% if success_message %}
+        <div class="entry-hint-bar">{{ success_message }}</div>
+    {% endif %}
+    {% if error_message %}
+        <div class="entry-hint-bar">{{ error_message }}</div>
+    {% endif %}
+
+    <section class="surface-panel surface-panel--primary">
+        <div class="knowledge-detail-toolbar">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Knowledge Datagrid</p>
+                <h3>知识点目录详情</h3>
+            </div>
+            <button type="button" class="login-button" id="open-knowledge-row-modal">新增</button>
+        </div>
+
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-meta-row portal-grid-meta-row">
+                <span class="portal-grid-meta__pill">目录明细<strong>{{ knowledge_detail_rows|length }}</strong></span>
+            </div>
+            <div id="knowledge-detail-grid" class="portal-grid-container teacher-tabulator-container"></div>
+            <div id="knowledge-detail-fallback">
+                {% if knowledge_detail_rows %}
+                    {% for item in knowledge_detail_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.level_2 }}</strong>
+                            <span>{{ item.category_code }} / {{ item.level_1 }} / {{ item.level_3 }}</span>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">{{ empty_message }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <dialog class="topic-access-modal" id="knowledge-row-modal">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="add_exam_knowledge_row" id="knowledge-row-form-action">
+            <input type="hidden" name="knowledge_row_id" value="" id="knowledge-row-id">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="eyebrow">Knowledge Directory</p>
+                    <h3 id="knowledge-row-modal-title">新增知识点</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-knowledge-row-modal" aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="knowledge-detail-form-grid">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-row-level-1">
+                    <span class="portal-filter-label portal-grid-filter-label">一级目录</span>
+                    <input id="knowledge-row-level-1" name="level_1" class="portal-filter-control portal-grid-filter-control" value="{{ default_form_values.level_1 }}" required>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-row-level-2">
+                    <span class="portal-filter-label portal-grid-filter-label">二级目录</span>
+                    <input id="knowledge-row-level-2" name="level_2" class="portal-filter-control portal-grid-filter-control" value="{{ default_form_values.level_2 }}" required>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-row-level-3">
+                    <span class="portal-filter-label portal-grid-filter-label">三级目录</span>
+                    <input id="knowledge-row-level-3" name="level_3" class="portal-filter-control portal-grid-filter-control" value="{{ default_form_values.level_3 }}">
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-knowledge-row-modal">取消</button>
+                <button type="submit" class="login-button">保存</button>
+            </div>
+        </form>
+    </dialog>
+{% endblock %}
+
+{% block extra_body_end %}
+    {{ knowledge_detail_rows|json_script:"knowledge-detail-data" }}
+    {% include "entry/includes/teacher_tabulator_scripts.html" %}
+    <script>
+        (function () {
+            const grid = document.getElementById("knowledge-detail-grid");
+            const fallback = document.getElementById("knowledge-detail-fallback");
+            const modal = document.getElementById("knowledge-row-modal");
+            const openButton = document.getElementById("open-knowledge-row-modal");
+            const closeButton = document.getElementById("close-knowledge-row-modal");
+            const cancelButton = document.getElementById("cancel-knowledge-row-modal");
+            const modalTitle = document.getElementById("knowledge-row-modal-title");
+            const actionInput = document.getElementById("knowledge-row-form-action");
+            const rowIdInput = document.getElementById("knowledge-row-id");
+            const level1Input = document.getElementById("knowledge-row-level-1");
+            const level2Input = document.getElementById("knowledge-row-level-2");
+            const level3Input = document.getElementById("knowledge-row-level-3");
+            const csrfToken = "{{ csrf_token }}";
+            const readJsonScript = (id, fallbackValue) => {
+                const node = document.getElementById(id);
+                if (!node) {
+                    return fallbackValue;
+                }
+                try {
+                    return JSON.parse(node.textContent || "");
+                } catch (error) {
+                    return fallbackValue;
+                }
+            };
+            const escapeHtml = (value) => String(value || "")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#39;");
+            const rows = readJsonScript("knowledge-detail-data", []);
+            const showDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.showModal === "function") {
+                    dialog.showModal();
+                } else {
+                    dialog.setAttribute("open", "open");
+                }
+            };
+            const hideDialog = (dialog) => {
+                if (!dialog) {
+                    return;
+                }
+                if (typeof dialog.close === "function") {
+                    dialog.close();
+                } else {
+                    dialog.removeAttribute("open");
+                }
+            };
+            const openAddModal = () => {
+                if (modalTitle) {
+                    modalTitle.textContent = "新增知识点";
+                }
+                if (actionInput) {
+                    actionInput.value = "add_exam_knowledge_row";
+                }
+                if (rowIdInput) {
+                    rowIdInput.value = "";
+                }
+                if (level1Input) {
+                    level1Input.value = "{{ default_form_values.level_1|escapejs }}";
+                }
+                if (level2Input) {
+                    level2Input.value = "";
+                }
+                if (level3Input) {
+                    level3Input.value = "";
+                }
+                showDialog(modal);
+            };
+            const openEditModal = (row) => {
+                if (!row) {
+                    return;
+                }
+                if (modalTitle) {
+                    modalTitle.textContent = "编辑知识点";
+                }
+                if (actionInput) {
+                    actionInput.value = "edit_exam_knowledge_row";
+                }
+                if (rowIdInput) {
+                    rowIdInput.value = String(row.id || "");
+                }
+                if (level1Input) {
+                    level1Input.value = row.level_1 || "";
+                }
+                if (level2Input) {
+                    level2Input.value = row.level_2 || "";
+                }
+                if (level3Input) {
+                    level3Input.value = row.level_3 || "";
+                }
+                showDialog(modal);
+            };
+            const buildActions = (row) => {
+                return [
+                    '<div class="knowledge-detail-actions">',
+                    '<button type="button" class="cm-tabulator-btn knowledge-detail-edit" data-row-id="' + escapeHtml(row.id) + '">编辑</button>',
+                    '<form method="post" class="teacher-exam-row-action knowledge-detail-delete-form">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="delete_exam_knowledge_row">',
+                    '<input type="hidden" name="knowledge_row_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn">删除</button>',
+                    '</form>',
+                    '</div>',
+                ].join("");
+            };
+            if (grid && typeof Tabulator !== "undefined") {
+                new Tabulator(grid, {
+                    data: rows,
+                    index: "id",
+                    layout: "fitColumns",
+                    placeholder: "{{ empty_message|escapejs }}",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        { title: "考试名称", field: "category_code", minWidth: 120 },
+                        { title: "一级目录", field: "level_1", minWidth: 220, widthGrow: 1.4 },
+                        { title: "二级目录", field: "level_2", minWidth: 220, widthGrow: 1.4 },
+                        { title: "三级目录", field: "level_3", minWidth: 260, widthGrow: 2 },
+                        {
+                            title: "操作",
+                            field: "id",
+                            minWidth: 160,
+                            hozAlign: "center",
+                            headerSort: false,
+                            formatter: (cell) => buildActions(cell.getRow().getData()),
+                        },
+                    ],
+                });
+                if (fallback) {
+                    fallback.hidden = true;
+                }
+            }
+            if (openButton) {
+                openButton.addEventListener("click", openAddModal);
+            }
+            [closeButton, cancelButton].forEach((button) => {
+                if (button) {
+                    button.addEventListener("click", () => hideDialog(modal));
+                }
+            });
+            if (modal) {
+                modal.addEventListener("click", (event) => {
+                    if (event.target === modal) {
+                        hideDialog(modal);
+                    }
+                });
+            }
+            document.addEventListener("click", (event) => {
+                const editButton = event.target.closest(".knowledge-detail-edit");
+                if (!editButton) {
+                    return;
+                }
+                const rowId = Number(editButton.dataset.rowId || 0);
+                openEditModal(rows.find((row) => Number(row.id) === rowId));
+            });
+            document.addEventListener("submit", (event) => {
+                if (event.target.matches(".knowledge-detail-delete-form")) {
+                    const confirmed = window.confirm("是否确定删除这条知识点目录？");
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
+            });
+        })();
+    </script>
+{% endblock %}

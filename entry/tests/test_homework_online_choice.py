@@ -38,6 +38,7 @@ from entry.models import (
     CourseCategory,
     CourseContent,
     CourseLevel,
+    ExamKnowledgePointMap,
     HomeworkAssignment,
     HomeworkImportJob,
     HomeworkQuestion,
@@ -1342,7 +1343,6 @@ class HomeworkOnlineChoiceTests(TestCase):
                 ),
             },
         )
-
         self.assertEqual(response.status_code, 302)
         self.assertIn("op=blocked", response["Location"])
         self.assertIn(f"import_job_id={pending_job.id}", response["Location"])
@@ -2371,7 +2371,7 @@ class HomeworkBatchCreateTests(TestCase):
             campus="虹桥校区",
             primary_course_name="C++",
             primary_track_name="GESP",
-            primary_level_name="GESP4",
+            primary_level_name="C1",
         )
         self.second_target_student = Student.objects.create(
             user=self.second_target_student_user,
@@ -2381,7 +2381,7 @@ class HomeworkBatchCreateTests(TestCase):
             campus="虹桥校区",
             primary_course_name="C++",
             primary_track_name="GESP",
-            primary_level_name="GESP4",
+            primary_level_name="C2",
         )
         self.outsider_student = Student.objects.create(
             user=self.outsider_student_user,
@@ -2426,9 +2426,42 @@ class HomeworkBatchCreateTests(TestCase):
                 "content_type": "topic",
                 "title": next(item["title"] for item in GESP4_TOPIC_DEFINITIONS if item["slug"] == ARRAY_2D_CONTENT_SLUG),
                 "phase": "GESP4",
+                "permission_code": "C4",
                 "sort_order": 1,
                 "route_path": "/student/cpp/gesp/gesp4/array-2d",
                 "summary": "二维数组专题",
+                "has_real_content": True,
+                "is_active": True,
+            },
+        )
+        self.c1_content, _ = CourseContent.objects.update_or_create(
+            slug="batch-c1-permission-content",
+            defaults={
+                "course": self.cpp_course,
+                "level": self.gesp4_level,
+                "content_type": "topic",
+                "title": "C1 权限内容",
+                "phase": "GESP1",
+                "permission_code": "C1",
+                "sort_order": 91,
+                "route_path": "/student/cpp/batch-c1-permission-content",
+                "summary": "用于批量布置学生选择筛选。",
+                "has_real_content": True,
+                "is_active": True,
+            },
+        )
+        self.c2_content, _ = CourseContent.objects.update_or_create(
+            slug="batch-c2-permission-content",
+            defaults={
+                "course": self.cpp_course,
+                "level": self.gesp4_level,
+                "content_type": "topic",
+                "title": "C2 权限内容",
+                "phase": "GESP5",
+                "permission_code": "C2",
+                "sort_order": 92,
+                "route_path": "/student/cpp/batch-c2-permission-content",
+                "summary": "用于批量布置学生选择筛选。",
                 "has_real_content": True,
                 "is_active": True,
             },
@@ -2882,6 +2915,21 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertContains(response, 'enctype="multipart/form-data"', html=False)
         self.assertContains(response, '<textarea name="assignment_requirement"', html=False)
         self.assertContains(response, "保存并批量布置作业")
+        self.assertNotContains(response, '<p class="metric-card__label">当前教师</p>', html=False)
+        self.assertNotContains(response, '<p class="metric-card__label">课程筛选</p>', html=False)
+        self.assertNotContains(response, '<p class="metric-card__label">可选学生</p>', html=False)
+        self.assertNotContains(response, '<p class="metric-card__label">可选题目记录</p>', html=False)
+        self.assertContains(response, 'id="homework-batch-student-subject-filter"', html=False)
+        self.assertContains(response, 'id="homework-batch-student-level-filter"', html=False)
+        self.assertContains(response, 'id="homework-batch-student-select-by-level"', html=False)
+        self.assertNotContains(response, "entry_student.primary_course_name / primary_level_name")
+        self.assertEqual(
+            response.context["student_level_filter_options_by_subject"]["C++"],
+            ["C1", "C2", "GESP4"],
+        )
+        target_row = next(item for item in response.context["student_rows"] if item["name"] == "批量目标学生甲")
+        self.assertEqual(target_row["primary_course_name"], "C++")
+        self.assertEqual(target_row["primary_level_name"], "C1")
         self.assertEqual(response.context["form_values"]["summary_title"], "")
 
     def test_batch_homework_page_shows_import_practice_button_with_public_question_source_entry(self) -> None:
@@ -2950,17 +2998,44 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(page_response.status_code, 200)
         self.assertContains(page_response, "循环结构")
 
-    def test_non_teacher_cannot_create_question_source_course_content(self) -> None:
-        principal = PortalUser.objects.create(
-            username="principal_question_source_content",
-            role=PortalUser.ROLE_PRINCIPAL,
-            full_name="校长知识点",
-            phone="13800000208",
+    def test_teacher_can_create_question_source_knowledge_mapping_content(self) -> None:
+        self.sign_in(self.teacher)
+        assignment_count_before = HomeworkAssignment.objects.count()
+
+        response = self.client.post(
+            self.get_question_source_create_content_url(),
+            {
+                "course": "cpp",
+                "subject": "cpp",
+                "category_code": "GESP4",
+                "level_1": "数组",
+                "level_2": "二维数组",
+                "level_3": "遍历",
+            },
         )
+
+        self.assertIn(response.status_code, {200, 201})
+        payload = response.json()
+        self.assertEqual(payload["knowledge_map"]["subject"], "cpp")
+        self.assertEqual(payload["knowledge_map"]["category_code"], "GESP4")
+        self.assertTrue(
+            ExamKnowledgePointMap.objects.filter(
+                subject="cpp",
+                category_code="GESP4",
+                level_1="数组",
+                level_2="二维数组",
+                level_3="遍历",
+                is_active=True,
+            ).exists()
+        )
+        created_content = CourseContent.objects.get(id=payload["id"])
+        self.assertEqual(created_content.title, "数组 / 二维数组 / 遍历")
+        self.assertEqual(HomeworkAssignment.objects.count(), assignment_count_before)
+
+    def test_non_teacher_cannot_create_question_source_course_content(self) -> None:
         cases = [
             (self.target_student_user, reverse("student-courses")),
             (self.parent, reverse("parent-student-profile")),
-            (principal, reverse("principal-dashboard")),
         ]
         for user, expected_location in cases:
             with self.subTest(role=user.role):
@@ -3153,7 +3228,7 @@ class HomeworkBatchCreateTests(TestCase):
         response = self.client.get(self.batch_create_url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "teacher_tabulator.js?v=20260503-homework-batch-submit-fix")
+        self.assertContains(response, "teacher_tabulator.js?v=20260618-homework-batch-knowledge-controls")
 
     def test_batch_page_lists_public_question_source_import_job(self) -> None:
         public_import_job = self.create_public_question_source_import_job(filename="public-visible.txt")

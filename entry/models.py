@@ -1162,11 +1162,20 @@ class ExamQuestionBankPaper(models.Model):
 
 class ExamKnowledgePointMap(models.Model):
     subject = models.CharField("所属学科", max_length=32)
+    course_level_code = models.CharField("课程级别", max_length=16, blank=True)
     category_code = models.CharField("所属类别", max_length=32)
     level_1 = models.CharField("一级目录", max_length=128)
     level_2 = models.CharField("二级目录", max_length=128)
     level_3 = models.CharField("三级目录", max_length=255, blank=True)
     source_path = models.CharField("来源文件", max_length=255, blank=True)
+    uploaded_by = models.ForeignKey(
+        PortalUser,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="uploaded_exam_knowledge_maps",
+        verbose_name="操作人",
+    )
     sort_order = models.PositiveIntegerField("排序", default=0)
     is_active = models.BooleanField("是否启用", default=True)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)

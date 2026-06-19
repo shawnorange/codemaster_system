@@ -48,6 +48,34 @@
             text-decoration: none;
         }
 
+        .teacher-exam-knowledge-upload {
+            align-items: end;
+            display: grid;
+            gap: 10px;
+            grid-template-columns: minmax(160px, 240px) auto;
+            width: 100%;
+        }
+
+        .teacher-exam-knowledge-upload .login-button {
+            min-height: 42px;
+            white-space: nowrap;
+        }
+
+        .teacher-exam-knowledge-actions {
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
+        .teacher-exam-knowledge-edit-grid {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 12px;
+        }
+
         .teacher-exam-schedule-options {
             display: grid;
             gap: 10px;
@@ -96,6 +124,14 @@
             .teacher-exam-schedule-grid {
                 grid-template-columns: 1fr;
             }
+
+            .teacher-exam-knowledge-upload {
+                grid-template-columns: 1fr;
+            }
+
+            .teacher-exam-knowledge-edit-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 {% endblock %}
@@ -126,6 +162,112 @@
     {% if error_message %}
         <div class="entry-hint-bar">{{ error_message }}</div>
     {% endif %}
+
+    <section class="surface-panel surface-panel--primary" id="exam-knowledge-management">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Knowledge Management</p>
+            <h3>知识点管理</h3>
+        </div>
+
+        <div class="portal-grid-shell teacher-tabulator-shell">
+            <div class="portal-grid-toolbar teacher-tabulator-toolbar teacher-exam-toolbar--aligned">
+                <form method="post" enctype="multipart/form-data" class="teacher-exam-knowledge-upload">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_action" value="upload_exam_knowledge_md">
+                    <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-upload-subject">
+                        <span class="portal-filter-label portal-grid-filter-label">科目</span>
+                        <select id="knowledge-upload-subject" name="knowledge_subject" class="portal-filter-control portal-grid-filter-control">
+                            <option value="cpp">C++</option>
+                            <option value="python">Python</option>
+                            <option value="drone">无人机</option>
+                            <option value="scratch">Scratch</option>
+                            <option value="ai">AI</option>
+                        </select>
+                    </label>
+                    <input id="knowledge-upload-file" name="knowledge_md_file" type="file" accept=".md,text/markdown,text/plain" hidden required>
+                    <button type="button" class="login-button" id="knowledge-upload-button">上传 md 文件</button>
+                </form>
+            </div>
+
+            <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-level-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">级别</span>
+                    <input id="knowledge-management-level-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入 C1/C2/C3/C4">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-category-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">考试名称</span>
+                    <input id="knowledge-management-category-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入 GESP 或 CSP">
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-level1-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">一级知识目录</span>
+                    <input id="knowledge-management-level1-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入一级目录关键词">
+                </label>
+            </div>
+
+            <div class="portal-meta-row portal-grid-meta-row">
+                <span class="portal-grid-meta__pill">一级目录<strong>{{ knowledge_management_rows|length }}</strong></span>
+            </div>
+
+            <div id="exam-knowledge-management-grid" class="portal-grid-container teacher-tabulator-container"></div>
+            <div id="exam-knowledge-management-fallback">
+                {% if knowledge_management_rows %}
+                    {% for item in knowledge_management_rows %}
+                        <article class="entry-hint-bar">
+                            <strong>{{ item.category_code }} / {{ item.level_1 }}</strong>
+                            <span>{{ item.subject_title }} / {{ item.course_level_text }} / {{ item.operator_name }}</span>
+                        </article>
+                    {% endfor %}
+                {% else %}
+                    <div class="entry-hint-bar">当前还没有导入知识点目录。</div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <dialog class="topic-access-modal" id="knowledge-group-edit-dialog">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="edit_exam_knowledge_group">
+            <input type="hidden" name="knowledge_map_id" id="knowledge-group-edit-id">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="eyebrow">Knowledge Management</p>
+                    <h3>编辑知识点目录</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-knowledge-group-edit-dialog" aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="teacher-exam-knowledge-edit-grid">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-group-edit-subject">
+                    <span class="portal-filter-label portal-grid-filter-label">科目</span>
+                    <select id="knowledge-group-edit-subject" name="knowledge_subject" class="portal-filter-control portal-grid-filter-control">
+                        <option value="cpp">C++</option>
+                        <option value="python">Python</option>
+                        <option value="drone">无人机</option>
+                        <option value="scratch">Scratch</option>
+                        <option value="ai">AI</option>
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-group-edit-category">
+                    <span class="portal-filter-label portal-grid-filter-label">考试名称</span>
+                    <select id="knowledge-group-edit-category" name="knowledge_category_code" class="portal-filter-control portal-grid-filter-control" required>
+                        {% for index in "12345678" %}
+                            <option value="GESP{{ index }}">GESP{{ index }}</option>
+                        {% endfor %}
+                        <option value="CSP-J">CSP-J</option>
+                        <option value="CSP-S">CSP-S</option>
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-group-edit-level-1">
+                    <span class="portal-filter-label portal-grid-filter-label">一级知识目录</span>
+                    <input id="knowledge-group-edit-level-1" name="knowledge_level_1" class="portal-filter-control portal-grid-filter-control" required>
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-knowledge-group-edit-dialog">取消</button>
+                <button type="submit" class="login-button">保存</button>
+            </div>
+        </form>
+    </dialog>
 
     <section class="surface-panel surface-panel--primary" id="available-exam-papers">
         <div class="section-heading">
@@ -383,6 +525,7 @@
 {% block extra_body_end %}
     {{ question_bank_rows|json_script:"exam-question-bank-data" }}
     {{ selected_question_ids|json_script:"selected-exam-question-ids" }}
+    {{ knowledge_management_rows|json_script:"exam-knowledge-management-data" }}
     {{ available_paper_rows|json_script:"available-exam-paper-data" }}
     {{ exam_table_rows|json_script:"teacher-exam-management-data" }}
     {{ level_filter_options_by_subject|json_script:"teacher-exam-level-options-by-subject" }}
@@ -404,6 +547,21 @@
             const questionBankSearch = document.getElementById("exam-question-bank-search");
             const selectedQuestionInputs = document.getElementById("selected-exam-question-inputs");
             const selectedQuestionCount = document.getElementById("selected-exam-question-count");
+            const knowledgeUploadForm = document.querySelector(".teacher-exam-knowledge-upload");
+            const knowledgeUploadButton = document.getElementById("knowledge-upload-button");
+            const knowledgeUploadFile = document.getElementById("knowledge-upload-file");
+            const knowledgeManagementGrid = document.getElementById("exam-knowledge-management-grid");
+            const knowledgeManagementFallback = document.getElementById("exam-knowledge-management-fallback");
+            const knowledgeManagementLevelFilter = document.getElementById("knowledge-management-level-filter");
+            const knowledgeManagementCategoryFilter = document.getElementById("knowledge-management-category-filter");
+            const knowledgeManagementLevel1Filter = document.getElementById("knowledge-management-level1-filter");
+            const knowledgeGroupEditDialog = document.getElementById("knowledge-group-edit-dialog");
+            const knowledgeGroupEditClose = document.getElementById("close-knowledge-group-edit-dialog");
+            const knowledgeGroupEditCancel = document.getElementById("cancel-knowledge-group-edit-dialog");
+            const knowledgeGroupEditId = document.getElementById("knowledge-group-edit-id");
+            const knowledgeGroupEditSubject = document.getElementById("knowledge-group-edit-subject");
+            const knowledgeGroupEditCategory = document.getElementById("knowledge-group-edit-category");
+            const knowledgeGroupEditLevel1 = document.getElementById("knowledge-group-edit-level-1");
             const availablePaperGrid = document.getElementById("available-exam-paper-grid");
             const availablePaperFallback = document.getElementById("available-exam-paper-fallback");
             const availablePaperSubjectFilter = document.getElementById("available-paper-subject-filter");
@@ -461,6 +619,7 @@
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#39;");
             const questionBankRows = readJsonScript("exam-question-bank-data", []);
+            const knowledgeManagementRows = readJsonScript("exam-knowledge-management-data", []);
             const availablePaperRows = readJsonScript("available-exam-paper-data", []);
             const examManagementRows = readJsonScript("teacher-exam-management-data", []);
             const levelOptionsBySubject = readJsonScript("teacher-exam-level-options-by-subject", {});
@@ -470,6 +629,7 @@
                 .filter((value, index, values) => value > 0 && values.indexOf(value) === index);
             let questionBankTable = null;
             let selectedQuestionTable = null;
+            let knowledgeManagementTable = null;
             let availablePaperTable = null;
             let examManagementTable = null;
 
@@ -647,6 +807,24 @@
                 setScheduleMode(teacherExamScheduleDialog, row.schedule_mode || "scheduled");
                 showDialog(teacherExamScheduleDialog);
             };
+            const openKnowledgeGroupEditDialog = (row) => {
+                if (!knowledgeGroupEditDialog || !row) {
+                    return;
+                }
+                if (knowledgeGroupEditId) {
+                    knowledgeGroupEditId.value = row.id || "";
+                }
+                if (knowledgeGroupEditSubject) {
+                    knowledgeGroupEditSubject.value = row.subject || "cpp";
+                }
+                if (knowledgeGroupEditCategory) {
+                    knowledgeGroupEditCategory.value = row.category_code || "GESP1";
+                }
+                if (knowledgeGroupEditLevel1) {
+                    knowledgeGroupEditLevel1.value = row.level_1 || "";
+                }
+                showDialog(knowledgeGroupEditDialog);
+            };
             const redrawTable = (table) => {
                 if (!table || typeof table.redraw !== "function") {
                     return;
@@ -809,6 +987,73 @@
                     '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
                     '</div>',
                 ].join("");
+            };
+            const buildKnowledgeManagementActions = (row) => {
+                return [
+                    '<div class="teacher-exam-knowledge-actions">',
+                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.detail_href || "#") + '">查看详情</a>',
+                    '<button type="button" class="cm-tabulator-btn knowledge-group-edit-button" data-knowledge-id="' + escapeHtml(row.id) + '">编辑</button>',
+                    '<form method="post" class="teacher-exam-row-action teacher-exam-knowledge-delete-form">',
+                    '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
+                    '<input type="hidden" name="form_action" value="delete_exam_knowledge_group">',
+                    '<input type="hidden" name="knowledge_map_id" value="' + escapeHtml(row.id) + '">',
+                    '<button type="submit" class="cm-tabulator-btn">删除</button>',
+                    '</form>',
+                    '</div>',
+                ].join("");
+            };
+            const buildKnowledgeManagementTable = () => {
+                if (!knowledgeManagementGrid || typeof Tabulator === "undefined") {
+                    return;
+                }
+                knowledgeManagementTable = new Tabulator(knowledgeManagementGrid, {
+                    data: knowledgeManagementRows,
+                    index: "id",
+                    layout: "fitColumns",
+                    placeholder: "当前还没有导入知识点目录。",
+                    pagination: true,
+                    paginationMode: "local",
+                    paginationSize: 10,
+                    columns: [
+                        { title: "科目", field: "subject_title", minWidth: 120 },
+                        { title: "级别", field: "course_level_text", minWidth: 100 },
+                        { title: "考试名称", field: "category_code", minWidth: 120 },
+                        { title: "一级知识目录", field: "level_1", minWidth: 220, widthGrow: 2 },
+                        { title: "导入时间", field: "imported_at_text", minWidth: 150 },
+                        { title: "操作人", field: "operator_name", minWidth: 120 },
+                        {
+                            title: "操作",
+                            field: "id",
+                            minWidth: 240,
+                            hozAlign: "center",
+                            headerSort: false,
+                            formatter: (cell) => buildKnowledgeManagementActions(cell.getRow().getData()),
+                        },
+                    ],
+                });
+                if (knowledgeManagementFallback) {
+                    knowledgeManagementFallback.hidden = true;
+                }
+            };
+            const applyKnowledgeManagementFilter = () => {
+                if (!knowledgeManagementTable) {
+                    return;
+                }
+                const level = String(knowledgeManagementLevelFilter ? knowledgeManagementLevelFilter.value : "").trim().toLowerCase();
+                const category = String(knowledgeManagementCategoryFilter ? knowledgeManagementCategoryFilter.value : "").trim().toLowerCase();
+                const level1 = String(knowledgeManagementLevel1Filter ? knowledgeManagementLevel1Filter.value : "").trim().toLowerCase();
+                knowledgeManagementTable.setFilter((row) => {
+                    if (level && !String(row.course_level_text || row.course_level_code || "").toLowerCase().includes(level)) {
+                        return false;
+                    }
+                    if (category && !String(row.category_code || "").toLowerCase().includes(category)) {
+                        return false;
+                    }
+                    if (level1 && !String(row.level_1 || "").toLowerCase().includes(level1)) {
+                        return false;
+                    }
+                    return true;
+                });
             };
             const applyAvailablePaperFilter = () => {
                 if (!availablePaperTable) {
@@ -1082,7 +1327,19 @@
                     }
                 });
             }
-            [availablePaperPublishDialog, teacherExamScheduleDialog].forEach((dialog) => {
+            if (knowledgeUploadButton && knowledgeUploadFile) {
+                knowledgeUploadButton.addEventListener("click", () => {
+                    knowledgeUploadFile.click();
+                });
+            }
+            if (knowledgeUploadFile && knowledgeUploadForm) {
+                knowledgeUploadFile.addEventListener("change", () => {
+                    if (knowledgeUploadFile.files && knowledgeUploadFile.files.length) {
+                        knowledgeUploadForm.submit();
+                    }
+                });
+            }
+            [availablePaperPublishDialog, teacherExamScheduleDialog, knowledgeGroupEditDialog].forEach((dialog) => {
                 if (!dialog) {
                     return;
                 }
@@ -1107,6 +1364,22 @@
             if (cancelTeacherExamScheduleDialog) {
                 cancelTeacherExamScheduleDialog.addEventListener("click", () => hideDialog(teacherExamScheduleDialog));
             }
+            if (knowledgeGroupEditClose) {
+                knowledgeGroupEditClose.addEventListener("click", () => hideDialog(knowledgeGroupEditDialog));
+            }
+            if (knowledgeGroupEditCancel) {
+                knowledgeGroupEditCancel.addEventListener("click", () => hideDialog(knowledgeGroupEditDialog));
+            }
+            [
+                knowledgeManagementLevelFilter,
+                knowledgeManagementCategoryFilter,
+                knowledgeManagementLevel1Filter,
+            ].forEach((input) => {
+                if (input) {
+                    input.addEventListener("input", applyKnowledgeManagementFilter);
+                    input.addEventListener("change", applyKnowledgeManagementFilter);
+                }
+            });
             [
                 examCreatorFilter,
                 examCreatedStartFilter,
@@ -1172,6 +1445,13 @@
                     const paperId = Number(editButton.dataset.paperId || 0);
                     const row = examManagementRows.find((item) => Number(item.id) === paperId);
                     openTeacherExamScheduleDialog(row);
+                    return;
+                }
+                const knowledgeEditButton = event.target.closest(".knowledge-group-edit-button");
+                if (knowledgeEditButton) {
+                    const knowledgeId = Number(knowledgeEditButton.dataset.knowledgeId || 0);
+                    const row = knowledgeManagementRows.find((item) => Number(item.id) === knowledgeId);
+                    openKnowledgeGroupEditDialog(row);
                 }
             });
             document.addEventListener("submit", (event) => {
@@ -1181,13 +1461,21 @@
                         event.preventDefault();
                     }
                 }
+                if (event.target.matches(".teacher-exam-knowledge-delete-form")) {
+                    const confirmed = window.confirm("是否确定删除这个一级知识目录？对应二级、三级目录也会一起移出管理列表。");
+                    if (!confirmed) {
+                        event.preventDefault();
+                    }
+                }
             });
+            buildKnowledgeManagementTable();
             buildAvailablePaperTable();
             buildExamManagementTable();
             syncAvailablePaperLevelOptions();
             syncExamLevelOptions();
             syncScheduleMode(availablePaperPublishDialog);
             syncScheduleMode(teacherExamScheduleDialog);
+            applyKnowledgeManagementFilter();
             applyAvailablePaperFilter();
             applyExamManagementFilter();
             if (hasRunningAvailablePaperWork()) {

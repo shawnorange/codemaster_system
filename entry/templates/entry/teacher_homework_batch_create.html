@@ -1,9 +1,153 @@
 {% extends "entry/system_shell.html" %}
+{% load static %}
 
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
     {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+    <style>
+        .homework-batch-file-picker {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .homework-batch-file-picker input[type="file"] {
+            inline-size: 1px;
+            block-size: 1px;
+            opacity: 0;
+            overflow: hidden;
+            position: absolute;
+        }
+
+        .homework-batch-file-picker__name {
+            color: #52657d;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .homework-batch-knowledge-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .homework-knowledge-combobox {
+            position: relative;
+        }
+
+        .homework-knowledge-combobox__button,
+        .homework-knowledge-combobox__search {
+            width: 100%;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            background: #ffffff;
+            color: #0f172a;
+            font: inherit;
+        }
+
+        .homework-knowledge-combobox__button {
+            align-items: center;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            min-height: 44px;
+            padding: 0 12px;
+            text-align: left;
+        }
+
+        .homework-knowledge-combobox__button:disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .homework-knowledge-combobox__panel {
+            background: #ffffff;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+            display: none;
+            left: 0;
+            padding: 8px;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 1000;
+        }
+
+        .homework-knowledge-combobox.is-open .homework-knowledge-combobox__panel {
+            display: block;
+        }
+
+        .homework-knowledge-combobox__search {
+            height: 38px;
+            margin-bottom: 8px;
+            padding: 0 10px;
+        }
+
+        .homework-knowledge-combobox__options {
+            display: grid;
+            max-height: 238px;
+            overflow: auto;
+        }
+
+        .homework-knowledge-combobox__option {
+            background: transparent;
+            border: 0;
+            border-radius: 6px;
+            color: #0f172a;
+            cursor: pointer;
+            padding: 9px 10px;
+            text-align: left;
+        }
+
+        .homework-knowledge-combobox__option:hover,
+        .homework-knowledge-combobox__option.is-selected {
+            background: #e0f2fe;
+        }
+
+        .homework-batch-hidden-content {
+            display: none;
+        }
+
+        .homework-batch-free-question-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .homework-batch-free-question {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 12px;
+        }
+
+        .free-practice-question-card__options {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .free-practice-question-card__option {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr);
+            gap: 8px;
+            align-items: start;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+
+        @media (max-width: 1100px) {
+            .homework-batch-knowledge-grid {
+                grid-template-columns: repeat(2, minmax(160px, 1fr));
+            }
+        }
+    </style>
 {% endblock %}
 
 {% block system_content %}
@@ -33,15 +177,17 @@
             <p class="role-description">{{ page_description }}</p>
         </div>
 
-        <div class="hero-panel__metrics">
-            {% for item in summary_cards %}
-                <article class="metric-card">
-                    <p class="metric-card__label">{{ item.label }}</p>
-                    <strong>{{ item.value }}</strong>
-                    <span>{{ item.hint }}</span>
-                </article>
-            {% endfor %}
-        </div>
+        {% if summary_cards %}
+            <div class="hero-panel__metrics">
+                {% for item in summary_cards %}
+                    <article class="metric-card">
+                        <p class="metric-card__label">{{ item.label }}</p>
+                        <strong>{{ item.value }}</strong>
+                        <span>{{ item.hint }}</span>
+                    </article>
+                {% endfor %}
+            </div>
+        {% endif %}
     </section>
 
     <div class="portal-content-grid portal-content-grid--single">
@@ -52,14 +198,16 @@
                 <p>当前页面统一处理老师批量布置作业：学生多选、题目记录选择、作业要求填写，以及可选的课后总结上传/粘贴。</p>
             </div>
 
-            <div class="context-list">
-                {% for item in identity_items %}
-                    <div class="context-list__item">
-                        <span>{{ item.label }}</span>
-                        <strong>{{ item.value }}</strong>
-                    </div>
-                {% endfor %}
-            </div>
+            {% if identity_items %}
+                <div class="context-list">
+                    {% for item in identity_items %}
+                        <div class="context-list__item">
+                            <span>{{ item.label }}</span>
+                            <strong>{{ item.value }}</strong>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
 
             {% if batch_create_success_message %}
                 <div class="entry-hint-bar">{{ batch_create_success_message }}</div>
@@ -100,7 +248,16 @@
                                 <button id="homework-batch-student-clear-selection" class="cm-tabulator-btn" type="button">取消全选</button>
                             </div>
                             <div class="portal-grid-toolbar__actions teacher-tabulator-toolbar__actions">
-                                <span class="portal-grid-note teacher-tabulator-note">学生列表按当前老师名下 Student.teacher_user 取数；保存时后端会再次校验 student_ids。</span>
+                                <select id="homework-batch-student-subject-filter" class="portal-grid-filter-control teacher-tabulator-filter-control" aria-label="按学科选择学生">
+                                    <option value="">选择学科</option>
+                                    {% for option in student_subject_filter_options %}
+                                        <option value="{{ option.value }}">{{ option.label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <select id="homework-batch-student-level-filter" class="portal-grid-filter-control teacher-tabulator-filter-control" aria-label="按级别选择学生" disabled>
+                                    <option value="">先选择学科</option>
+                                </select>
+                                <button id="homework-batch-student-select-by-level" class="cm-tabulator-btn cm-tabulator-btn--primary" type="button" disabled>选择该级别</button>
                             </div>
                         </div>
 
@@ -112,7 +269,6 @@
                     <div class="section-heading section-heading--compact">
                         <p class="section-heading__eyebrow">Requirement</p>
                         <h3>作业要求填写区</h3>
-                        <p>作业要求复用 `HomeworkAssignment.description`。如果不选题源，这里可以直接创建纯要求型作业；但仍需指定目标知识点，因为 HomeworkAssignment.content 是现有必填字段。</p>
                     </div>
 
                     <div class="record-form">
@@ -120,8 +276,7 @@
                             <span>截止日期</span>
                             <input type="date" name="due_date" value="{{ form_values.due_date }}" required>
                         </label>
-                        <label>
-                            <span>目标知识点</span>
+                        <div class="homework-batch-hidden-content">
                             {% if batch_content_options %}
                                 <select name="content_id" id="homework-batch-content-select">
                                     {% for option in batch_content_options %}
@@ -129,9 +284,67 @@
                                     {% endfor %}
                                 </select>
                             {% else %}
-                                <input type="text" value="当前没有可选知识点" disabled>
+                                <input type="hidden" name="content_id" id="homework-batch-content-select" value="">
                             {% endif %}
-                        </label>
+                        </div>
+                        <div class="homework-batch-knowledge-grid" data-knowledge-selector="batch-target">
+                            <label>
+                                <span>学科</span>
+                                <input type="hidden" name="target_subject" value="{{ form_values.target_subject }}" data-knowledge-value="subject">
+                                <div class="homework-knowledge-combobox" data-knowledge-combobox="subject">
+                                    <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择学科</span><span>∨</span></button>
+                                    <div class="homework-knowledge-combobox__panel">
+                                        <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索学科" data-knowledge-combobox-search>
+                                        <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <label>
+                                <span>级别</span>
+                                <input type="hidden" name="target_category_code" value="{{ form_values.target_category_code }}" data-knowledge-value="category">
+                                <div class="homework-knowledge-combobox" data-knowledge-combobox="category">
+                                    <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择级别</span><span>∨</span></button>
+                                    <div class="homework-knowledge-combobox__panel">
+                                        <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索级别" data-knowledge-combobox-search>
+                                        <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <label>
+                                <span>一级知识点</span>
+                                <input type="hidden" name="target_level_1" value="{{ form_values.target_level_1 }}" data-knowledge-value="level1">
+                                <div class="homework-knowledge-combobox" data-knowledge-combobox="level1">
+                                    <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择一级知识点</span><span>∨</span></button>
+                                    <div class="homework-knowledge-combobox__panel">
+                                        <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索一级知识点" data-knowledge-combobox-search>
+                                        <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <label>
+                                <span>二级知识点</span>
+                                <input type="hidden" name="target_level_2" value="{{ form_values.target_level_2 }}" data-knowledge-value="level2">
+                                <div class="homework-knowledge-combobox" data-knowledge-combobox="level2">
+                                    <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择二级知识点</span><span>∨</span></button>
+                                    <div class="homework-knowledge-combobox__panel">
+                                        <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索二级知识点" data-knowledge-combobox-search>
+                                        <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <label>
+                                <span>三级知识点</span>
+                                <input type="hidden" name="target_level_3" value="{{ form_values.target_level_3 }}" data-knowledge-value="level3">
+                                <div class="homework-knowledge-combobox" data-knowledge-combobox="level3">
+                                    <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择三级知识点</span><span>∨</span></button>
+                                    <div class="homework-knowledge-combobox__panel">
+                                        <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索三级知识点" data-knowledge-combobox-search>
+                                        <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                    </div>
+                                </div>
+                            </label>
+                            <button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary" data-open-knowledge-create>新增知识点</button>
+                        </div>
                         <label>
                             <span>作业要求</span>
                             <textarea name="assignment_requirement" rows="5" placeholder="例如：先独立完成 10 道选择题，再口头说明错题原因和二维数组遍历思路。">{{ form_values.assignment_requirement }}</textarea>
@@ -178,39 +391,46 @@
                             <div id="homework-import-job-table" class="portal-grid-container teacher-tabulator-container"></div>
                         </div>
                     </div>
-                </section>
 
-                <section class="record-panel">
-                    <div class="section-heading section-heading--compact">
-                        <p class="section-heading__eyebrow">Selected Preview</p>
-                        <h3>已选题目预览区</h3>
-                        <p>这里展示当前选中的文件、来源作业和题目候选预览；点击 datagrid 里的“详细”会打开完整弹窗。</p>
-                    </div>
-
-                    <div class="context-list">
-                        <div class="context-list__item">
-                            <span>已选文件</span>
-                            <strong id="selected-import-job-filename">{% if selected_import_job_row %}{{ selected_import_job_row.source_filename }}{% else %}尚未选择{% endif %}</strong>
+                    <div class="record-panel" style="margin-top: 16px;">
+                        <div class="section-heading section-heading--compact">
+                            <p class="section-heading__eyebrow">Free Selection</p>
+                            <h3>自由选题</h3>
+                            <p>按上方目标知识点筛选题目，最多选择 {{ free_practice_max_question_count }} 题生成本次作业题源。</p>
                         </div>
-                        <div class="context-list__item">
-                            <span>来源作业</span>
-                            <strong id="selected-import-job-assignment">{% if selected_import_job_row %}{{ selected_import_job_row.assignment_title }}{% else %}尚未选择{% endif %}</strong>
-                        </div>
-                        <div class="context-list__item">
-                            <span>来源课程 / 知识点</span>
-                            <strong id="selected-import-job-course">{% if selected_import_job_row %}{{ selected_import_job_row.course_title }} · {{ selected_import_job_row.content_title }}{% else %}尚未选择{% endif %}</strong>
-                        </div>
-                        <div class="context-list__item">
-                            <span>题目数量</span>
-                            <strong id="selected-import-job-question-count">{% if selected_import_job_row %}{{ selected_import_job_row.question_count }} 题{% else %}0 题{% endif %}</strong>
-                        </div>
-                    </div>
-
-                    <div class="record-list" id="selected-import-job-preview-list">
-                        <article class="record-list-item">
-                            <strong>尚未加载题目预览</strong>
-                            <span>先从上方选择一条 HomeworkImportJob。</span>
-                        </article>
+                        <button type="submit" class="cm-tabulator-btn" formmethod="get" formaction="{{ save_action }}">按目标知识点搜索题目</button>
+                        {% if free_question_rows %}
+                            <div class="homework-batch-free-question-list">
+                                {% for question in free_question_rows %}
+                                    <article class="content-access-card content-access-card--trial homework-batch-free-question">
+                                        <input type="checkbox" name="free_question_ids" value="{{ question.id }}" {% if question.is_selected %}checked{% endif %} data-homework-batch-free-question>
+                                        <div>
+                                            <div class="content-access-card__top">
+                                                <div>
+                                                    <h5>{{ question.paper_title }} · 第 {{ question.question_no }} 题</h5>
+                                                    <div class="free-practice-question-card__meta">
+                                                        <span class="state-pill state-pill--trial">一级目录：{{ question.knowledge_level_1 }}</span>
+                                                        <span class="state-pill state-pill--future">二级目录：{{ question.knowledge_level_2 }}</span>
+                                                        <span class="state-pill state-pill--open">三级目录：{{ question.knowledge_level_3 }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                                            <div class="free-practice-question-card__options">
+                                                {% for option in question.option_items %}
+                                                    <div class="free-practice-question-card__option">
+                                                        <strong>{{ option.key }}</strong>
+                                                        <div class="exam-markdown-body">{{ option.display_html }}</div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </article>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="entry-hint-bar" style="margin-top: 12px;">当前目标知识点下暂无自由选题候选；也可以直接选择上方已有题源。</div>
+                        {% endif %}
                     </div>
                 </section>
 
@@ -218,7 +438,7 @@
                         <div class="section-heading section-heading--compact">
                             <p class="section-heading__eyebrow">Homework Summary</p>
                             <h3>课后总结区块</h3>
-                            <p>可上传 `.html / .htm` 文件、直接粘贴 `summary_html`，或补充亮点表现 / 待提升点。如果同时上传文件和粘贴 HTML，保存时优先使用上传文件，并只创建 1 条 HomeworkSummary 供整批作业共用。</p>
+                            <p>可上传 `.html / .htm` 文件，或直接粘贴 `summary_html`。如果同时上传文件和粘贴 HTML，保存时优先使用上传文件，并只创建 1 条 HomeworkSummary 供整批作业共用。</p>
                         </div>
 
                     <div class="record-form">
@@ -233,7 +453,11 @@
                         </label>
                         <label>
                             <span>上传 HTML 文件</span>
-                            <input type="file" name="summary_html_file" accept=".html,.htm">
+                            <div class="homework-batch-file-picker">
+                                <input type="file" name="summary_html_file" id="homework-batch-summary-file" accept=".html,.htm" data-homework-batch-summary-file>
+                                <button type="button" class="cm-tabulator-btn" data-homework-batch-summary-file-button>选择文件</button>
+                                <span class="homework-batch-file-picker__name" data-homework-batch-summary-file-name>未选择文件</span>
+                            </div>
                         </label>
                         <label>
                             <span>直接粘贴 HTML</span>
@@ -242,22 +466,6 @@
                                 rows="10"
                                 placeholder="如果不上传 HTML 文件，可以直接在这里粘贴课后总结 HTML。"
                             >{{ form_values.summary_html }}</textarea>
-                        </label>
-                        <label>
-                            <span>亮点表现</span>
-                            <textarea
-                                name="summary_highlights"
-                                rows="4"
-                                placeholder="记录这节课 / 本次作业的亮点表现。"
-                            >{{ form_values.summary_highlights }}</textarea>
-                        </label>
-                        <label>
-                            <span>待提升点</span>
-                            <textarea
-                                name="summary_areas_for_growth"
-                                rows="4"
-                                placeholder="记录这节课 / 本次作业还需要继续加强的地方。"
-                            >{{ form_values.summary_areas_for_growth }}</textarea>
                         </label>
                     </div>
                 </section>
@@ -299,11 +507,13 @@
                 <button type="button" class="teacher-modal-close" id="close-homework-import-job-preview-modal" aria-label="关闭弹窗">×</button>
             </div>
 
-            <div class="record-list" id="homework-import-job-preview-modal-list">
-                <article class="record-list-item">
-                    <strong>暂无可预览题目</strong>
-                    <span>当前还没有加载任何 HomeworkImportJob。</span>
-                </article>
+            <div class="student-homework-detail">
+                <div class="homework-question-list" id="homework-import-job-preview-modal-list">
+                    <article class="record-list-item">
+                        <strong>暂无可预览题目</strong>
+                        <span>当前还没有加载任何 HomeworkImportJob。</span>
+                    </article>
+                </div>
             </div>
 
             <div class="topic-access-modal__footer">
@@ -311,11 +521,91 @@
             </div>
         </div>
     </dialog>
+
+    <dialog class="topic-access-modal" id="homework-batch-knowledge-modal">
+        <form method="post" class="topic-access-modal__panel" data-knowledge-create-form>
+            {% csrf_token %}
+            <input type="hidden" name="course" value="{{ selected_course_slug }}">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="section-heading__eyebrow">Knowledge Map</p>
+                    <h3>新增知识点</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" data-knowledge-create-close aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="entry-hint-bar" data-knowledge-create-error hidden></div>
+            <div class="record-form homework-batch-knowledge-grid" data-knowledge-selector="create-modal">
+                <label>
+                    <span>学科</span>
+                    <input type="hidden" name="subject" value="{{ form_values.target_subject }}" data-knowledge-value="subject">
+                    <div class="homework-knowledge-combobox" data-knowledge-combobox="subject">
+                        <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择学科</span><span>∨</span></button>
+                        <div class="homework-knowledge-combobox__panel">
+                            <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索学科" data-knowledge-combobox-search>
+                            <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                        </div>
+                    </div>
+                </label>
+                <label>
+                    <span>级别</span>
+                    <input type="hidden" name="category_code" value="{{ form_values.target_category_code }}" data-knowledge-value="category">
+                    <div class="homework-knowledge-combobox" data-knowledge-combobox="category">
+                        <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择级别</span><span>∨</span></button>
+                        <div class="homework-knowledge-combobox__panel">
+                            <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索级别" data-knowledge-combobox-search>
+                            <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                        </div>
+                    </div>
+                </label>
+                <label>
+                    <span>一级目录</span>
+                    <input type="hidden" name="level_1" value="" data-knowledge-value="level1">
+                    <div class="homework-knowledge-combobox" data-knowledge-combobox="level1" data-allow-custom="true">
+                        <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入一级目录</span><span>∨</span></button>
+                        <div class="homework-knowledge-combobox__panel">
+                            <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入一级目录" data-knowledge-combobox-search>
+                            <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                        </div>
+                    </div>
+                </label>
+                <label>
+                    <span>二级目录</span>
+                    <input type="hidden" name="level_2" value="" data-knowledge-value="level2">
+                    <div class="homework-knowledge-combobox" data-knowledge-combobox="level2" data-allow-custom="true">
+                        <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入二级目录</span><span>∨</span></button>
+                        <div class="homework-knowledge-combobox__panel">
+                            <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入二级目录" data-knowledge-combobox-search>
+                            <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                        </div>
+                    </div>
+                </label>
+                <label>
+                    <span>三级目录</span>
+                    <input type="hidden" name="level_3" value="" data-knowledge-value="level3">
+                    <div class="homework-knowledge-combobox" data-knowledge-combobox="level3" data-allow-custom="true">
+                        <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入三级目录</span><span>∨</span></button>
+                        <div class="homework-knowledge-combobox__panel">
+                            <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入三级目录" data-knowledge-combobox-search>
+                            <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                        </div>
+                    </div>
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" data-knowledge-create-cancel>取消</button>
+                <button type="submit" class="login-button" data-knowledge-create-submit data-create-content-url="{{ knowledge_create_href }}">保存知识点</button>
+            </div>
+        </form>
+    </dialog>
 {% endblock %}
 
 {% block extra_body_end %}
     {{ student_table_rows|json_script:"homework-batch-student-table-data" }}
+    {{ student_level_filter_options_by_subject|json_script:"homework-batch-student-level-options-by-subject" }}
     {{ import_job_table_rows|json_script:"homework-import-job-table-data" }}
+    {{ knowledge_subject_options|json_script:"homework-knowledge-subject-options" }}
+    {{ knowledge_map_rows|json_script:"homework-knowledge-map-rows" }}
+    {{ knowledge_category_options_by_subject|json_script:"homework-knowledge-categories" }}
     {{ batch_result|json_script:"homework-batch-result-data" }}
     {% include "entry/includes/teacher_tabulator_scripts.html" %}
     <script>
@@ -334,7 +624,11 @@
                     selectedCountId: "homework-batch-student-selected-count",
                     totalCountId: "homework-batch-student-total-count",
                     selectAllButtonId: "homework-batch-student-select-all",
-                    clearSelectionButtonId: "homework-batch-student-clear-selection"
+                    clearSelectionButtonId: "homework-batch-student-clear-selection",
+                    subjectFilterId: "homework-batch-student-subject-filter",
+                    levelFilterId: "homework-batch-student-level-filter",
+                    selectLevelButtonId: "homework-batch-student-select-by-level",
+                    levelOptionsScriptId: "homework-batch-student-level-options-by-subject"
                 });
             }
 
@@ -344,7 +638,8 @@
                     dataScriptId: "homework-import-job-table-data",
                     searchInputId: "homework-import-job-search",
                     hiddenInputId: "homework-import-job-id",
-                    formId: "homework-batch-create-form"
+                    formId: "homework-batch-create-form",
+                    csrfToken: "{{ csrf_token }}"
                 });
             }
 
@@ -365,6 +660,371 @@
             const previewModalList = document.getElementById("homework-import-job-preview-modal-list");
             const previewModalCloseButton = document.getElementById("close-homework-import-job-preview-modal");
             const previewModalCancelButton = document.getElementById("cancel-homework-import-job-preview-modal");
+            const summaryFileInput = document.querySelector("[data-homework-batch-summary-file]");
+            const summaryFileButton = document.querySelector("[data-homework-batch-summary-file-button]");
+            const summaryFileName = document.querySelector("[data-homework-batch-summary-file-name]");
+            const knowledgeRowsElement = document.getElementById("homework-knowledge-map-rows");
+            const knowledgeSubjectOptionsElement = document.getElementById("homework-knowledge-subject-options");
+            const knowledgeCategoriesElement = document.getElementById("homework-knowledge-categories");
+            const knowledgeRows = knowledgeRowsElement ? JSON.parse(knowledgeRowsElement.textContent || "[]") : [];
+            const knowledgeSubjectOptions = knowledgeSubjectOptionsElement ? JSON.parse(knowledgeSubjectOptionsElement.textContent || "[]") : [];
+            const knowledgeCategories = knowledgeCategoriesElement ? JSON.parse(knowledgeCategoriesElement.textContent || "{}") : {};
+            const knowledgeModal = document.getElementById("homework-batch-knowledge-modal");
+            const knowledgeCreateForm = document.querySelector("[data-knowledge-create-form]");
+            const knowledgeCreateError = document.querySelector("[data-knowledge-create-error]");
+            const knowledgeCreateSubmit = document.querySelector("[data-knowledge-create-submit]");
+            const batchContentSelectForKnowledge = document.getElementById("homework-batch-content-select");
+
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function setupKnowledgeSelector(root) {
+                if (!root) {
+                    return;
+                }
+                const typeOrder = ["subject", "category", "level1", "level2", "level3"];
+                const inputs = {};
+                const controls = {};
+                typeOrder.forEach(function (type) {
+                    inputs[type] = root.querySelector('[data-knowledge-value="' + type + '"]');
+                    controls[type] = root.querySelector('[data-knowledge-combobox="' + type + '"]');
+                });
+                if (!inputs.subject || !inputs.category) {
+                    return;
+                }
+
+                function getValue(type) {
+                    return String(inputs[type] ? inputs[type].value || "" : "").trim();
+                }
+
+                function setValue(type, value) {
+                    if (inputs[type]) {
+                        inputs[type].value = String(value || "").trim();
+                    }
+                }
+
+                function matchingRows() {
+                    const currentSubject = getValue("subject");
+                    const currentCategory = getValue("category");
+                    return knowledgeRows.filter(function (row) {
+                        return (!currentSubject || row.subject === currentSubject)
+                            && (!currentCategory || row.category_code === currentCategory);
+                    });
+                }
+
+                function optionRows(type) {
+                    if (type === "subject") {
+                        return knowledgeSubjectOptions.map(function (option) {
+                            return { value: String(option.value || ""), label: String(option.label || option.value || "") };
+                        }).filter(function (option) { return option.value; });
+                    }
+                    if (type === "category") {
+                        if (!getValue("subject")) {
+                            return [];
+                        }
+                        return (knowledgeCategories[getValue("subject")] || []).map(function (option) {
+                            return { value: String(option.value || ""), label: String(option.label || option.value || "") };
+                        }).filter(function (option) { return option.value; });
+                    }
+                    const rows = matchingRows();
+                    if (type === "level1") {
+                        if (!getValue("category")) {
+                            return [];
+                        }
+                        return Array.from(new Set(rows.map(function (row) { return row.level_1; }).filter(Boolean))).sort().map(function (value) {
+                            return { value: value, label: value };
+                        });
+                    }
+                    if (type === "level2") {
+                        if (!getValue("level1")) {
+                            return [];
+                        }
+                        return Array.from(new Set(rows.filter(function (row) {
+                            return row.level_1 === getValue("level1");
+                        }).map(function (row) { return row.level_2; }).filter(Boolean))).sort().map(function (value) {
+                            return { value: value, label: value };
+                        });
+                    }
+                    if (!getValue("level2")) {
+                        return [];
+                    }
+                    return Array.from(new Set(rows.filter(function (row) {
+                        return row.level_1 === getValue("level1") && row.level_2 === getValue("level2");
+                    }).map(function (row) { return row.level_3; }).filter(Boolean))).sort().map(function (value) {
+                        return { value: value, label: value };
+                    });
+                }
+
+                function defaultLabel(type) {
+                    return {
+                        subject: "选择学科",
+                        category: "选择级别",
+                        level1: "选择一级知识点",
+                        level2: "选择二级知识点",
+                        level3: "选择三级知识点",
+                    }[type] || "请选择";
+                }
+
+                function labelForValue(type, value) {
+                    const matched = optionRows(type).find(function (option) {
+                        return option.value === value;
+                    });
+                    return matched ? matched.label : value || defaultLabel(type);
+                }
+
+                function isEnabled(type) {
+                    if (type === "subject") {
+                        return true;
+                    }
+                    if (type === "category") {
+                        return Boolean(getValue("subject"));
+                    }
+                    if (type === "level1") {
+                        return Boolean(getValue("category"));
+                    }
+                    if (type === "level2") {
+                        return Boolean(getValue("level1"));
+                    }
+                    if (type === "level3") {
+                        return Boolean(getValue("level2"));
+                    }
+                    return true;
+                }
+
+                function clearChildren(type) {
+                    const start = typeOrder.indexOf(type) + 1;
+                    typeOrder.slice(start).forEach(function (childType) {
+                        setValue(childType, "");
+                    });
+                }
+
+                function renderControl(type, query) {
+                    const control = controls[type];
+                    if (!control) {
+                        return;
+                    }
+                    const button = control.querySelector("[data-knowledge-combobox-button]");
+                    const label = control.querySelector("[data-knowledge-combobox-label]");
+                    const optionsRoot = control.querySelector("[data-knowledge-combobox-options]");
+                    const search = control.querySelector("[data-knowledge-combobox-search]");
+                    const enabled = isEnabled(type);
+                    if (button) {
+                        button.disabled = !enabled;
+                    }
+                    if (label) {
+                        label.textContent = labelForValue(type, getValue(type));
+                    }
+                    if (!optionsRoot) {
+                        return;
+                    }
+                    const normalizedQuery = String(query || "").trim().toLowerCase();
+                    let options = optionRows(type).filter(function (option) {
+                        return !normalizedQuery || option.label.toLowerCase().includes(normalizedQuery) || option.value.toLowerCase().includes(normalizedQuery);
+                    });
+                    options = options.slice(0, 10);
+                    if (!options.length && control.dataset.allowCustom === "true" && normalizedQuery) {
+                        options = [{ value: String(query || "").trim(), label: "使用：" + String(query || "").trim() }];
+                    }
+                    if (!options.length) {
+                        optionsRoot.innerHTML = '<button type="button" class="homework-knowledge-combobox__option" disabled>暂无可选项</button>';
+                        return;
+                    }
+                    optionsRoot.innerHTML = options.map(function (option) {
+                        const selected = option.value === getValue(type) ? " is-selected" : "";
+                        return '<button type="button" class="homework-knowledge-combobox__option' + selected + '" data-value="' + escapeHtml(option.value) + '">' + escapeHtml(option.label) + '</button>';
+                    }).join("");
+                    optionsRoot.querySelectorAll("[data-value]").forEach(function (optionButton) {
+                        optionButton.addEventListener("click", function () {
+                            setValue(type, optionButton.getAttribute("data-value") || "");
+                            clearChildren(type);
+                            control.classList.remove("is-open");
+                            if (search) {
+                                search.value = "";
+                            }
+                            renderAll();
+                        });
+                    });
+                }
+
+                function renderAll() {
+                    typeOrder.forEach(function (type) {
+                        renderControl(type, "");
+                    });
+                }
+
+                typeOrder.forEach(function (type) {
+                    const control = controls[type];
+                    if (!control) {
+                        return;
+                    }
+                    const button = control.querySelector("[data-knowledge-combobox-button]");
+                    const search = control.querySelector("[data-knowledge-combobox-search]");
+                    if (button) {
+                        button.addEventListener("click", function () {
+                            if (!isEnabled(type)) {
+                                return;
+                            }
+                            document.querySelectorAll(".homework-knowledge-combobox.is-open").forEach(function (item) {
+                                if (item !== control) {
+                                    item.classList.remove("is-open");
+                                }
+                            });
+                            control.classList.toggle("is-open");
+                            renderControl(type, search ? search.value : "");
+                            if (search) {
+                                search.focus();
+                            }
+                        });
+                    }
+                    if (search) {
+                        search.addEventListener("input", function () {
+                            renderControl(type, search.value);
+                        });
+                        search.addEventListener("keydown", function (event) {
+                            if (event.key !== "Enter" || control.dataset.allowCustom !== "true") {
+                                return;
+                            }
+                            event.preventDefault();
+                            const value = String(search.value || "").trim();
+                            if (!value) {
+                                return;
+                            }
+                            setValue(type, value);
+                            clearChildren(type);
+                            control.classList.remove("is-open");
+                            search.value = "";
+                            renderAll();
+                        });
+                    }
+                });
+                renderAll();
+            }
+
+            document.querySelectorAll("[data-knowledge-selector]").forEach(setupKnowledgeSelector);
+            document.addEventListener("click", function (event) {
+                if (!event.target.closest(".homework-knowledge-combobox")) {
+                    document.querySelectorAll(".homework-knowledge-combobox.is-open").forEach(function (item) {
+                        item.classList.remove("is-open");
+                    });
+                }
+            });
+            document.querySelectorAll("[data-open-knowledge-create]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    if (knowledgeCreateError) {
+                        knowledgeCreateError.hidden = true;
+                        knowledgeCreateError.textContent = "";
+                    }
+                    showDialog(knowledgeModal);
+                });
+            });
+            document.querySelectorAll("[data-knowledge-create-close], [data-knowledge-create-cancel]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    hideDialog(knowledgeModal);
+                });
+            });
+            if (knowledgeModal) {
+                knowledgeModal.addEventListener("click", function (event) {
+                    if (event.target === knowledgeModal) {
+                        hideDialog(knowledgeModal);
+                    }
+                });
+            }
+            if (knowledgeCreateForm && knowledgeCreateSubmit) {
+                knowledgeCreateForm.addEventListener("submit", async function (event) {
+                    event.preventDefault();
+                    if (knowledgeCreateError) {
+                        knowledgeCreateError.hidden = true;
+                        knowledgeCreateError.textContent = "";
+                    }
+                    knowledgeCreateSubmit.disabled = true;
+                    try {
+                        const response = await window.fetch(knowledgeCreateSubmit.dataset.createContentUrl, {
+                            method: "POST",
+                            headers: {
+                                "X-CSRFToken": knowledgeCreateForm.querySelector("[name=csrfmiddlewaretoken]").value,
+                                "X-Requested-With": "XMLHttpRequest"
+                            },
+                            body: new window.FormData(knowledgeCreateForm),
+                            credentials: "same-origin"
+                        });
+                        const payload = await response.json();
+                        if (!response.ok) {
+                            throw new Error(payload.error || "新增知识点失败。");
+                        }
+                        if (batchContentSelectForKnowledge && payload.id) {
+                            let option = Array.from(batchContentSelectForKnowledge.options || []).find(function (item) {
+                                return item.value === String(payload.id);
+                            });
+                            if (!option) {
+                                option = document.createElement("option");
+                                option.value = String(payload.id);
+                                option.textContent = payload.label || payload.title || "新知识点";
+                                batchContentSelectForKnowledge.appendChild(option);
+                            }
+                            batchContentSelectForKnowledge.value = String(payload.id);
+                        }
+                        const targetRoot = document.querySelector('[data-knowledge-selector="batch-target"]');
+                        if (targetRoot && payload.knowledge_map) {
+                            const map = payload.knowledge_map;
+                            [
+                                ["subject", map.subject],
+                                ["category", map.category_code],
+                                ["level1", map.level_1],
+                                ["level2", map.level_2],
+                                ["level3", map.level_3],
+                            ].forEach(function (item) {
+                                const input = targetRoot.querySelector('[data-knowledge-value="' + item[0] + '"]');
+                                const label = targetRoot.querySelector('[data-knowledge-combobox="' + item[0] + '"] [data-knowledge-combobox-label]');
+                                if (input) {
+                                    input.value = item[1] || "";
+                                }
+                                if (label && item[1]) {
+                                    label.textContent = item[1];
+                                }
+                            });
+                        }
+                        hideDialog(knowledgeModal);
+                    } catch (error) {
+                        if (knowledgeCreateError) {
+                            knowledgeCreateError.hidden = false;
+                            knowledgeCreateError.textContent = error.message || "新增知识点失败。";
+                        }
+                    } finally {
+                        knowledgeCreateSubmit.disabled = false;
+                    }
+                });
+            }
+
+            const freeQuestionMax = Number("{{ free_practice_max_question_count }}");
+            document.querySelectorAll("[data-homework-batch-free-question]").forEach(function (checkbox) {
+                checkbox.addEventListener("change", function () {
+                    const checked = Array.from(document.querySelectorAll("[data-homework-batch-free-question]")).filter(function (item) {
+                        return item.checked;
+                    });
+                    if (checked.length > freeQuestionMax) {
+                        checkbox.checked = false;
+                        window.alert("练习不在多，而在精。");
+                    }
+                });
+            });
+
+            if (summaryFileButton && summaryFileInput) {
+                summaryFileButton.addEventListener("click", function () {
+                    summaryFileInput.click();
+                });
+                summaryFileInput.addEventListener("change", function () {
+                    const file = summaryFileInput.files && summaryFileInput.files[0];
+                    if (summaryFileName) {
+                        summaryFileName.textContent = file ? file.name : "未选择文件";
+                    }
+                });
+            }
 
             if (batchResultElement) {
                 try {
@@ -415,12 +1075,33 @@
             }
 
             function buildPreviewItemHtml(item) {
-                const analysisText = String(item.analysis || "").trim();
+                const optionItems = Array.isArray(item.option_items) ? item.option_items : [];
+                const optionsHtml = optionItems.length
+                    ? '<div class="homework-question__option-list">' + optionItems.map(function (option) {
+                        return [
+                            '<div class="homework-question__option homework-question__option--static">',
+                            '<span class="homework-question__option-key">' + String(option.key || "") + '</span>',
+                            '<div class="homework-question__option-copy">' + String(option.display_html || "") + '</div>',
+                            '</div>'
+                        ].join("");
+                    }).join("") + '</div>'
+                    : '<span>暂无选项信息</span>';
                 return [
-                    '<article class="record-list-item">',
-                    '<strong>第 ' + String(item.question_no || "") + ' 题 · ' + String(item.stem || "") + '</strong>',
-                    '<span>' + String(item.options_text || "暂无选项信息") + '</span>',
-                    '<span>答案：' + String(item.correct_answer || "暂无") + (analysisText ? ' · 解析：' + analysisText : "") + '</span>',
+                    '<article class="homework-question homework-question--print_blank homework-question--single_choice homework-question--answering">',
+                    '<header class="homework-question__header">',
+                    '<div class="homework-question__heading">',
+                    '<span class="homework-question__eyebrow">第 ' + String(item.question_no || "") + ' 题</span>',
+                    '<div class="homework-question__title">' + String(item.stem_html || "") + '</div>',
+                    '</div>',
+                    '<span class="homework-question__badge homework-question__badge--print">答案：' + String(item.correct_answer || "暂无") + '</span>',
+                    '</header>',
+                    '<div class="homework-question__body">',
+                    optionsHtml,
+                    '<div class="homework-question__feedback">',
+                    '<strong>解析</strong>',
+                    String(item.analysis_html || ""),
+                    '</div>',
+                    '</div>',
                     '</article>'
                 ].join("");
             }

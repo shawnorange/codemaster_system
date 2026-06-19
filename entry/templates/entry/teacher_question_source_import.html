@@ -1,6 +1,11 @@
 {% extends "entry/system_shell.html" %}
+{% load static %}
 
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+{% endblock %}
 
 {% block system_content %}
     <nav class="student-breadcrumbs" aria-label="面包屑导航">
@@ -121,7 +126,7 @@
                         <div>
                             <p class="section-heading__eyebrow">Create Knowledge Point</p>
                             <h3>新增知识点</h3>
-                            <p>这里会创建 CourseContent，并立刻加入当前“选择知识点”下拉框；不会创建 HomeworkAssignment，也不会绑定 student_id。</p>
+                            <p>这里会写入知识点映射表，并立刻加入当前“选择知识点”下拉框；不会创建 HomeworkAssignment，也不会绑定 student_id。</p>
                         </div>
                         <button type="button" class="teacher-modal-close" id="close-question-source-content-modal" aria-label="关闭弹窗">×</button>
                     </div>
@@ -135,19 +140,24 @@
 
                     <div class="entry-hint-bar" id="question-source-content-error" hidden></div>
 
-                    <div class="record-form">
-                        <input type="text" name="title" maxlength="128" placeholder="知识点名称" required>
-                        <select name="level_id" required>
-                            <option value="">选择 Level</option>
-                            {% for item in content_create_level_options %}
-                                <option value="{{ item.id }}">{{ item.label }}</option>
+                    <div class="record-form" data-knowledge-selector="question-source-create">
+                        <select name="subject" data-knowledge-subject required>
+                            {% for option in knowledge_subject_options %}
+                                <option value="{{ option.value }}" {% if option.value == default_knowledge_subject %}selected{% endif %}>{{ option.label }}</option>
                             {% endfor %}
                         </select>
+                        <select name="category_code" data-knowledge-category required></select>
+                        <input type="text" name="level_1" list="question-source-create-level1-list" data-knowledge-level1 placeholder="一级目录" required>
+                        <datalist id="question-source-create-level1-list" data-knowledge-level1-list></datalist>
+                        <input type="text" name="level_2" list="question-source-create-level2-list" data-knowledge-level2 placeholder="二级目录" required>
+                        <datalist id="question-source-create-level2-list" data-knowledge-level2-list></datalist>
+                        <input type="text" name="level_3" list="question-source-create-level3-list" data-knowledge-level3 placeholder="三级目录（选填）">
+                        <datalist id="question-source-create-level3-list" data-knowledge-level3-list></datalist>
                     </div>
 
                     <div class="record-inline-feedback" style="margin-top: 14px;">
                         <strong>创建规则</strong>
-                        <span>phase、permission_code、slug、route_path 会沿用当前项目现有 CourseContent 创建规则自动生成。</span>
+                        <span>目录路径重复时会复用并更新映射；目录路径不存在时会新增，并同步创建当前课程可用知识点。</span>
                     </div>
 
                     <div class="topic-access-modal__footer">
@@ -307,18 +317,22 @@
                                 </div>
                                 <span class="state-pill state-pill--future">{{ item.correct_answer }}</span>
                             </div>
-                            <p class="content-access-card__description">{{ item.stem }}</p>
+                            <div class="student-homework-detail">
+                                <article class="homework-question homework-question--answering">
+                                    <div class="homework-question__title">{{ item.stem_display_html|default:item.stem }}</div>
+                                </article>
+                            </div>
                             <div class="topic-work-card__meta">
                                 {% for option in item.option_items %}
                                     <article class="topic-work-card__meta-item">
                                         <span>{{ option.key }}</span>
-                                        <strong>{{ option.text }}</strong>
+                                        <strong>{{ option.display_html|default:option.text }}</strong>
                                     </article>
                                 {% endfor %}
                             </div>
                             <div class="record-inline-feedback" style="margin-top: 14px;">
                                 <strong>解析</strong>
-                                <span>{{ item.analysis }}</span>
+                                <span>{{ item.analysis_display_html|default:item.analysis }}</span>
                             </div>
                         </article>
                     {% empty %}
@@ -402,6 +416,8 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {{ knowledge_map_rows|json_script:"question-source-knowledge-map-rows" }}
+    {{ knowledge_category_options_by_subject|json_script:"question-source-knowledge-categories" }}
     {% if latest_import_job.parse_status == "uploaded" or latest_import_job.parse_status == "parsing" %}
         <script>
             window.setTimeout(function () {
@@ -468,6 +484,88 @@
             var createContentForm = document.querySelector("[data-create-content-form]");
             var createContentError = document.getElementById("question-source-content-error");
             var createContentSubmitButton = document.getElementById("submit-question-source-content-modal");
+            var knowledgeRowsElement = document.getElementById("question-source-knowledge-map-rows");
+            var knowledgeCategoriesElement = document.getElementById("question-source-knowledge-categories");
+            var knowledgeRows = knowledgeRowsElement ? JSON.parse(knowledgeRowsElement.textContent || "[]") : [];
+            var knowledgeCategories = knowledgeCategoriesElement ? JSON.parse(knowledgeCategoriesElement.textContent || "{}") : {};
+
+            function setDatalistOptions(list, values) {
+                if (!list) {
+                    return;
+                }
+                var uniqueValues = Array.from(new Set(values.filter(Boolean))).sort();
+                list.innerHTML = uniqueValues.map(function (value) {
+                    return '<option value="' + String(value).replace(/"/g, "&quot;") + '"></option>';
+                }).join("");
+            }
+
+            function setupKnowledgeSelector(root) {
+                if (!root) {
+                    return;
+                }
+                var subject = root.querySelector("[data-knowledge-subject]");
+                var category = root.querySelector("[data-knowledge-category]");
+                var level1 = root.querySelector("[data-knowledge-level1]");
+                var level2 = root.querySelector("[data-knowledge-level2]");
+                var level3 = root.querySelector("[data-knowledge-level3]");
+                var level1List = root.querySelector("[data-knowledge-level1-list]");
+                var level2List = root.querySelector("[data-knowledge-level2-list]");
+                var level3List = root.querySelector("[data-knowledge-level3-list]");
+                if (!subject || !category) {
+                    return;
+                }
+
+                function matchingRows() {
+                    var currentSubject = String(subject.value || "").trim();
+                    var currentCategory = String(category.value || "").trim();
+                    return knowledgeRows.filter(function (row) {
+                        return (!currentSubject || row.subject === currentSubject)
+                            && (!currentCategory || row.category_code === currentCategory);
+                    });
+                }
+
+                function updateCategories() {
+                    var current = category.value;
+                    var options = knowledgeCategories[String(subject.value || "").trim()] || [];
+                    category.innerHTML = '<option value="">选择级别</option>' + options.map(function (option) {
+                        var value = String(option.value || "");
+                        return '<option value="' + value + '">' + String(option.label || value) + '</option>';
+                    }).join("");
+                    if (current && options.some(function (option) { return option.value === current; })) {
+                        category.value = current;
+                    }
+                }
+
+                function updateKnowledgeOptions() {
+                    var rows = matchingRows();
+                    var level1Value = level1 ? String(level1.value || "").trim() : "";
+                    var level2Value = level2 ? String(level2.value || "").trim() : "";
+                    setDatalistOptions(level1List, rows.map(function (row) { return row.level_1; }));
+                    setDatalistOptions(level2List, rows.filter(function (row) {
+                        return !level1Value || row.level_1 === level1Value;
+                    }).map(function (row) { return row.level_2; }));
+                    setDatalistOptions(level3List, rows.filter(function (row) {
+                        return (!level1Value || row.level_1 === level1Value)
+                            && (!level2Value || row.level_2 === level2Value);
+                    }).map(function (row) { return row.level_3; }));
+                }
+
+                subject.addEventListener("change", function () {
+                    updateCategories();
+                    updateKnowledgeOptions();
+                });
+                category.addEventListener("change", updateKnowledgeOptions);
+                if (level1) {
+                    level1.addEventListener("input", updateKnowledgeOptions);
+                }
+                if (level2) {
+                    level2.addEventListener("input", updateKnowledgeOptions);
+                }
+                updateCategories();
+                updateKnowledgeOptions();
+            }
+
+            document.querySelectorAll("[data-knowledge-selector]").forEach(setupKnowledgeSelector);
 
             function showDialog(dialog) {
                 if (!dialog) {

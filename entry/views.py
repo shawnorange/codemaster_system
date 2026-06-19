@@ -68,6 +68,8 @@ from .exam_online import (
     start_exam_session,
 )
 from .exam_analysis import (
+    _request_qwen_analysis,
+    _strip_json_code_fence,
     generate_ai_analysis_for_bank_question,
     identify_bank_question_knowledge_points,
     sync_legacy_question_analysis,
@@ -93,6 +95,7 @@ from .homework_online import (
     compute_uploaded_file_sha256,
     confirm_homework_import_job,
     confirm_question_source_import_job,
+    decode_sql_ascii_json_text,
     detect_homework_source_type,
     encode_sql_ascii_json_text,
     grade_homework_submission,
@@ -117,6 +120,7 @@ from .models import (
     ExamSubmissionAnswer,
     HomeworkAssignment,
     HomeworkImportJob,
+    HomeworkQuestion,
     HomeworkSubmission,
     HomeworkSummary,
     LessonHourLedger,
@@ -148,6 +152,7 @@ from .portal_context import (
     build_student_exam_print_context,
     build_student_exam_record_detail_context,
     build_student_free_practice_context,
+    build_free_practice_question_rows_for_filters,
     build_student_site_message_context,
     build_student_practice_page_shell,
     build_teacher_assignment_form_context,
@@ -170,6 +175,7 @@ from .portal_context import (
     build_teacher_course_workflow_placeholder_context,
     build_teacher_exam_page_context,
     build_teacher_exam_detail_context,
+    format_knowledge_map_subject_label,
     serialize_available_exam_bank_paper,
     build_teacher_homework_stats_context,
     build_teacher_homework_builder_context,
@@ -201,6 +207,7 @@ from .portal_context import (
     set_student_content_visibility,
     student_has_content_access,
     get_teacher_student_homework_contents,
+    normalize_knowledge_map_subject,
 )
 from .student_import import (
     DEFAULT_IMPORTED_ACCOUNT_PASSWORD,
@@ -4522,14 +4529,149 @@ def get_exam_knowledge_mapping_path(bank_paper: ExamQuestionBankPaper) -> Path:
 
 
 def normalize_exam_knowledge_subject(subject_title: str) -> str:
-    normalized = str(subject_title or "").strip().lower()
-    if normalized in {"c++", "cpp"}:
-        return "cpp"
-    if normalized == "python":
-        return "python"
-    if normalized == "scratch":
-        return "scratch"
-    return re.sub(r"[^0-9a-zA-Z_-]", "", normalized)
+    normalized = normalize_knowledge_map_subject(subject_title)
+    return normalized or re.sub(r"[^0-9a-zA-Z_-]", "", str(subject_title or "").strip().lower())
+
+
+def normalize_exam_knowledge_category_code(value: object) -> str:
+    code = str(value or "").strip().upper().replace(" ", "")
+    if code in {"CSPJ", "CSP-J"}:
+        return "CSP-J"
+    if code in {"CSPS", "CSP-S"}:
+        return "CSP-S"
+    match = re.fullmatch(r"GESP([1-8])", code)
+    if match:
+        return f"GESP{match.group(1)}"
+    return code[:32]
+
+
+def infer_exam_knowledge_category_code_from_filename(filename: object) -> str:
+    stem = Path(str(filename or "")).stem.upper().replace(" ", "")
+    csp_match = re.search(r"CSP[-_]?([JS])", stem)
+    if csp_match:
+        return f"CSP-{csp_match.group(1)}"
+    gesp_match = re.search(r"GESP[-_]?([1-8])", stem)
+    if gesp_match:
+        return f"GESP{gesp_match.group(1)}"
+    return ""
+
+
+def derive_exam_knowledge_course_level_code(category_code: object) -> str:
+    category_code = normalize_exam_knowledge_category_code(category_code)
+    match = re.fullmatch(r"GESP([1-8])", category_code)
+    if match:
+        level_number = int(match.group(1))
+        return "C1" if level_number <= 4 else "C2"
+    if category_code == "CSP-J":
+        return "C3"
+    if category_code == "CSP-S":
+        return "C4"
+    return ""
+
+
+def resolve_course_for_knowledge_subject(portal_user: PortalUser, subject: str, course_slug: str = "") -> Course | None:
+    normalized_subject = normalize_knowledge_map_subject(subject)
+    if course_slug:
+        try:
+            return get_teacher_course_scope(portal_user, course_slug)["course"]
+        except ObjectDoesNotExist:
+            return None
+    candidate_queryset = Course.objects.all()
+    if normalized_subject == "cpp":
+        candidate_queryset = candidate_queryset.filter(Q(slug__iexact="cpp") | Q(title__iexact="C++") | Q(title__iexact="cpp"))
+    else:
+        candidate_queryset = candidate_queryset.filter(Q(slug__iexact=normalized_subject) | Q(title__iexact=normalized_subject))
+    for course in candidate_queryset.order_by("id"):
+        if teacher_can_import_students(portal_user):
+            return course
+        if TeacherStudentAssignment.objects.filter(teacher=portal_user, course=course, is_active=True).exists():
+            return course
+    return None
+
+
+def build_knowledge_path_title(level_1: str, level_2: str, level_3: str = "") -> str:
+    return " / ".join(part for part in [level_1, level_2, level_3] if str(part or "").strip())
+
+
+def parse_exam_knowledge_markdown_table_rows(markdown_text: str) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    in_table = False
+    for raw_line in str(markdown_text or "").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|") or not line.endswith("|"):
+            if in_table:
+                break
+            continue
+        cells = [cell.strip().strip("*") for cell in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        first_cell = cells[0].strip()
+        if first_cell == "一级目录" or set(first_cell.replace(":", "").replace("-", "")) <= {" "}:
+            in_table = True
+            continue
+        if all(set(cell.replace(":", "").replace("-", "")) <= {" "} for cell in cells[:3]):
+            in_table = True
+            continue
+        in_table = True
+        level_1 = cells[0].strip()
+        level_2 = cells[1].strip()
+        level_3 = cells[2].strip()
+        if level_1 and level_2:
+            rows.append((level_1[:128], level_2[:128], level_3[:255]))
+    return rows
+
+
+def import_exam_knowledge_markdown(
+    *,
+    portal_user: PortalUser,
+    subject: str,
+    uploaded_file: UploadedFile,
+) -> int:
+    subject = normalize_exam_knowledge_subject(subject)
+    if not subject:
+        raise ValidationError("请选择科目。")
+    if not uploaded_file:
+        raise ValidationError("请先选择 md 文件。")
+    if not str(uploaded_file.name or "").lower().endswith(".md"):
+        raise ValidationError("当前只支持上传 .md 文件。")
+    category_code = infer_exam_knowledge_category_code_from_filename(uploaded_file.name)
+    course_level_code = derive_exam_knowledge_course_level_code(category_code)
+    if not category_code:
+        raise ValidationError("无法从 md 文件名识别考试名称，请使用类似 GESP2知识点.md、CSP-J知识点.md 的文件名。")
+    raw_bytes = uploaded_file.read()
+    try:
+        markdown_text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        markdown_text = raw_bytes.decode("utf-8-sig")
+    rows = parse_exam_knowledge_markdown_table_rows(markdown_text)
+    if not rows:
+        raise ValidationError("没有在 md 文件中识别到知识点表格。")
+    existing_max_order = (
+        ExamKnowledgePointMap.objects.filter(subject=subject, category_code=category_code)
+        .aggregate(max_order=Max("sort_order"))
+        .get("max_order")
+        or 0
+    )
+    source_path = f"uploaded:{uploaded_file.name}"[:255]
+    imported_count = 0
+    with transaction.atomic():
+        for index, (level_1, level_2, level_3) in enumerate(rows, start=1):
+            ExamKnowledgePointMap.objects.update_or_create(
+                subject=subject,
+                category_code=category_code,
+                level_1=level_1,
+                level_2=level_2,
+                level_3=level_3,
+                defaults={
+                    "course_level_code": course_level_code,
+                    "source_path": source_path,
+                    "sort_order": existing_max_order + index,
+                    "is_active": True,
+                    "uploaded_by": portal_user,
+                },
+            )
+            imported_count += 1
+    return imported_count
 
 
 def build_exam_knowledge_mapping_markdown_from_rows(rows: list[ExamKnowledgePointMap]) -> str:
@@ -5278,6 +5420,13 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).only("title").first()
             success_message = f"{paper.title} 正在识别知识点，请稍后查看状态。" if paper else "这张试卷正在识别知识点。"
+        elif op == "knowledge_uploaded":
+            imported_count = normalize_positive_int(request.GET.get("count"), default=0, minimum=0)
+            success_message = f"知识点 md 文件已识别，已写入 {imported_count} 条目录。"
+        elif op == "knowledge_deleted":
+            success_message = "知识点目录已删除。"
+        elif op == "knowledge_updated":
+            success_message = "知识点目录已更新。"
         elif op in {"bank_paper_added", "bank_paper_exists"}:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).first()
@@ -5377,6 +5526,106 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                         "paper_id": bank_paper_id,
                     },
                     anchor="available-exam-papers",
+                )
+            )
+
+        if action == "upload_exam_knowledge_md":
+            try:
+                imported_count = import_exam_knowledge_markdown(
+                    portal_user=portal_user,
+                    subject=request.POST.get("knowledge_subject") or "cpp",
+                    uploaded_file=request.FILES.get("knowledge_md_file"),
+                )
+            except ValidationError as exc:
+                return render_exam_page(error_message="；".join(exc.messages) if exc.messages else str(exc))
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={"op": "knowledge_uploaded", "count": imported_count},
+                    anchor="exam-knowledge-management",
+                )
+            )
+
+        if action == "delete_exam_knowledge_group":
+            knowledge_map_id = normalize_positive_int(request.POST.get("knowledge_map_id"), default=0, minimum=1)
+            try:
+                root_map = ExamKnowledgePointMap.objects.get(id=knowledge_map_id, is_active=True)
+            except ExamKnowledgePointMap.DoesNotExist:
+                return render_exam_page(error_message="未找到可删除的知识点目录。")
+            ExamKnowledgePointMap.objects.filter(
+                subject=root_map.subject,
+                course_level_code=root_map.course_level_code,
+                category_code=root_map.category_code,
+                level_1=root_map.level_1,
+                is_active=True,
+            ).update(is_active=False)
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={"op": "knowledge_deleted"},
+                    anchor="exam-knowledge-management",
+                )
+            )
+
+        if action == "edit_exam_knowledge_group":
+            knowledge_map_id = normalize_positive_int(request.POST.get("knowledge_map_id"), default=0, minimum=1)
+            try:
+                root_map = ExamKnowledgePointMap.objects.get(id=knowledge_map_id, is_active=True)
+            except ExamKnowledgePointMap.DoesNotExist:
+                return render_exam_page(error_message="未找到可编辑的知识点目录。")
+            new_subject = normalize_exam_knowledge_subject(request.POST.get("knowledge_subject") or root_map.subject)
+            new_category_code = normalize_exam_knowledge_category_code(request.POST.get("knowledge_category_code") or root_map.category_code)
+            new_course_level_code = derive_exam_knowledge_course_level_code(new_category_code)
+            new_level_1 = str(request.POST.get("knowledge_level_1") or "").strip()[:128]
+            if not new_subject:
+                return render_exam_page(error_message="请选择科目。")
+            if not new_category_code:
+                return render_exam_page(error_message="请选择考试名称。")
+            if not new_level_1:
+                return render_exam_page(error_message="一级知识目录不能为空。")
+            group_rows = list(
+                ExamKnowledgePointMap.objects.filter(
+                    subject=root_map.subject,
+                    course_level_code=root_map.course_level_code,
+                    category_code=root_map.category_code,
+                    level_1=root_map.level_1,
+                    is_active=True,
+                ).order_by("sort_order", "id")
+            )
+            with transaction.atomic():
+                for row in group_rows:
+                    duplicate = (
+                        ExamKnowledgePointMap.objects.filter(
+                            subject=new_subject,
+                            category_code=new_category_code,
+                            level_1=new_level_1,
+                            level_2=row.level_2,
+                            level_3=row.level_3,
+                        )
+                        .exclude(id=row.id)
+                        .first()
+                    )
+                    if duplicate:
+                        duplicate.course_level_code = new_course_level_code
+                        duplicate.source_path = row.source_path
+                        duplicate.sort_order = row.sort_order
+                        duplicate.is_active = True
+                        duplicate.uploaded_by = portal_user
+                        duplicate.save(update_fields=["course_level_code", "source_path", "sort_order", "is_active", "uploaded_by", "updated_at"])
+                        row.is_active = False
+                        row.save(update_fields=["is_active", "updated_at"])
+                        continue
+                    row.subject = new_subject
+                    row.category_code = new_category_code
+                    row.course_level_code = new_course_level_code
+                    row.level_1 = new_level_1
+                    row.uploaded_by = portal_user
+                    row.save(update_fields=["subject", "category_code", "course_level_code", "level_1", "uploaded_by", "updated_at"])
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={"op": "knowledge_updated"},
+                    anchor="exam-knowledge-management",
                 )
             )
 
@@ -5491,6 +5740,148 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
         )
 
     return render_exam_page()
+
+
+@role_required("teacher")
+def teacher_exam_knowledge_detail(request: HttpRequest, map_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    root_map = ExamKnowledgePointMap.objects.filter(id=map_id, is_active=True).first()
+    if not root_map:
+        raise Http404("未找到知识点目录。")
+
+    def group_queryset():
+        return ExamKnowledgePointMap.objects.filter(
+            subject=root_map.subject,
+            course_level_code=root_map.course_level_code,
+            category_code=root_map.category_code,
+            level_1=root_map.level_1,
+            is_active=True,
+        ).order_by("sort_order", "level_1", "level_2", "level_3", "id")
+
+    def redirect_self(op: str = "") -> HttpResponse:
+        params = {"op": op} if op else {}
+        return redirect(build_redirect_with_query(reverse("teacher-exam-knowledge-detail", args=[root_map.id]), params=params))
+
+    error_message = ""
+    if request.method == "POST":
+        action = (request.POST.get("form_action") or "").strip()
+        if action == "delete_exam_knowledge_row":
+            row_id = normalize_positive_int(request.POST.get("knowledge_row_id"), default=0, minimum=1)
+            row = group_queryset().filter(id=row_id).first()
+            if not row:
+                error_message = "未找到可删除的知识点。"
+            else:
+                row.is_active = False
+                row.save(update_fields=["is_active", "updated_at"])
+                return redirect_self("deleted")
+        elif action in {"add_exam_knowledge_row", "edit_exam_knowledge_row"}:
+            row_id = normalize_positive_int(request.POST.get("knowledge_row_id"), default=0, minimum=1)
+            level_1 = str(request.POST.get("level_1") or "").strip()[:128]
+            level_2 = str(request.POST.get("level_2") or "").strip()[:128]
+            level_3 = str(request.POST.get("level_3") or "").strip()[:255]
+            if not level_1 or not level_2:
+                error_message = "一级目录和二级目录不能为空。"
+            elif action == "edit_exam_knowledge_row":
+                row = group_queryset().filter(id=row_id).first()
+                if not row:
+                    error_message = "未找到可编辑的知识点。"
+                else:
+                    duplicate = (
+                        ExamKnowledgePointMap.objects.filter(
+                            subject=root_map.subject,
+                            category_code=root_map.category_code,
+                            level_1=level_1,
+                            level_2=level_2,
+                            level_3=level_3,
+                        )
+                        .exclude(id=row.id)
+                        .first()
+                    )
+                    if duplicate:
+                        duplicate.course_level_code = root_map.course_level_code
+                        duplicate.is_active = True
+                        duplicate.uploaded_by = portal_user
+                        duplicate.save(update_fields=["course_level_code", "is_active", "uploaded_by", "updated_at"])
+                        row.is_active = False
+                        row.save(update_fields=["is_active", "updated_at"])
+                    else:
+                        row.level_1 = level_1
+                        row.level_2 = level_2
+                        row.level_3 = level_3
+                        row.uploaded_by = portal_user
+                        row.save(update_fields=["level_1", "level_2", "level_3", "uploaded_by", "updated_at"])
+                    return redirect_self("updated")
+            else:
+                max_order = (
+                    ExamKnowledgePointMap.objects.filter(subject=root_map.subject, category_code=root_map.category_code)
+                    .aggregate(max_order=Max("sort_order"))
+                    .get("max_order")
+                    or 0
+                )
+                created_row, _ = ExamKnowledgePointMap.objects.update_or_create(
+                    subject=root_map.subject,
+                    category_code=root_map.category_code,
+                    level_1=level_1,
+                    level_2=level_2,
+                    level_3=level_3,
+                    defaults={
+                        "course_level_code": root_map.course_level_code,
+                        "source_path": "manual",
+                        "sort_order": max_order + 1,
+                        "is_active": True,
+                        "uploaded_by": portal_user,
+                    },
+                )
+                return redirect(build_redirect_with_query(reverse("teacher-exam-knowledge-detail", args=[created_row.id]), params={"op": "created"}))
+
+    success_message = ""
+    op = (request.GET.get("op") or "").strip()
+    if op == "created":
+        success_message = "知识点目录已新增。"
+    elif op == "updated":
+        success_message = "知识点目录已更新。"
+    elif op == "deleted":
+        success_message = "知识点目录已删除。"
+
+    rows = []
+    for item in group_queryset():
+        rows.append(
+            {
+                "id": item.id,
+                "category_code": item.category_code,
+                "level_1": item.level_1,
+                "level_2": item.level_2,
+                "level_3": item.level_3,
+                "operator_name": (item.uploaded_by.full_name or item.uploaded_by.username) if item.uploaded_by_id and item.uploaded_by else "未记录",
+                "updated_at_text": timezone.localtime(item.updated_at).strftime("%Y-%m-%d %H:%M") if item.updated_at else "",
+                "search_text": " ".join([item.category_code, item.level_1, item.level_2, item.level_3]),
+            }
+        )
+
+    subject_title = format_knowledge_map_subject_label(root_map.subject)
+    context = {
+        "page_title": "知识点详情",
+        "breadcrumbs": [
+            {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
+            {"label": "考试管理", "href": f"{reverse('teacher-exams')}#exam-knowledge-management"},
+            {"label": "知识点详情"},
+        ],
+        "back_href": f"{reverse('teacher-exams')}#exam-knowledge-management",
+        "subject_title": subject_title,
+        "course_level_text": root_map.course_level_code or "未设置",
+        "category_code": root_map.category_code,
+        "level_1": root_map.level_1,
+        "knowledge_detail_rows": rows,
+        "success_message": success_message,
+        "error_message": error_message,
+        "default_form_values": {
+            "level_1": root_map.level_1,
+            "level_2": "",
+            "level_3": "",
+        },
+        "empty_message": "当前一级目录下还没有二级、三级知识点。",
+    }
+    return render_shell_page(request, "teacher", "entry/teacher_exam_knowledge_detail.html", context)
 
 
 @role_required("teacher")
@@ -6553,11 +6944,15 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                 "count": created_count,
             }
 
-    form_values: dict[str, object] | None = (
-        {"import_job_id": requested_import_job_id}
-        if requested_import_job_id
-        else None
-    )
+    form_values: dict[str, object] | None = {
+        "import_job_id": requested_import_job_id,
+        "target_subject": request.GET.get("target_subject", "cpp"),
+        "target_category_code": request.GET.get("target_category_code", ""),
+        "target_level_1": request.GET.get("target_level_1", ""),
+        "target_level_2": request.GET.get("target_level_2", ""),
+        "target_level_3": request.GET.get("target_level_3", ""),
+        "free_question_ids": normalize_positive_int_list(request.GET.getlist("free_question_ids")),
+    }
     error_message = ""
 
     if request.method == "POST":
@@ -6565,6 +6960,12 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
         selected_import_job_ids = normalize_positive_int_list(request.POST.getlist("import_job_id"))
         selected_import_job_id = selected_import_job_ids[0] if len(selected_import_job_ids) == 1 else 0
         selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
+        free_question_ids = normalize_positive_int_list(request.POST.getlist("free_question_ids"))
+        target_subject = normalize_knowledge_map_subject(request.POST.get("target_subject") or "cpp")
+        target_category_code = (request.POST.get("target_category_code") or "").strip().upper()
+        target_level_1 = (request.POST.get("target_level_1") or "").strip()
+        target_level_2 = (request.POST.get("target_level_2") or "").strip()
+        target_level_3 = (request.POST.get("target_level_3") or "").strip()
         due_date_raw = request.POST.get("due_date", "").strip()
         assignment_requirement = normalize_preserved_multiline_text(
             request.POST.get("assignment_requirement", "")
@@ -6578,6 +6979,12 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             "student_ids": selected_student_ids,
             "import_job_id": selected_import_job_id,
             "content_id": selected_content_id,
+            "free_question_ids": free_question_ids,
+            "target_subject": target_subject,
+            "target_category_code": target_category_code,
+            "target_level_1": target_level_1,
+            "target_level_2": target_level_2,
+            "target_level_3": target_level_3,
             "assignment_requirement": assignment_requirement,
             "due_date": due_date_raw,
             "summary_title": summary_title,
@@ -6590,7 +6997,7 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
             error_message = "请选择学生"
         elif len(selected_import_job_ids) > 1:
             error_message = "一次只能选择1条题源"
-        elif not selected_import_job_id and not assignment_requirement_text:
+        elif not selected_import_job_id and not free_question_ids and not assignment_requirement_text:
             error_message = "请选择题源或填写作业要求"
         else:
             due_date_value = parse_homework_due_datetime_input(due_date_raw)
@@ -6647,6 +7054,26 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                             if not assignment_title:
                                 assignment_title = source_content.title.strip()
                             assignment_title = assignment_title or visible_import_job.source_filename.strip()
+                elif free_question_ids:
+                    available_contents = get_teacher_batch_homework_contents(
+                        portal_user,
+                        course_slug=selected_course_slug,
+                    )
+                    content_map = {content.id: content for content in available_contents}
+                    source_content = content_map.get(selected_content_id)
+                    if source_content is None:
+                        error_message = "请选择当前老师负责范围内的知识点作为作业目标。"
+                    else:
+                        assignment_title = build_knowledge_path_title(target_level_1, target_level_2, target_level_3) or source_content.title.strip() or "自由选题作业"
+                        try:
+                            visible_import_job = create_homework_import_job_from_exam_questions(
+                                teacher=portal_user,
+                                content=source_content,
+                                question_ids=free_question_ids[:20],
+                                title=assignment_title,
+                            )
+                        except ValidationError as exc:
+                            error_message = "；".join(exc.messages) if exc.messages else str(exc)
                 else:
                     creation_mode = "requirement_only"
                     available_contents = get_teacher_batch_homework_contents(
@@ -6785,6 +7212,269 @@ def teacher_homework_import_job_preview(request: HttpRequest, import_job_id: int
     return JsonResponse(build_homework_import_job_preview_payload(import_job))
 
 
+HOMEWORK_IMPORT_JOB_RECOGNITION_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="homework-import-recognition")
+HOMEWORK_IMPORT_JOB_RECOGNITION_LOCK = threading.Lock()
+HOMEWORK_IMPORT_JOB_RECOGNITION_FUTURES: dict[tuple[str, int], object] = {}
+
+
+def get_homework_question_options_text(question: HomeworkQuestion) -> str:
+    options = decode_sql_ascii_json_text(question.options_json)
+    if not isinstance(options, dict):
+        return "无"
+    lines = [
+        f"{key}. {str(options.get(key) or '').strip()}"
+        for key in ["A", "B", "C", "D"]
+        if str(options.get(key) or "").strip()
+    ]
+    return "\n".join(lines) or "无"
+
+
+def get_homework_question_snapshot(question: HomeworkQuestion) -> dict[str, object]:
+    snapshot = decode_sql_ascii_json_text(question.source_snapshot_json)
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def save_homework_question_snapshot(question: HomeworkQuestion, snapshot: dict[str, object]) -> None:
+    question.source_snapshot_json = encode_sql_ascii_json_text(snapshot)
+    question.save(update_fields=["source_snapshot_json", "updated_at"])
+
+
+def set_homework_question_recognition_status(
+    question: HomeworkQuestion,
+    *,
+    kind: str,
+    status: str,
+    error_message: str = "",
+) -> None:
+    snapshot = get_homework_question_snapshot(question)
+    snapshot[f"{kind}_status"] = status
+    snapshot[f"{kind}_error"] = str(error_message or "").strip()[:1000]
+    save_homework_question_snapshot(question, snapshot)
+
+
+def build_homework_question_analysis_prompt(question: HomeworkQuestion) -> str:
+    return "\n".join(
+        [
+            "你是少儿编程老师。请为下面选择题生成适合学生复盘的解析。",
+            "要求：使用 Markdown；步骤清晰；如果涉及代码，用 fenced code block；不要输出题目无关内容。",
+            "",
+            f"题号：第 {question.question_no} 题",
+            f"题干：{question.stem}",
+            "选项：",
+            get_homework_question_options_text(question),
+            f"正确答案：{question.correct_answer or '未填写'}",
+            "已有解析：",
+            str(question.analysis or "").strip() or "无",
+        ]
+    )
+
+
+def build_homework_question_knowledge_prompt(question: HomeworkQuestion, mapping_markdown: str) -> str:
+    return "\n".join(
+        [
+            "你是少儿编程考试知识点标注助手。请严格根据下面的知识对照表，为题目选择最匹配的知识点。",
+            "只输出 JSON，不要输出 Markdown、解释或多余文字。",
+            'JSON 格式必须是：{"level_1":"一级目录","level_2":"二级目录","level_3":"三级训练点或空字符串"}',
+            "level_1 和 level_2 必须来自知识对照表中的同一行；level_3 可为空。",
+            "",
+            "知识对照表：",
+            mapping_markdown,
+            "",
+            f"题号：第 {question.question_no} 题",
+            f"题干：{question.stem}",
+            "选项：",
+            get_homework_question_options_text(question),
+            f"正确答案：{question.correct_answer or '未填写'}",
+            "已有解析：",
+            str(question.analysis or "").strip() or "无",
+        ]
+    )
+
+
+def get_homework_import_job_mapping_markdown(import_job: HomeworkImportJob) -> str:
+    content = import_job.content or (import_job.assignment.content if import_job.assignment_id and import_job.assignment else None)
+    if content is None or content.course_id is None:
+        raise ValidationError("当前题源没有绑定课程知识点，无法匹配知识点映射表。")
+    subject = normalize_exam_knowledge_subject(content.course.title)
+    category_code = str(content.level.code if content.level_id and content.level else content.phase or "").strip().upper()
+    rows = list(
+        ExamKnowledgePointMap.objects.filter(
+            subject=subject,
+            category_code=category_code,
+            is_active=True,
+        ).order_by("sort_order", "id")
+    )
+    if not rows:
+        raise ValidationError("当前学科和级别没有可用知识点映射。")
+    return build_exam_knowledge_mapping_markdown_from_rows(rows)
+
+
+def run_homework_import_job_analysis_generation(import_job_id: int) -> None:
+    close_old_connections()
+    try:
+        import_job = HomeworkImportJob.objects.get(id=import_job_id, is_active=True)
+        questions = list(import_job.questions.filter(is_active=True).order_by("question_no", "id"))
+        worker_count = max(1, min(int(getattr(settings, "HOMEWORK_IMPORT_JOB_RECOGNITION_CONCURRENCY", 2)), len(questions), 4))
+
+        def process_question(question_id: int) -> None:
+            question = HomeworkQuestion.objects.get(id=question_id, is_active=True)
+            set_homework_question_recognition_status(question, kind="analysis", status="running")
+            try:
+                analysis = _request_qwen_analysis(prompt=build_homework_question_analysis_prompt(question), image_paths=[], append_challenge=False)
+            except Exception as exc:
+                set_homework_question_recognition_status(question, kind="analysis", status="failed", error_message=str(exc))
+                raise
+            question.analysis = analysis.strip()
+            snapshot = get_homework_question_snapshot(question)
+            snapshot["analysis_status"] = "done"
+            snapshot["analysis_error"] = ""
+            question.source_snapshot_json = encode_sql_ascii_json_text(snapshot)
+            question.save(update_fields=["analysis", "source_snapshot_json", "updated_at"])
+
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix=f"homework-analysis-{import_job_id}") as executor:
+            for future in as_completed([executor.submit(process_question, question.id) for question in questions]):
+                future.result()
+    finally:
+        with HOMEWORK_IMPORT_JOB_RECOGNITION_LOCK:
+            HOMEWORK_IMPORT_JOB_RECOGNITION_FUTURES.pop(("analysis", import_job_id), None)
+        close_old_connections()
+
+
+def run_homework_import_job_knowledge_generation(import_job_id: int) -> None:
+    close_old_connections()
+    try:
+        import_job = HomeworkImportJob.objects.select_related(
+            "content",
+            "content__course",
+            "content__level",
+            "assignment",
+            "assignment__content",
+            "assignment__content__course",
+            "assignment__content__level",
+        ).get(id=import_job_id, is_active=True)
+        mapping_markdown = get_homework_import_job_mapping_markdown(import_job)
+        questions = list(import_job.questions.filter(is_active=True).order_by("question_no", "id"))
+        worker_count = max(1, min(int(getattr(settings, "HOMEWORK_IMPORT_JOB_RECOGNITION_CONCURRENCY", 2)), len(questions), 4))
+
+        def process_question(question_id: int) -> None:
+            question = HomeworkQuestion.objects.get(id=question_id, is_active=True)
+            set_homework_question_recognition_status(question, kind="knowledge", status="running")
+            try:
+                raw = _request_qwen_analysis(
+                    prompt=build_homework_question_knowledge_prompt(question, mapping_markdown),
+                    image_paths=[],
+                    append_challenge=False,
+                )
+                parsed = json.loads(_strip_json_code_fence(raw))
+                if not isinstance(parsed, dict):
+                    raise ValidationError("Qwen 知识点识别返回格式不正确。")
+            except Exception as exc:
+                set_homework_question_recognition_status(question, kind="knowledge", status="failed", error_message=str(exc))
+                raise
+            snapshot = get_homework_question_snapshot(question)
+            snapshot["knowledge_level_1"] = str(parsed.get("level_1") or "").strip()
+            snapshot["knowledge_level_2"] = str(parsed.get("level_2") or "").strip()
+            snapshot["knowledge_level_3"] = str(parsed.get("level_3") or "").strip()
+            snapshot["knowledge_status"] = "done"
+            snapshot["knowledge_error"] = ""
+            save_homework_question_snapshot(question, snapshot)
+
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix=f"homework-knowledge-{import_job_id}") as executor:
+            for future in as_completed([executor.submit(process_question, question.id) for question in questions]):
+                future.result()
+    finally:
+        with HOMEWORK_IMPORT_JOB_RECOGNITION_LOCK:
+            HOMEWORK_IMPORT_JOB_RECOGNITION_FUTURES.pop(("knowledge", import_job_id), None)
+        close_old_connections()
+
+
+def start_homework_import_job_recognition(import_job_id: int, kind: str) -> bool:
+    with HOMEWORK_IMPORT_JOB_RECOGNITION_LOCK:
+        key = (kind, import_job_id)
+        existing = HOMEWORK_IMPORT_JOB_RECOGNITION_FUTURES.get(key)
+        if existing is not None and not existing.done():
+            return False
+        target = run_homework_import_job_analysis_generation if kind == "analysis" else run_homework_import_job_knowledge_generation
+        future = HOMEWORK_IMPORT_JOB_RECOGNITION_EXECUTOR.submit(target, import_job_id)
+        HOMEWORK_IMPORT_JOB_RECOGNITION_FUTURES[key] = future
+    return True
+
+
+@role_required("teacher")
+def teacher_homework_import_job_recognition(request: HttpRequest, import_job_id: int, kind: str) -> HttpResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "仅支持 POST。"}, status=405)
+    if kind not in {"analysis", "knowledge"}:
+        return JsonResponse({"error": "识别类型无效。"}, status=400)
+    portal_user = get_portal_user_from_request(request)
+    import_job = get_visible_homework_import_jobs(portal_user).filter(id=import_job_id).first()
+    if import_job is None:
+        raise Http404("未找到该题目记录")
+    questions = list(import_job.questions.filter(is_active=True).order_by("question_no", "id"))
+    if not questions:
+        return JsonResponse({"error": "当前题源没有可识别题目。"}, status=400)
+    status_key = f"{kind}_status"
+    for question in questions:
+        set_homework_question_recognition_status(question, kind=kind, status="pending")
+    started = start_homework_import_job_recognition(import_job.id, kind)
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({"ok": True, "started": started})
+    return redirect(request.headers.get("Referer") or reverse("teacher-homework-batch-create"))
+
+
+def create_homework_import_job_from_exam_questions(
+    *,
+    teacher: PortalUser,
+    content: CourseContent,
+    question_ids: list[int],
+    title: str,
+) -> HomeworkImportJob:
+    questions = list(
+        ExamQuestion.objects.select_related("paper")
+        .filter(id__in=question_ids, is_active=True, paper__is_active=True)
+        .order_by("id")
+    )
+    if not questions:
+        raise ValidationError("请选择可用的自由选题题目。")
+    question_order = {question_id: index for index, question_id in enumerate(question_ids)}
+    questions.sort(key=lambda item: question_order.get(item.id, len(question_order)))
+    source_text = "\n".join(f"{index}. {question.stem}" for index, question in enumerate(questions, start=1))
+    source_bytes = source_text.encode("utf-8")
+    source_filename = f"自由选题-{timezone.localtime().strftime('%Y%m%d%H%M%S')}.txt"
+    import_job = HomeworkImportJob.objects.create(
+        teacher=teacher,
+        assignment=None,
+        content=content,
+        source_file=ContentFile(source_bytes, name=source_filename),
+        source_filename=source_filename,
+        source_sha256=compute_uploaded_file_sha256(ContentFile(source_bytes, name=source_filename)),
+        source_type=HomeworkImportJob.SOURCE_TYPE_TEXT,
+        parse_status=HomeworkImportJob.STATUS_CONFIRMED,
+        candidates_json=[],
+        parse_notes=f"{title or content.title}：老师从自由选题生成。",
+        confirmed_at=timezone.now(),
+        is_active=True,
+    )
+    for index, question in enumerate(questions, start=1):
+        HomeworkQuestion.objects.create(
+            assignment=None,
+            import_job=import_job,
+            question_no=index,
+            question_type=HomeworkQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem=question.stem,
+            options_json=question.options_json if isinstance(question.options_json, dict) else {},
+            correct_answer=str(question.correct_answer or "").strip().upper(),
+            analysis=str(question.analysis or "").strip(),
+            source_snapshot_json={
+                **(question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}),
+                "free_practice_source_question_id": question.id,
+                "source_exam_paper_id": question.paper_id,
+            },
+            is_active=True,
+        )
+    return import_job
+
+
 @role_required("teacher")
 def teacher_question_source_create_content(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
@@ -6792,79 +7482,109 @@ def teacher_question_source_create_content(request: HttpRequest) -> HttpResponse
 
     portal_user = get_portal_user_from_request(request)
     course_slug = (request.POST.get("course") or request.GET.get("course") or "").strip().lower()
+    subject = normalize_knowledge_map_subject(request.POST.get("subject") or request.POST.get("knowledge_subject") or "")
+    category_code = (request.POST.get("category_code") or request.POST.get("knowledge_category_code") or "").strip().upper()
+    level_1 = (request.POST.get("level_1") or request.POST.get("knowledge_level_1") or "").strip()
+    level_2 = (request.POST.get("level_2") or request.POST.get("knowledge_level_2") or "").strip()
+    level_3 = (request.POST.get("level_3") or request.POST.get("knowledge_level_3") or "").strip()
+    is_mapping_create = bool(subject or category_code or level_1 or level_2 or level_3)
     title = (request.POST.get("title") or "").strip()
+    if is_mapping_create and not title:
+        title = build_knowledge_path_title(level_1, level_2, level_3)
     level_id = normalize_positive_int(request.POST.get("level_id"), default=0, minimum=1)
 
-    if not course_slug:
-        return JsonResponse({"error": "请选择有效课程。"}, status=400)
+    if is_mapping_create:
+        if not subject:
+            return JsonResponse({"error": "请选择学科。"}, status=400)
+        if not category_code:
+            return JsonResponse({"error": "请选择级别。"}, status=400)
+        if not level_1:
+            return JsonResponse({"error": "请输入或选择一级目录。"}, status=400)
+        if not level_2:
+            return JsonResponse({"error": "请输入或选择二级目录。"}, status=400)
     if not title:
         return JsonResponse({"error": "请输入知识点名称。"}, status=400)
 
-    try:
-        scope = get_teacher_course_scope(portal_user, course_slug)
-    except ObjectDoesNotExist:
+    selected_course = resolve_course_for_knowledge_subject(portal_user, subject or course_slug or "cpp", course_slug)
+    if selected_course is None:
         return JsonResponse({"error": "当前课程不存在，或你没有该课程权限。"}, status=400)
+    course_slug = selected_course.slug
 
     available_level_options = get_teacher_question_source_level_options(portal_user, course_slug)
     available_level_ids = {item["id"] for item in available_level_options}
+    if not level_id and category_code:
+        matched_level = next((item for item in available_level_options if str(item.get("code") or "").upper() == category_code), None)
+        if matched_level:
+            level_id = int(matched_level["id"])
     if level_id not in available_level_ids:
         return JsonResponse({"error": "请选择有效的 Level。"}, status=400)
 
     selected_level = (
         CourseLevel.objects.select_related("category", "category__course")
-        .filter(id=level_id, is_active=True, category__course=scope["course"])
+        .filter(id=level_id, is_active=True, category__course=selected_course)
         .first()
     )
     if selected_level is None:
         return JsonResponse({"error": "请选择有效的 Level。"}, status=400)
 
     duplicate_exists = CourseContent.objects.filter(
-        course=scope["course"],
+        course=selected_course,
         level=selected_level,
         title__iexact=title,
         is_active=True,
-    ).exists()
-    if duplicate_exists:
+    ).first()
+    if duplicate_exists and not is_mapping_create:
         return JsonResponse({"error": "该知识点已存在"}, status=400)
 
-    generated_slug = build_auto_course_content_slug(scope["course"], selected_level, title)
+    generated_slug = build_auto_course_content_slug(selected_course, selected_level, title)
     route_path = build_knowledge_point_default_route_path(
-        scope["course"].slug,
+        selected_course.slug,
         selected_level.category.slug,
         selected_level.code,
         generated_slug,
     )
     existing_type = (
-        CourseContent.objects.filter(course=scope["course"])
+        CourseContent.objects.filter(course=selected_course)
         .exclude(content_type="")
         .order_by("id")
         .values_list("content_type", flat=True)
         .first()
-    ) or f"{scope['course'].title}{selected_level.category.title}"
+    ) or f"{selected_course.title}{selected_level.category.title}"
     next_sort_order = (
         (CourseContent.objects.filter(level=selected_level).aggregate(max_sort=Max("sort_order"))["max_sort"] or 0)
         + 1
     )
 
     with transaction.atomic():
-        created_content = CourseContent.objects.create(
-            course=scope["course"],
-            level=selected_level,
-            content_type=existing_type,
-            slug=generated_slug,
-            title=title,
-            phase=selected_level.code,
-            permission_code=infer_content_permission_code(
-                scope["course"].slug,
-                level_code=selected_level.code,
+        if is_mapping_create:
+            ExamKnowledgePointMap.objects.update_or_create(
+                subject=subject,
+                category_code=category_code,
+                level_1=level_1,
+                level_2=level_2,
+                level_3=level_3,
+                defaults={"is_active": True},
+            )
+        created_content = duplicate_exists
+        if created_content is None:
+            created_content = CourseContent.objects.create(
+                course=selected_course,
+                level=selected_level,
+                content_type=existing_type,
+                slug=generated_slug,
+                title=title,
                 phase=selected_level.code,
-            ),
-            sort_order=next_sort_order,
-            route_path=route_path,
-            summary="",
-            has_real_content=False,
-            is_active=True,
-        )
+                permission_code=infer_content_permission_code(
+                    selected_course.slug,
+                    level_code=selected_level.code,
+                    phase=selected_level.code,
+                ),
+                sort_order=next_sort_order,
+                route_path=route_path,
+                summary="",
+                has_real_content=False,
+                is_active=True,
+            )
 
     payload = {
         "id": created_content.id,
@@ -6875,9 +7595,16 @@ def teacher_question_source_create_content(request: HttpRequest) -> HttpResponse
         "level_id": selected_level.id,
         "level_label": selected_level.title,
         "category_title": selected_level.category.title,
-        "label": f"{scope['course'].title} / {selected_level.title} / {created_content.title}",
+        "label": f"{selected_course.title} / {selected_level.title} / {created_content.title}",
+        "knowledge_map": {
+            "subject": subject,
+            "category_code": category_code,
+            "level_1": level_1,
+            "level_2": level_2,
+            "level_3": level_3,
+        } if is_mapping_create else None,
     }
-    return JsonResponse(payload, status=201)
+    return JsonResponse(payload, status=200 if duplicate_exists else 201)
 
 
 @role_required("teacher")

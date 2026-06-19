@@ -1974,6 +1974,10 @@
         var totalCounter = document.getElementById(config.totalCountId);
         var selectAllButton = document.getElementById(config.selectAllButtonId);
         var clearSelectionButton = document.getElementById(config.clearSelectionButtonId);
+        var subjectFilter = document.getElementById(config.subjectFilterId);
+        var levelFilter = document.getElementById(config.levelFilterId);
+        var selectLevelButton = document.getElementById(config.selectLevelButtonId);
+        var levelOptionsBySubject = config.levelOptionsScriptId ? readJsonScript(config.levelOptionsScriptId) : {};
 
         function toggleRowSelection(row) {
             if (row.isSelected()) {
@@ -2016,6 +2020,8 @@
                         columns: [
                             { title: "姓名", field: "name", minWidth: 180 },
                             { title: "年级", field: "grade", hozAlign: "center", width: 120 },
+                            { title: "学科", field: "primary_course_name", hozAlign: "center", minWidth: 110 },
+                            { title: "级别", field: "primary_level_name", hozAlign: "center", width: 100 },
                             { title: "家长手机", field: "parent_phone", hozAlign: "center", minWidth: 150 },
                         ],
                     },
@@ -2045,7 +2051,7 @@
             )
         );
 
-        var searchFilter = attachSearch(table, config.searchInputId, ["name", "grade", "parent_phone", "scope_text"]);
+        var searchFilter = attachSearch(table, config.searchInputId, ["name", "grade", "primary_course_name", "primary_level_name", "parent_phone", "scope_text"]);
         wirePersistentState("homework-batch-students", table, document.getElementById(config.tableId), config.searchInputId, searchFilter);
 
         table.on("tableBuilt", function () {
@@ -2076,6 +2082,61 @@
             });
         }
 
+        function updateLevelOptions() {
+            if (!subjectFilter || !levelFilter) {
+                return;
+            }
+            var subject = String(subjectFilter.value || "").trim();
+            var levels = Array.isArray(levelOptionsBySubject[subject]) ? levelOptionsBySubject[subject] : [];
+            levelFilter.innerHTML = "";
+            if (!subject) {
+                levelFilter.appendChild(new Option("先选择学科", ""));
+                levelFilter.disabled = true;
+            } else if (!levels.length) {
+                levelFilter.appendChild(new Option("当前学科暂无级别", ""));
+                levelFilter.disabled = true;
+            } else {
+                levelFilter.appendChild(new Option("选择级别", ""));
+                levels.forEach(function (level) {
+                    levelFilter.appendChild(new Option(String(level), String(level)));
+                });
+                levelFilter.disabled = false;
+            }
+            if (selectLevelButton) {
+                selectLevelButton.disabled = true;
+            }
+        }
+
+        function updateSelectLevelButtonState() {
+            if (!selectLevelButton || !subjectFilter || !levelFilter) {
+                return;
+            }
+            selectLevelButton.disabled = !String(subjectFilter.value || "").trim() || !String(levelFilter.value || "").trim();
+        }
+
+        if (subjectFilter) {
+            subjectFilter.addEventListener("change", updateLevelOptions);
+            updateLevelOptions();
+        }
+        if (levelFilter) {
+            levelFilter.addEventListener("change", updateSelectLevelButtonState);
+        }
+        if (selectLevelButton) {
+            selectLevelButton.addEventListener("click", function () {
+                var subject = subjectFilter ? String(subjectFilter.value || "").trim() : "";
+                var level = levelFilter ? String(levelFilter.value || "").trim() : "";
+                if (!subject || !level) {
+                    return;
+                }
+                table.getRows().forEach(function (row) {
+                    var rowData = row.getData();
+                    if (String(rowData.primary_course_name || "").trim() === subject && String(rowData.primary_level_name || "").trim() === level) {
+                        row.select();
+                    }
+                });
+            });
+        }
+
         if (form) {
             form.addEventListener("submit", function () {
                 syncHiddenInputs(table);
@@ -2090,6 +2151,7 @@
         var hiddenInput = document.getElementById(config.hiddenInputId);
         var tableElement = document.getElementById(config.tableId);
         var form = document.getElementById(config.formId);
+        var csrfToken = config.csrfToken || "";
 
         function selectedValue() {
             return hiddenInput ? String(hiddenInput.value || "") : "";
@@ -2118,6 +2180,29 @@
         function syncSelectionFromTable(table) {
             var selectedData = table.getSelectedData();
             syncSelection(selectedData.length ? selectedData[0] : null);
+        }
+
+        function buildRecognitionAction(row, kind) {
+            var href = kind === "analysis" ? row.analysis_action_href : row.knowledge_action_href;
+            var canGenerate = kind === "analysis" ? row.can_generate_analysis : row.can_generate_knowledge;
+            var label = kind === "analysis"
+                ? (canGenerate === false ? "解析中" : "解析识别")
+                : (canGenerate === false ? "识别中" : "知识点识别");
+            var disabled = canGenerate === false ? " disabled" : "";
+            if (!href) {
+                return '<button type="button" class="cm-tabulator-btn" disabled>' + label + '</button>';
+            }
+            return '<button type="button" class="cm-tabulator-btn" data-import-job-recognition-href="' + escapeHtml(href) + '"' + disabled + '>' + label + '</button>';
+        }
+
+        function buildImportJobActions(row) {
+            return [
+                '<div class="teacher-exam-actions available-paper-actions">',
+                '<button class="cm-tabulator-btn" type="button" data-import-job-preview-id="' + escapeHtml(String(row.import_job_id || "")) + '">详细</button>',
+                buildRecognitionAction(row, "analysis"),
+                buildRecognitionAction(row, "knowledge"),
+                '</div>',
+            ].join("");
         }
 
         var table = new Tabulator(
@@ -2151,17 +2236,38 @@
                         ],
                     },
                     {
+                        title: "Recognition",
+                        columns: [
+                            {
+                                title: "解析状态",
+                                field: "analysis_status_text",
+                                minWidth: 130,
+                                formatter: function (cell) {
+                                    return statusPill(String(cell.getValue() || "未识别"), "trial");
+                                },
+                            },
+                            {
+                                title: "知识点识别状态",
+                                field: "knowledge_status_text",
+                                minWidth: 150,
+                                formatter: function (cell) {
+                                    return statusPill(String(cell.getValue() || "未识别"), "trial");
+                                },
+                            },
+                        ],
+                    },
+                    {
                         title: "Action",
                         columns: [
                             {
-                                title: "详细",
-                                field: "preview_href",
+                                title: "操作",
+                                field: "import_job_id",
                                 hozAlign: "center",
-                                width: 96,
+                                minWidth: 300,
+                                width: 320,
                                 headerSort: false,
                                 formatter: function (cell) {
-                                    var row = cell.getRow().getData();
-                                    return '<button class="cm-tabulator-btn" type="button" data-import-job-preview-id="' + escapeHtml(String(row.import_job_id || "")) + '">详细</button>';
+                                    return buildImportJobActions(cell.getRow().getData());
                                 },
                             },
                         ],
@@ -2184,7 +2290,7 @@
                         },
                     },
                     rowClick: function (e, row) {
-                        if (e.target && e.target.closest("[data-import-job-preview-id]")) {
+                        if (e.target && (e.target.closest("[data-import-job-preview-id]") || e.target.closest("[data-import-job-recognition-href]"))) {
                             return;
                         }
                         row.select();
@@ -2221,6 +2327,27 @@
             tableElement.addEventListener("click", function (event) {
                 var previewButton = event.target.closest("[data-import-job-preview-id]");
                 if (!previewButton) {
+                    var recognitionButton = event.target.closest("[data-import-job-recognition-href]");
+                    if (!recognitionButton) {
+                        return;
+                    }
+                    var recognitionHref = recognitionButton.getAttribute("data-import-job-recognition-href") || "";
+                    if (!recognitionHref) {
+                        return;
+                    }
+                    recognitionButton.disabled = true;
+                    fetch(recognitionHref, {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": csrfToken,
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                        credentials: "same-origin",
+                    }).then(function () {
+                        window.location.reload();
+                    }).catch(function () {
+                        recognitionButton.disabled = false;
+                    });
                     return;
                 }
                 var importJobId = String(previewButton.getAttribute("data-import-job-preview-id") || "");

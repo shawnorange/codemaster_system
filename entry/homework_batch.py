@@ -5,8 +5,10 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db.models import Q, QuerySet
+from django.utils.html import escape
 from django.utils import timezone
 
+from .homework_option_formatting import build_homework_content_display
 from .homework_online import (
     decode_sql_ascii_json_text,
     encode_sql_ascii_json_text,
@@ -140,9 +142,19 @@ def build_homework_import_job_preview_payload(import_job: HomeworkImportJob) -> 
             {
                 "question_no": question["question_no"],
                 "stem": str(question["stem"] or "").strip(),
+                "stem_html": render_homework_preview_html(question["stem"]),
                 "options_text": " / ".join(option_items) if option_items else "暂无选项信息",
+                "option_items": [
+                    {
+                        "key": key,
+                        "display_html": render_homework_preview_html(options.get(key)),
+                    }
+                    for key in ["A", "B", "C", "D"]
+                    if str(options.get(key) or "").strip()
+                ],
                 "correct_answer": str(question["correct_answer"] or "").strip().upper(),
                 "analysis": str(question["analysis"] or "").strip(),
+                "analysis_html": render_homework_preview_html(question["analysis"]),
             }
         )
     return {
@@ -156,6 +168,18 @@ def build_homework_import_job_preview_payload(import_job: HomeworkImportJob) -> 
         "preview_items": preview_items,
         "empty_message": "暂无可预览题目" if not preview_items else "",
     }
+
+
+def render_homework_preview_html(value: Any) -> str:
+    display = build_homework_content_display(value)
+    parts = []
+    for block in display.get("blocks") or []:
+        text = escape(str(block.get("text") or ""))
+        if block.get("kind") == "code":
+            parts.append(f'<pre class="homework-code-block"><code>{text}</code></pre>')
+        else:
+            parts.append(f'<div class="homework-question__text-block">{text}</div>')
+    return "".join(parts) or '<div class="homework-question__text-block">暂无内容</div>'
 
 
 def clone_confirmed_import_job_to_assignment(
