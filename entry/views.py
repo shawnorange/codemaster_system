@@ -4654,6 +4654,115 @@ def build_knowledge_path_title(level_1: str, level_2: str, level_3: str = "") ->
     return " / ".join(part for part in [level_1, level_2, level_3] if str(part or "").strip())
 
 
+def ensure_course_content_for_knowledge_path(
+    *,
+    portal_user: PortalUser,
+    subject: str,
+    category_code: str,
+    level_1: str,
+    level_2: str = "",
+    level_3: str = "",
+    course_slug: str = "",
+) -> CourseContent:
+    normalized_subject = normalize_knowledge_map_subject(subject or course_slug or "cpp")
+    normalized_category_code = str(category_code or "").strip().upper()
+    normalized_level_1 = str(level_1 or "").strip()
+    normalized_level_2 = str(level_2 or "").strip()
+    normalized_level_3 = str(level_3 or "").strip()
+    if not normalized_subject:
+        raise ValidationError("请选择学科。")
+    if not normalized_category_code:
+        raise ValidationError("请选择级别。")
+    if not normalized_level_1:
+        raise ValidationError("请选择或填写一级知识点。")
+
+    title = build_knowledge_path_title(normalized_level_1, normalized_level_2, normalized_level_3)
+    if not title:
+        raise ValidationError("请先选择有效的知识点路径。")
+
+    selected_course = resolve_course_for_knowledge_subject(
+        portal_user,
+        normalized_subject,
+        course_slug,
+    )
+    if selected_course is None:
+        raise ValidationError("当前课程不存在，或你没有该课程权限。")
+
+    available_level_options = get_teacher_question_source_level_options(portal_user, selected_course.slug)
+    matched_level_option = next(
+        (
+            item
+            for item in available_level_options
+            if str(item.get("code") or "").strip().upper() == normalized_category_code
+        ),
+        None,
+    )
+    if matched_level_option is None:
+        raise ValidationError("请选择当前老师负责范围内的有效级别。")
+
+    selected_level = (
+        CourseLevel.objects.select_related("category", "category__course")
+        .filter(id=int(matched_level_option["id"]), is_active=True, category__course=selected_course)
+        .first()
+    )
+    if selected_level is None:
+        raise ValidationError("请选择当前老师负责范围内的有效级别。")
+
+    existing_type = (
+        CourseContent.objects.filter(course=selected_course)
+        .exclude(content_type="")
+        .order_by("id")
+        .values_list("content_type", flat=True)
+        .first()
+    ) or f"{selected_course.title}{selected_level.category.title}"
+    with transaction.atomic():
+        ExamKnowledgePointMap.objects.update_or_create(
+            subject=normalized_subject,
+            category_code=normalized_category_code,
+            level_1=normalized_level_1,
+            level_2=normalized_level_2,
+            level_3=normalized_level_3,
+            defaults={"is_active": True},
+        )
+        existing_content = CourseContent.objects.filter(
+            course=selected_course,
+            level=selected_level,
+            title__iexact=title,
+            is_active=True,
+        ).first()
+        if existing_content is not None:
+            return existing_content
+        generated_slug = build_auto_course_content_slug(selected_course, selected_level, title)
+        route_path = build_knowledge_point_default_route_path(
+            selected_course.slug,
+            selected_level.category.slug,
+            selected_level.code,
+            generated_slug,
+        )
+        next_sort_order = (
+            (CourseContent.objects.filter(level=selected_level).aggregate(max_sort=Max("sort_order"))["max_sort"] or 0)
+            + 1
+        )
+        return CourseContent.objects.create(
+            course=selected_course,
+            level=selected_level,
+            content_type=existing_type,
+            slug=generated_slug,
+            title=title,
+            phase=selected_level.code,
+            permission_code=infer_content_permission_code(
+                selected_course.slug,
+                level_code=selected_level.code,
+                phase=selected_level.code,
+            ),
+            sort_order=next_sort_order,
+            route_path=route_path,
+            summary="",
+            has_real_content=False,
+            is_active=True,
+        )
+
+
 def parse_exam_knowledge_markdown_table_rows(markdown_text: str) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = []
     in_table = False
@@ -7308,8 +7417,58 @@ def teacher_homework_batch_create(request: HttpRequest) -> HttpResponse:
                             else visible_import_job.content
                         )
                         if source_content is None:
-                            error_message = "当前题目记录没有绑定有效知识点，暂时不能用于批量布置作业。"
-                        else:
+                            knowledge_snapshot = parse_question_source_knowledge_snapshot(visible_import_job.parse_notes)
+                            if not knowledge_snapshot.get("level_code") or not knowledge_snapshot.get("knowledge_level_1"):
+                                source_question = (
+                                    visible_import_job.questions.filter(is_active=True)
+                                    .order_by("question_no", "id")
+                                    .first()
+                                )
+                                question_snapshot = (
+                                    decode_sql_ascii_json_text(source_question.source_snapshot_json)
+                                    if source_question is not None
+                                    else {}
+                                )
+                                if isinstance(question_snapshot, dict):
+                                    knowledge_snapshot = {
+                                        **knowledge_snapshot,
+                                        "knowledge_subject": knowledge_snapshot.get("knowledge_subject")
+                                        or str(question_snapshot.get("knowledge_subject") or "").strip(),
+                                        "level_code": knowledge_snapshot.get("level_code")
+                                        or str(question_snapshot.get("level_code") or "").strip().upper(),
+                                        "knowledge_level_1": knowledge_snapshot.get("knowledge_level_1")
+                                        or str(question_snapshot.get("knowledge_level_1") or "").strip(),
+                                        "knowledge_level_2": knowledge_snapshot.get("knowledge_level_2")
+                                        or str(question_snapshot.get("knowledge_level_2") or "").strip(),
+                                        "knowledge_level_3": knowledge_snapshot.get("knowledge_level_3")
+                                        or str(question_snapshot.get("knowledge_level_3") or "").strip(),
+                                    }
+                            import_subject = (
+                                knowledge_snapshot.get("knowledge_subject")
+                                or target_subject
+                                or (selected_course.slug if selected_course is not None else selected_course_slug)
+                                or "cpp"
+                            )
+                            import_category_code = knowledge_snapshot.get("level_code") or target_category_code
+                            import_level_1 = knowledge_snapshot.get("knowledge_level_1") or target_level_1
+                            import_level_2 = knowledge_snapshot.get("knowledge_level_2") or target_level_2
+                            import_level_3 = knowledge_snapshot.get("knowledge_level_3") or target_level_3
+                            try:
+                                source_content = ensure_course_content_for_knowledge_path(
+                                    portal_user=portal_user,
+                                    subject=import_subject,
+                                    category_code=import_category_code,
+                                    level_1=import_level_1,
+                                    level_2=import_level_2,
+                                    level_3=import_level_3,
+                                    course_slug=selected_course.slug if selected_course is not None else selected_course_slug,
+                                )
+                            except ValidationError as exc:
+                                error_message = "；".join(exc.messages) if exc.messages else str(exc)
+                            else:
+                                visible_import_job.content = source_content
+                                visible_import_job.save(update_fields=["content", "updated_at"])
+                        if not error_message and source_content is not None:
                             assignment_title = (
                                 visible_import_job.assignment.title.strip()
                                 if visible_import_job.assignment_id and visible_import_job.assignment
