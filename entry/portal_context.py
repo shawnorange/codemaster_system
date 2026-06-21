@@ -40,7 +40,10 @@ from .homework_batch import (
     get_visible_homework_import_jobs,
 )
 from .html_sanitizer import sanitize_rich_html
-from .homework_online import decode_sql_ascii_json_text, normalize_candidate_editor_rows
+from .homework_online import (
+    decode_sql_ascii_json_text,
+    normalize_candidate_editor_rows,
+)
 from .homework_option_formatting import format_homework_option_display
 from .homework_question_rendering import (
     QUESTION_STATE_ANSWERING,
@@ -2261,6 +2264,30 @@ def serialize_homework_content_option(content: CourseContent) -> dict:
     }
 
 
+def build_homework_content_knowledge_form_values(
+    *,
+    course_slug: str,
+    selected_content_option: dict | None,
+) -> dict[str, object]:
+    title_parts = [
+        part.strip()
+        for part in str((selected_content_option or {}).get("title") or "").split("/")
+        if part.strip()
+    ]
+    return {
+        "content_id": int((selected_content_option or {}).get("id") or 0),
+        "target_subject": normalize_knowledge_map_subject(course_slug),
+        "target_category_code": str(
+            (selected_content_option or {}).get("phase")
+            or (selected_content_option or {}).get("level_label")
+            or ""
+        ).strip().upper(),
+        "target_level_1": title_parts[0] if len(title_parts) >= 1 else "",
+        "target_level_2": title_parts[1] if len(title_parts) >= 2 else "",
+        "target_level_3": title_parts[2] if len(title_parts) >= 3 else "",
+    }
+
+
 def get_teacher_question_source_level_options(portal_user: PortalUser, course_slug: str) -> list[dict]:
     scope = get_teacher_course_scope(portal_user, course_slug)
     course = scope["course"]
@@ -3066,9 +3093,12 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
         return None
 
 
-def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
+def get_exam_bank_paper_ids_with_exam_management_records(teacher: PortalUser | None = None) -> set[int]:
     bank_paper_ids: set[int] = set()
-    descriptions = ExamPaper.objects.filter(is_active=True).exclude(description="").values_list("description", flat=True)
+    queryset = ExamPaper.objects.filter(is_active=True).exclude(description="")
+    if teacher is not None:
+        queryset = queryset.filter(teacher=teacher)
+    descriptions = queryset.values_list("description", flat=True)
     for description in descriptions:
         bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
         if bank_paper_id:
@@ -3868,6 +3898,7 @@ def build_teacher_exam_page_context(
     )
     current_teacher_name = portal_user.full_name or portal_user.username
     published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
+    current_teacher_published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records(portal_user)
     available_paper_rows = [
         serialize_available_exam_bank_paper(
             paper,
@@ -3876,6 +3907,8 @@ def build_teacher_exam_page_context(
         )
         for paper in available_papers
     ]
+    for row in available_paper_rows:
+        row["can_publish_to_exam_management"] = int(row["id"]) not in current_teacher_published_bank_paper_ids
     teacher_filter_options = [
         {
             "id": teacher.id,
@@ -4765,6 +4798,8 @@ def _question_matches_free_practice_filters(
     snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
     if snapshot.get("free_practice_source_question_id"):
         return False
+    if snapshot.get("free_practice_homework_source") or snapshot.get("homework_question_id"):
+        return False
     question_level = str(snapshot.get("level_code") or "").strip().upper()
     if level_code and level_code not in {"CSP-J", "CSP-S"} and question_level != level_code:
         return False
@@ -4850,6 +4885,48 @@ def _bank_question_matches_free_practice_filters(
     )
 
 
+def get_homework_question_knowledge_values(question: HomeworkQuestion) -> dict[str, str]:
+    snapshot = decode_sql_ascii_json_text(question.source_snapshot_json)
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    import_job = question.import_job
+    content = import_job.content if import_job and import_job.content_id else None
+    title_parts = [
+        part.strip()
+        for part in str(content.title if content else "").split("/")
+        if part.strip()
+    ]
+    return {
+        "level_code": str(
+            snapshot.get("level_code")
+            or (content.level.code if content and content.level_id and content.level else "")
+            or (content.phase if content else "")
+            or ""
+        ).strip().upper(),
+        "knowledge_level_1": str(snapshot.get("knowledge_level_1") or (title_parts[0] if len(title_parts) >= 1 else "")).strip(),
+        "knowledge_level_2": str(snapshot.get("knowledge_level_2") or (title_parts[1] if len(title_parts) >= 2 else "")).strip(),
+        "knowledge_level_3": str(snapshot.get("knowledge_level_3") or (title_parts[2] if len(title_parts) >= 3 else "")).strip(),
+    }
+
+
+def _homework_question_matches_free_practice_filters(
+    question: HomeworkQuestion,
+    *,
+    level_code: str,
+    level_1_query: str,
+    level_2_query: str,
+) -> bool:
+    values = get_homework_question_knowledge_values(question)
+    return _knowledge_values_match_free_practice_filters(
+        question_level=values["level_code"],
+        knowledge_level_1=values["knowledge_level_1"],
+        knowledge_level_2=values["knowledge_level_2"],
+        level_code=level_code,
+        level_1_query=level_1_query,
+        level_2_query=level_2_query,
+    )
+
+
 def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[ExamQuestion]:
     level_code = normalize_student_free_practice_level_code(level_code)
     queryset = (
@@ -4861,6 +4938,30 @@ def get_student_free_practice_question_queryset(level_code: str) -> QuerySet[Exa
     )
     if not level_code:
         return ExamQuestion.objects.none()
+    return queryset
+
+
+def get_student_free_practice_homework_question_queryset(level_code: str) -> QuerySet[HomeworkQuestion]:
+    level_code = normalize_student_free_practice_level_code(level_code)
+    queryset = (
+        HomeworkQuestion.objects.select_related(
+            "import_job",
+            "import_job__teacher",
+            "import_job__content",
+            "import_job__content__level",
+            "import_job__content__course",
+        )
+        .filter(
+            is_active=True,
+            assignment__isnull=True,
+            import_job__is_active=True,
+            import_job__assignment__isnull=True,
+            import_job__parse_status=HomeworkImportJob.STATUS_CONFIRMED,
+        )
+        .order_by("-updated_at", "-id")
+    )
+    if not level_code:
+        return HomeworkQuestion.objects.none()
     return queryset
 
 
@@ -4901,6 +5002,12 @@ def build_free_practice_question_rows_for_filters(
         for question_id in (selected_question_ids or [])
         if str(question_id).strip().isdigit()
     }
+    selected_homework_ids = {
+        normalize_positive_value(str(question_id).split(":", 1)[1], default=0, minimum=1)
+        for question_id in (selected_question_ids or [])
+        if re.fullmatch(r"homework:\d+", str(question_id).strip())
+    }
+    selected_homework_ids.discard(0)
     queryset = get_student_free_practice_question_queryset(normalized_level_code)
     candidate_items = []
     seen_bank_question_ids = set()
@@ -4931,11 +5038,29 @@ def build_free_practice_question_rows_for_filters(
         candidate_items.append(("bank", bank_question))
         seen_bank_question_ids.add(bank_question.id)
 
+    homework_queryset = get_student_free_practice_homework_question_queryset(normalized_level_code)
+    for homework_question in homework_queryset:
+        if not _homework_question_matches_free_practice_filters(
+            homework_question,
+            level_code=normalized_level_code,
+            level_1_query=normalized_level_1,
+            level_2_query=normalized_level_2,
+        ):
+            continue
+        candidate_items.append(("homework", homework_question))
+
     selected_candidate_items = []
     remaining_candidate_items = []
     for source_type, source_question in candidate_items:
-        source_key = str(source_question.id) if source_type == "exam" else f"bank:{source_question.id}"
+        if source_type == "exam":
+            source_key = str(source_question.id)
+        elif source_type == "bank":
+            source_key = f"bank:{source_question.id}"
+        else:
+            source_key = f"homework:{source_question.id}"
         is_selected = source_key in selected_keys or (source_type == "exam" and int(source_question.id) in selected_ids)
+        if source_type == "homework" and int(source_question.id) in selected_homework_ids:
+            is_selected = True
         if is_selected:
             selected_candidate_items.append((source_type, source_question))
         else:
@@ -4993,6 +5118,40 @@ def build_free_practice_question_rows_for_filters(
                     "knowledge_display": knowledge_display,
                     "level_code": str(snapshot.get("level_code") or "").strip() or normalized_level_code,
                     "is_selected": question.id in selected_ids or str(question.id) in selected_keys,
+                }
+            )
+            continue
+
+        if source_type == "homework":
+            homework_question = source_question
+            values = get_homework_question_knowledge_values(homework_question)
+            options = decode_sql_ascii_json_text(homework_question.options_json)
+            options = options if isinstance(options, dict) else {}
+            source_key = f"homework:{homework_question.id}"
+            import_job = homework_question.import_job
+            question_rows.append(
+                {
+                    "id": source_key,
+                    "source_key": source_key,
+                    "source_type": "homework",
+                    "question_no": homework_question.question_no,
+                    "paper_title": import_job.source_filename if import_job else "公共作业题源",
+                    "stem_preview": truncate_plain_text(homework_question.stem, 90),
+                    "stem_html": render_exam_markdown_for_display(homework_question.stem),
+                    "image_paths": [],
+                    "material_image_paths": [],
+                    "question_image_paths": [],
+                    "option_items": build_exam_option_items(options),
+                    "knowledge_level_1": values["knowledge_level_1"] or "未标注",
+                    "knowledge_level_2": values["knowledge_level_2"] or "未标注",
+                    "knowledge_level_3": values["knowledge_level_3"] or "选填",
+                    "knowledge_display": " / ".join(
+                        part
+                        for part in [values["knowledge_level_1"], values["knowledge_level_2"], values["knowledge_level_3"]]
+                        if part
+                    ) or "未标注",
+                    "level_code": values["level_code"] or normalized_level_code,
+                    "is_selected": source_key in selected_keys or homework_question.id in selected_homework_ids,
                 }
             )
             continue
@@ -5855,8 +6014,8 @@ def build_teacher_question_source_import_context(
             teacher=portal_user,
             assignment__isnull=True,
             is_active=True,
-            content__course=selected_course,
         )
+        .filter(Q(content__course=selected_course) | Q(content__isnull=True))
         .order_by("-created_at", "-id")
     )
     serialized_jobs = []
@@ -5926,6 +6085,10 @@ def build_teacher_question_source_import_context(
         "selected_course_label": selected_course.title,
         "selected_content_id": normalized_content_id,
         "selected_content_option": selected_content_option,
+        "form_values": build_homework_content_knowledge_form_values(
+            course_slug=normalized_course_slug,
+            selected_content_option=selected_content_option,
+        ),
         "content_options": content_options,
         "content_create_level_options": content_create_level_options,
         "content_create_href": reverse("teacher-question-source-create-content"),

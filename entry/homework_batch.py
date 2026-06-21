@@ -13,6 +13,7 @@ from .homework_online import (
     decode_sql_ascii_json_text,
     encode_sql_ascii_json_text,
     normalize_candidate_editor_rows,
+    parse_question_source_knowledge_snapshot,
 )
 from .models import HomeworkAssignment, HomeworkImportJob, HomeworkQuestion, PortalUser
 from .student_import import teacher_can_import_students
@@ -38,6 +39,7 @@ def get_visible_homework_import_jobs(
         )
         .filter(
             Q(assignment__isnull=True, content__is_active=True)
+            | Q(assignment__isnull=True, content__isnull=True)
             | Q(assignment__is_active=True, assignment__content__is_active=True)
         )
         .filter(
@@ -51,6 +53,7 @@ def get_visible_homework_import_jobs(
         queryset = queryset.filter(
             Q(assignment__content__course_id=course_id)
             | Q(content__course_id=course_id)
+            | Q(assignment__isnull=True, content__isnull=True)
         )
     if teacher_can_import_students(portal_user):
         return queryset
@@ -69,10 +72,20 @@ def build_homework_import_job_source_metadata(import_job: HomeworkImportJob) -> 
         }
 
     content = import_job.content
+    knowledge_snapshot = parse_question_source_knowledge_snapshot(import_job.parse_notes)
+    knowledge_title = " / ".join(
+        part
+        for part in [
+            knowledge_snapshot.get("knowledge_level_1", ""),
+            knowledge_snapshot.get("knowledge_level_2", ""),
+            knowledge_snapshot.get("knowledge_level_3", ""),
+        ]
+        if part
+    )
     return {
-        "assignment_title": (content.title if content else "") or import_job.source_filename,
-        "course_title": content.course.title if content and content.course_id else "",
-        "content_title": content.title if content else "",
+        "assignment_title": (content.title if content else knowledge_title) or import_job.source_filename,
+        "course_title": content.course.title if content and content.course_id else knowledge_snapshot.get("knowledge_subject", ""),
+        "content_title": content.title if content else knowledge_title,
         "content_id": content.id if content else 0,
         "source_due_date_text": "",
         "source_due_date_value": "",

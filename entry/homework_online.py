@@ -71,6 +71,7 @@ WHITESPACE_RE = re.compile(r"\s+")
 HTTP_ERROR_PREVIEW_LIMIT = 240
 TRACE_PREVIEW_LIMIT = 220
 JSON_TEXT_ESCAPE_PREFIX = "__cm_json_text_unicode_escape__:"
+QUESTION_SOURCE_KNOWLEDGE_MARKER = "question_source_knowledge="
 
 
 class HomeworkImportParseError(Exception):
@@ -2267,11 +2268,62 @@ def _build_import_progress_notes(import_job: HomeworkImportJob, trace: HomeworkI
 def update_import_job_progress(import_job: HomeworkImportJob, trace: HomeworkImportTrace, step: str, detail: str = "") -> None:
     trace.progress_step = step
     trace.progress_detail = detail
-    import_job.parse_notes = _build_import_progress_notes(import_job, trace)
+    import_job.parse_notes = append_question_source_knowledge_marker_lines(
+        _build_import_progress_notes(import_job, trace),
+        extract_question_source_knowledge_marker_lines(import_job.parse_notes),
+    )
     import_job.save(update_fields=["parse_notes", "updated_at"])
 
 
+def extract_question_source_knowledge_marker_lines(parse_notes: object) -> list[str]:
+    return [
+        line.strip()
+        for line in str(parse_notes or "").splitlines()
+        if line.strip().startswith(QUESTION_SOURCE_KNOWLEDGE_MARKER)
+    ]
+
+
+def append_question_source_knowledge_marker_lines(parse_notes: str, marker_lines: list[str]) -> str:
+    unique_lines = []
+    seen = set()
+    for line in marker_lines:
+        normalized = line.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_lines.append(normalized)
+    if not unique_lines:
+        return parse_notes
+    visible_lines = [
+        line
+        for line in str(parse_notes or "").splitlines()
+        if not line.strip().startswith(QUESTION_SOURCE_KNOWLEDGE_MARKER)
+    ]
+    return "\n".join([*visible_lines, *unique_lines]).strip()
+
+
+def parse_question_source_knowledge_snapshot(parse_notes: object) -> dict[str, str]:
+    marker_lines = extract_question_source_knowledge_marker_lines(parse_notes)
+    if not marker_lines:
+        return {}
+    raw_payload = marker_lines[-1][len(QUESTION_SOURCE_KNOWLEDGE_MARKER):].strip()
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        "knowledge_subject": str(payload.get("subject") or "").strip(),
+        "level_code": str(payload.get("category_code") or "").strip().upper(),
+        "knowledge_level_1": str(payload.get("level_1") or "").strip(),
+        "knowledge_level_2": str(payload.get("level_2") or "").strip(),
+        "knowledge_level_3": str(payload.get("level_3") or "").strip(),
+    }
+
+
 def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJob:
+    preserved_metadata_lines = extract_question_source_knowledge_marker_lines(import_job.parse_notes)
     import_job.parse_status = HomeworkImportJob.STATUS_PARSING
     model_label = get_homework_llm_model_label()
     trace = HomeworkImportTrace(
@@ -2280,7 +2332,10 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
         debug_enabled=bool(getattr(settings, "HOMEWORK_IMPORT_DEBUG", False)),
         progress_started_at=time.monotonic(),
     )
-    import_job.parse_notes = _build_import_progress_notes(import_job, trace)
+    import_job.parse_notes = append_question_source_knowledge_marker_lines(
+        _build_import_progress_notes(import_job, trace),
+        preserved_metadata_lines,
+    )
     import_job.save(update_fields=["parse_status", "parse_notes", "updated_at"])
     duplicate_job = find_recent_duplicate_import_job(import_job)
     if duplicate_job is not None:
@@ -2304,6 +2359,8 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             f"已选择路线 {route.name}，准备结构化候选题。",
         )
         candidates: list[dict] = []
+        heuristic_candidates: list[dict] = []
+        heuristic_notes = ""
 
         if route.use_vision:
             if not source_text:
@@ -2329,8 +2386,9 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             else:
                 raise HomeworkImportParseError("文件内容为空，无法识别单选题。")
         else:
+            heuristic_candidates, heuristic_notes = parse_candidates_with_heuristic(source_text)
             if not route.use_qwen:
-                candidates, heuristic_notes = parse_candidates_with_heuristic(source_text)
+                candidates = heuristic_candidates
                 trace.model_notes.append(heuristic_notes)
             else:
                 try:
@@ -2343,9 +2401,24 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
                         progress_callback=lambda step, detail="": update_import_job_progress(import_job, trace, step, detail),
                     )
                     trace.model_notes.append(qwen_notes)
+                    if len(heuristic_candidates) > len(candidates):
+                        trace.fallback_attempted = True
+                        trace.fallback_used = True
+                        trace.fallback_reason = (
+                            f"本地结构化规则提取 {len(heuristic_candidates)} 道，"
+                            f"{model_label} 提取 {len(candidates)} 道；已使用本地结果补齐。"
+                        )
+                        trace.model_notes.append(heuristic_notes)
+                        candidates = heuristic_candidates
                 except HomeworkImportParseError as exc:
                     trace.qwen_error = str(exc)
-                    if bool(getattr(settings, "HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC", True)):
+                    if heuristic_candidates:
+                        trace.fallback_attempted = True
+                        trace.fallback_used = True
+                        trace.fallback_reason = f"{model_label} 不可用或调用失败，已使用本地结构化规则：{exc}"
+                        candidates = heuristic_candidates
+                        trace.model_notes.append(heuristic_notes)
+                    elif bool(getattr(settings, "HOMEWORK_IMPORT_ALLOW_FALLBACK_HEURISTIC", True)):
                         trace.fallback_attempted = True
                         trace.fallback_used = True
                         trace.fallback_reason = f"{model_label} 不可用或调用失败，退回本地 heuristic：{exc}"
@@ -2377,7 +2450,10 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
                 trace.model_notes.append(f"{model_label} 答案解析补全失败，保留候选题等待老师手动补充：{exc}")
         trace.candidate_count = len(candidates)
         import_job.candidates_json = encode_sql_ascii_json_text(candidates)
-        import_job.parse_notes = _finalize_import_job_parse_notes(import_job, trace)
+        import_job.parse_notes = append_question_source_knowledge_marker_lines(
+            _finalize_import_job_parse_notes(import_job, trace),
+            preserved_metadata_lines,
+        )
 
         if route.use_vision:
             import_job.parse_status = HomeworkImportJob.STATUS_PARSED
@@ -2403,7 +2479,10 @@ def parse_homework_import_job(import_job: HomeworkImportJob) -> HomeworkImportJo
             else:
                 trace.failure_step = "导入解析"
         import_job.candidates_json = []
-        import_job.parse_notes = _finalize_import_job_parse_notes(import_job, trace)
+        import_job.parse_notes = append_question_source_knowledge_marker_lines(
+            _finalize_import_job_parse_notes(import_job, trace),
+            preserved_metadata_lines,
+        )
         import_job.parse_status = HomeworkImportJob.STATUS_FAILED
     import_job.save(update_fields=["candidates_json", "parse_notes", "parse_status", "updated_at"])
     return import_job
@@ -2626,6 +2705,7 @@ def confirm_question_source_import_job(
             )
             created_questions = []
             reviewed_candidates = []
+            knowledge_snapshot = parse_question_source_knowledge_snapshot(locked_import_job.parse_notes)
             for candidate in normalized_payloads:
                 reviewed_candidate = dict(candidate)
                 if candidate["included"]:
@@ -2637,6 +2717,7 @@ def confirm_question_source_import_job(
                         extra_snapshot={
                             "question_source_import": True,
                             "content_id": locked_import_job.content_id or 0,
+                            **knowledge_snapshot,
                         },
                     )
                     try:

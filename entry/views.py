@@ -92,6 +92,7 @@ from .exam_paper_import import (
 )
 from .homework_online import (
     HomeworkImportParseError,
+    QUESTION_SOURCE_KNOWLEDGE_MARKER,
     compute_uploaded_file_sha256,
     confirm_homework_import_job,
     confirm_question_source_import_job,
@@ -99,6 +100,7 @@ from .homework_online import (
     detect_homework_source_type,
     encode_sql_ascii_json_text,
     grade_homework_submission,
+    parse_question_source_knowledge_snapshot,
 )
 from .manual_overrides import update_question_manual_override
 from .models import (
@@ -3443,6 +3445,14 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
                 if normalized_id and normalized_token not in seen_question_tokens:
                     selected_question_tokens.append(normalized_token)
                     seen_question_tokens.add(normalized_token)
+                continue
+            homework_match = re.fullmatch(r"homework:(\d+)", token)
+            if homework_match:
+                normalized_id = normalize_positive_int(homework_match.group(1), default=0, minimum=1)
+                normalized_token = f"homework:{normalized_id}"
+                if normalized_id and normalized_token not in seen_question_tokens:
+                    selected_question_tokens.append(normalized_token)
+                    seen_question_tokens.add(normalized_token)
         if not selected_question_tokens:
             return render_free_practice(error_message="请至少选择一道题。")
         if len(selected_question_tokens) > 20:
@@ -3453,6 +3463,7 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
         ordered_question_refs = []
         exam_question_ids = []
         bank_question_ids = []
+        homework_question_ids = []
         for token in selected_question_tokens:
             if token.isdigit():
                 question_id = normalize_positive_int(token, default=0, minimum=1)
@@ -3466,6 +3477,13 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
                 if bank_question_id:
                     ordered_question_refs.append(("bank", bank_question_id))
                     bank_question_ids.append(bank_question_id)
+                continue
+            homework_match = re.fullmatch(r"homework:(\d+)", token)
+            if homework_match:
+                homework_question_id = normalize_positive_int(homework_match.group(1), default=0, minimum=1)
+                if homework_question_id:
+                    ordered_question_refs.append(("homework", homework_question_id))
+                    homework_question_ids.append(homework_question_id)
         questions_by_id = {
             question.id: question
             for question in ExamQuestion.objects.select_related("paper", "paper__teacher", "paper__course")
@@ -3473,12 +3491,15 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
             .filter(id__in=exam_question_ids, is_active=True, paper__is_active=True)
         }
         bank_questions_by_id = materialize_free_practice_bank_questions(bank_question_ids)
+        homework_questions_by_id = materialize_free_practice_homework_questions(homework_question_ids)
         source_questions = []
         for ref_type, question_id in ordered_question_refs:
             if ref_type == "exam" and question_id in questions_by_id:
                 source_questions.append(questions_by_id[question_id])
             if ref_type == "bank" and question_id in bank_questions_by_id:
                 source_questions.append(bank_questions_by_id[question_id])
+            if ref_type == "homework" and question_id in homework_questions_by_id:
+                source_questions.append(homework_questions_by_id[question_id])
         if not source_questions:
             return render_free_practice(error_message="没有找到可练习的题目。", selected_question_ids=selected_question_tokens)
         try:
@@ -5180,6 +5201,104 @@ def get_or_create_free_practice_source_exam_paper(bank_paper: ExamQuestionBankPa
     )
 
 
+def build_free_practice_homework_source_marker() -> str:
+    return "free_practice_homework_question_source=1"
+
+
+def get_or_create_free_practice_homework_source_exam_paper() -> ExamPaper:
+    marker = build_free_practice_homework_source_marker()
+    existing_paper = (
+        ExamPaper.objects.select_related("course", "teacher")
+        .filter(is_active=True, description__contains=marker)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if existing_paper:
+        return existing_paper
+    owner = resolve_free_practice_source_owner()
+    course = Course.objects.filter(title__iexact="C++").order_by("id").first()
+    return ExamPaper.objects.create(
+        teacher=owner,
+        course=course,
+        title="作业题源自由练习源",
+        description="\n".join(
+            [
+                marker,
+                "用途：自由练习公共作业题源，不代表已发布考试。",
+            ]
+        ),
+        mode=ExamPaper.MODE_DEADLINE,
+        duration_minutes=60,
+        proctoring_enabled=False,
+        status=ExamPaper.STATUS_DRAFT,
+        is_active=True,
+    )
+
+
+def materialize_free_practice_homework_questions(homework_question_ids: list[int]) -> dict[int, ExamQuestion]:
+    if not homework_question_ids:
+        return {}
+    homework_questions = list(
+        HomeworkQuestion.objects.select_related(
+            "import_job",
+            "import_job__content",
+            "import_job__content__course",
+            "import_job__content__level",
+        )
+        .filter(
+            id__in=homework_question_ids,
+            is_active=True,
+            assignment__isnull=True,
+            import_job__is_active=True,
+            import_job__assignment__isnull=True,
+            import_job__parse_status=HomeworkImportJob.STATUS_CONFIRMED,
+        )
+        .order_by("id")
+    )
+    if not homework_questions:
+        return {}
+    exam_paper = get_or_create_free_practice_homework_source_exam_paper()
+    materialized: dict[int, ExamQuestion] = {}
+    existing_questions = ExamQuestion.objects.filter(paper=exam_paper, is_active=True)
+    for question in existing_questions:
+        snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+        homework_question_id = normalize_positive_int(snapshot.get("homework_question_id"), default=0, minimum=1)
+        if homework_question_id:
+            materialized[homework_question_id] = question
+
+    next_question_no = (ExamQuestion.objects.filter(paper=exam_paper).aggregate(max_no=Max("question_no"))["max_no"] or 0) + 1
+    for homework_question in homework_questions:
+        if homework_question.id in materialized:
+            continue
+        snapshot = decode_sql_ascii_json_text(homework_question.source_snapshot_json)
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        options = decode_sql_ascii_json_text(homework_question.options_json)
+        if not isinstance(options, dict):
+            options = {}
+        source_snapshot = {
+            **snapshot,
+            "homework_question_id": homework_question.id,
+            "homework_import_job_id": homework_question.import_job_id or 0,
+            "free_practice_homework_source": True,
+        }
+        materialized[homework_question.id] = ExamQuestion.objects.create(
+            paper=exam_paper,
+            question_no=next_question_no,
+            question_type=ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem=homework_question.stem,
+            options_json=options,
+            correct_answer=str(homework_question.correct_answer or "").strip().upper()[:1],
+            analysis=str(homework_question.analysis or "").strip(),
+            score=1,
+            wrong_point_label=str(source_snapshot.get("knowledge_level_1") or "公共作业题源").strip()[:128],
+            source_snapshot_json=source_snapshot,
+            is_active=True,
+        )
+        next_question_no += 1
+    return materialized
+
+
 def materialize_free_practice_bank_questions(bank_question_ids: list[int]) -> dict[int, ExamQuestion]:
     if not bank_question_ids:
         return {}
@@ -5449,8 +5568,6 @@ def create_or_update_exam_management_from_bank_paper(
         .first()
     )
     if existing_paper:
-        apply_exam_management_schedule(existing_paper, schedule=schedule)
-        sync_exam_questions_from_bank_paper(exam_paper=existing_paper, bank_paper=bank_paper)
         return existing_paper, False
 
     subject_title = infer_exam_bank_paper_subject(bank_paper)
@@ -5580,7 +5697,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             if paper and op == "bank_paper_added":
                 success_message = f"{paper.title} 已加入考试管理列表。"
             elif paper:
-                success_message = f"{paper.title} 已在考试管理列表中，发布设置已更新。"
+                success_message = f"{paper.title} 已在考试管理列表中，未重复发布。"
             else:
                 success_message = "试卷已加入考试管理列表。"
         elif op == "bank_paper_started":
@@ -5790,7 +5907,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 return render_exam_page(error_message="未找到这张可用试卷。")
             except ExamError as exc:
                 return render_exam_page(error_message=str(exc))
-            op = "bank_paper_started" if schedule.get("start_immediately") else ("bank_paper_added" if created else "bank_paper_exists")
+            op = "bank_paper_started" if created and schedule.get("start_immediately") else ("bank_paper_added" if created else "bank_paper_exists")
             return redirect(
                 build_redirect_with_query(
                     reverse("teacher-exams"),
@@ -7440,10 +7557,15 @@ def build_homework_question_knowledge_prompt(question: HomeworkQuestion, mapping
 
 def get_homework_import_job_mapping_markdown(import_job: HomeworkImportJob) -> str:
     content = import_job.content or (import_job.assignment.content if import_job.assignment_id and import_job.assignment else None)
-    if content is None or content.course_id is None:
-        raise ValidationError("当前题源没有绑定课程知识点，无法匹配知识点映射表。")
-    subject = normalize_exam_knowledge_subject(content.course.title)
-    category_code = str(content.level.code if content.level_id and content.level else content.phase or "").strip().upper()
+    if content is not None and content.course_id is not None:
+        subject = normalize_exam_knowledge_subject(content.course.title)
+        category_code = str(content.level.code if content.level_id and content.level else content.phase or "").strip().upper()
+    else:
+        knowledge_snapshot = parse_question_source_knowledge_snapshot(import_job.parse_notes)
+        subject = normalize_exam_knowledge_subject(knowledge_snapshot.get("knowledge_subject") or "cpp")
+        category_code = str(knowledge_snapshot.get("level_code") or "").strip().upper()
+    if not subject or not category_code:
+        raise ValidationError("当前题源没有可用的学科和级别，无法匹配知识点映射表。")
     rows = list(
         ExamKnowledgePointMap.objects.filter(
             subject=subject,
@@ -7802,6 +7924,11 @@ def teacher_question_source_import(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         action = request.POST.get("form_action", "").strip()
         selected_content_id = normalize_positive_int(request.POST.get("content_id"), default=0, minimum=1)
+        target_subject = normalize_exam_knowledge_subject(request.POST.get("target_subject") or selected_course_slug or "cpp")
+        target_category_code = (request.POST.get("target_category_code") or "").strip().upper()
+        target_level_1 = (request.POST.get("target_level_1") or "").strip()
+        target_level_2 = (request.POST.get("target_level_2") or "").strip()
+        target_level_3 = (request.POST.get("target_level_3") or "").strip()
         try:
             context = build_teacher_question_source_import_context(
                 portal_user,
@@ -7810,6 +7937,25 @@ def teacher_question_source_import(request: HttpRequest) -> HttpResponse:
             )
         except ObjectDoesNotExist as exc:
             raise Http404("未找到该课程") from exc
+        if not selected_content_id:
+            target_title = build_knowledge_path_title(target_level_1, target_level_2, target_level_3)
+            if target_category_code and target_title:
+                matched_content_option = next(
+                    (
+                        item
+                        for item in context["content_options"]
+                        if str(item.get("title") or "").strip() == target_title
+                        and str(item.get("phase") or item.get("level_label") or "").strip().upper() == target_category_code
+                    ),
+                    None,
+                )
+                if matched_content_option:
+                    selected_content_id = int(matched_content_option["id"])
+                    context = build_teacher_question_source_import_context(
+                        portal_user,
+                        selected_course_slug=selected_course_slug,
+                        selected_content_id=selected_content_id,
+                    )
         content_option_ids = {item["id"] for item in context["content_options"]}
         selected_content_option = context["selected_content_option"]
         selected_content = (
@@ -7821,8 +7967,10 @@ def teacher_question_source_import(request: HttpRequest) -> HttpResponse:
         )
 
         if action == "upload_choice_file":
-            if selected_content is None:
-                return render_import_page(upload_error_message="请先选择一个有效知识点。", selected_content_id=selected_content_id)
+            if not target_category_code:
+                return render_import_page(upload_error_message="请先选择级别。", selected_content_id=selected_content_id)
+            if not target_level_1:
+                return render_import_page(upload_error_message="请先选择一级知识点。", selected_content_id=selected_content_id)
             source_file = request.FILES.get("source_file")
             if not source_file:
                 return render_import_page(upload_error_message="请先选择一个文件再上传。", selected_content_id=selected_content_id)
@@ -7871,6 +8019,20 @@ def teacher_question_source_import(request: HttpRequest) -> HttpResponse:
                     source_sha256=source_sha256,
                     source_type=source_type,
                     parse_status=HomeworkImportJob.STATUS_UPLOADED,
+                    parse_notes=(
+                        QUESTION_SOURCE_KNOWLEDGE_MARKER
+                        + json.dumps(
+                            {
+                                "subject": target_subject,
+                                "category_code": target_category_code,
+                                "level_1": target_level_1,
+                                "level_2": target_level_2,
+                                "level_3": target_level_3,
+                            },
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        )
+                    ),
                     is_active=True,
                 )
             redirect_params = {"op": "queued", "content_id": selected_content_id}

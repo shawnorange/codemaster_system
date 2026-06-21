@@ -202,6 +202,7 @@ body::before {
 .showcase-panel__mascot img {
     width: min(100%, 340px);
     height: auto;
+    aspect-ratio: 920 / 1332;
 }
 
 .login-panel {

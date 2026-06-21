@@ -4,7 +4,101 @@
 {% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
 
 {% block extra_head %}
+    {% include "entry/includes/teacher_tabulator_head.html" %}
     <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+    <style>
+        .homework-batch-knowledge-grid {
+            align-items: end;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+        }
+
+        .homework-knowledge-combobox {
+            position: relative;
+        }
+
+        .homework-knowledge-combobox__button,
+        .homework-knowledge-combobox__search {
+            background: #ffffff;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            color: #0f172a;
+            font: inherit;
+            width: 100%;
+        }
+
+        .homework-knowledge-combobox__button {
+            align-items: center;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            min-height: 44px;
+            padding: 0 12px;
+            text-align: left;
+        }
+
+        .homework-knowledge-combobox__button:disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+        .homework-knowledge-combobox__panel {
+            background: #ffffff;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 8px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+            display: none;
+            left: 0;
+            padding: 8px;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 6px);
+            z-index: 1000;
+        }
+
+        .homework-knowledge-combobox.is-open .homework-knowledge-combobox__panel {
+            display: block;
+        }
+
+        .homework-knowledge-combobox__search {
+            height: 38px;
+            margin-bottom: 8px;
+            padding: 0 10px;
+        }
+
+        .homework-knowledge-combobox__options {
+            display: grid;
+            max-height: 238px;
+            overflow: auto;
+        }
+
+        .homework-knowledge-combobox__option {
+            background: transparent;
+            border: 0;
+            border-radius: 6px;
+            color: #0f172a;
+            cursor: pointer;
+            padding: 9px 10px;
+            text-align: left;
+        }
+
+        .homework-knowledge-combobox__option:hover,
+        .homework-knowledge-combobox__option.is-selected {
+            background: #e0f2fe;
+        }
+
+        .question-source-hidden-content {
+            display: none;
+        }
+
+        @media (max-width: 1100px) {
+            .homework-batch-knowledge-grid {
+                grid-template-columns: repeat(2, minmax(160px, 1fr));
+            }
+        }
+    </style>
 {% endblock %}
 
 {% block system_content %}
@@ -73,17 +167,75 @@
                 <form method="post" enctype="multipart/form-data" class="record-form" data-upload-form>
                     {% csrf_token %}
                     <input type="hidden" name="form_action" value="upload_choice_file">
-                    <div class="record-form__row" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                        <select name="content_id" data-content-select {% if not content_options %}disabled{% endif %} required>
+                    <input type="hidden" name="content_id" value="{{ form_values.content_id }}" data-content-id-input>
+                    <div class="question-source-hidden-content">
+                        <select data-content-select {% if not content_options %}disabled{% endif %}>
                             <option value="">选择知识点</option>
                             {% for item in content_options %}
                                 <option value="{{ item.id }}" {% if item.id == selected_content_id %}selected{% endif %}>{{ item.label }}</option>
                             {% endfor %}
                         </select>
+                    </div>
+                    <div class="homework-batch-knowledge-grid" data-knowledge-selector="question-source-target">
+                        <label>
+                            <span>学科</span>
+                            <input type="hidden" name="target_subject" value="{{ form_values.target_subject }}" data-knowledge-value="subject">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="subject">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择学科</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索学科" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>级别</span>
+                            <input type="hidden" name="target_category_code" value="{{ form_values.target_category_code }}" data-knowledge-value="category">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="category">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择级别</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索级别" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>一级知识点</span>
+                            <input type="hidden" name="target_level_1" value="{{ form_values.target_level_1 }}" data-knowledge-value="level1">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level1">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择一级知识点</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索一级知识点" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>二级知识点</span>
+                            <input type="hidden" name="target_level_2" value="{{ form_values.target_level_2 }}" data-knowledge-value="level2">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level2">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择二级知识点</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索二级知识点" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>三级知识点</span>
+                            <input type="hidden" name="target_level_3" value="{{ form_values.target_level_3 }}" data-knowledge-value="level3">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level3">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择三级知识点</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索三级知识点" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
                         <button
                             type="button"
-                            class="teacher-anchor-link"
-                            id="open-question-source-content-modal"
+                            class="cm-tabulator-btn cm-tabulator-btn--primary"
+                            data-open-knowledge-create
                             {% if not content_create_level_options %}disabled{% endif %}
                         >
                             新增知识点
@@ -95,6 +247,10 @@
                             <span>{{ content_create_disabled_message }}</span>
                         </div>
                     {% endif %}
+                    <div class="record-inline-feedback" data-content-match-feedback>
+                        <strong>{% if selected_content_option %}{{ selected_content_option.title }}{% else %}尚未匹配知识点{% endif %}</strong>
+                        <span>{% if selected_content_option %}{{ selected_content_option.level_label }}{% else %}请选择完整学科、级别、一级目录和二级目录，或先新增知识点。{% endif %}</span>
+                    </div>
                     <div class="record-form__row">
                         <input type="file" name="source_file" data-source-file-input accept="{{ upload_accept }}" {% if not content_options %}disabled{% endif %} required>
                     </div>
@@ -140,19 +296,62 @@
 
                     <div class="entry-hint-bar" id="question-source-content-error" hidden></div>
 
-                    <div class="record-form" data-knowledge-selector="question-source-create">
-                        <select name="subject" data-knowledge-subject required>
-                            {% for option in knowledge_subject_options %}
-                                <option value="{{ option.value }}" {% if option.value == default_knowledge_subject %}selected{% endif %}>{{ option.label }}</option>
-                            {% endfor %}
-                        </select>
-                        <select name="category_code" data-knowledge-category required></select>
-                        <input type="text" name="level_1" list="question-source-create-level1-list" data-knowledge-level1 placeholder="一级目录" required>
-                        <datalist id="question-source-create-level1-list" data-knowledge-level1-list></datalist>
-                        <input type="text" name="level_2" list="question-source-create-level2-list" data-knowledge-level2 placeholder="二级目录" required>
-                        <datalist id="question-source-create-level2-list" data-knowledge-level2-list></datalist>
-                        <input type="text" name="level_3" list="question-source-create-level3-list" data-knowledge-level3 placeholder="三级目录（选填）">
-                        <datalist id="question-source-create-level3-list" data-knowledge-level3-list></datalist>
+                    <div class="record-form homework-batch-knowledge-grid" data-knowledge-selector="question-source-create">
+                        <label>
+                            <span>学科</span>
+                            <input type="hidden" name="subject" value="{{ form_values.target_subject }}" data-knowledge-value="subject">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="subject">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择学科</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索学科" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>级别</span>
+                            <input type="hidden" name="category_code" value="{{ form_values.target_category_code }}" data-knowledge-value="category">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="category">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择级别</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索级别" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>一级目录</span>
+                            <input type="hidden" name="level_1" value="" data-knowledge-value="level1">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level1" data-allow-custom="true">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入一级目录</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入一级目录" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>二级目录</span>
+                            <input type="hidden" name="level_2" value="" data-knowledge-value="level2">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level2" data-allow-custom="true">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入二级目录</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入二级目录" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
+                        <label>
+                            <span>三级目录</span>
+                            <input type="hidden" name="level_3" value="" data-knowledge-value="level3">
+                            <div class="homework-knowledge-combobox" data-knowledge-combobox="level3" data-allow-custom="true">
+                                <button type="button" class="homework-knowledge-combobox__button" data-knowledge-combobox-button><span data-knowledge-combobox-label>选择或输入三级目录</span><span>∨</span></button>
+                                <div class="homework-knowledge-combobox__panel">
+                                    <input class="homework-knowledge-combobox__search" type="search" placeholder="搜索或输入三级目录" data-knowledge-combobox-search>
+                                    <div class="homework-knowledge-combobox__options" data-knowledge-combobox-options></div>
+                                </div>
+                            </div>
+                        </label>
                     </div>
 
                     <div class="record-inline-feedback" style="margin-top: 14px;">
@@ -416,6 +615,8 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {{ content_options|json_script:"question-source-content-options" }}
+    {{ knowledge_subject_options|json_script:"question-source-knowledge-subject-options" }}
     {{ knowledge_map_rows|json_script:"question-source-knowledge-map-rows" }}
     {{ knowledge_category_options_by_subject|json_script:"question-source-knowledge-categories" }}
     {% if latest_import_job.parse_status == "uploaded" or latest_import_job.parse_status == "parsing" %}
@@ -466,7 +667,9 @@
 
             var submitButton = uploadForm.querySelector("[data-upload-submit]");
             var submitLabel = uploadForm.querySelector("[data-upload-submit-label]");
+            var contentIdInput = uploadForm.querySelector("[data-content-id-input]");
             var contentSelect = uploadForm.querySelector("[data-content-select]");
+            var contentFeedback = uploadForm.querySelector("[data-content-match-feedback]");
             var sourceFileInput = uploadForm.querySelector("[data-source-file-input]");
             var emptyStateHint = document.querySelector("[data-question-source-empty-state]");
             var progressRoot = uploadForm.querySelector("[data-upload-progress]");
@@ -478,94 +681,344 @@
             }
 
             var contentDialog = document.getElementById("question-source-content-modal");
-            var openContentDialogButton = document.getElementById("open-question-source-content-modal");
+            var openContentDialogButton = document.querySelector("[data-open-knowledge-create]");
             var closeContentDialogButton = document.getElementById("close-question-source-content-modal");
             var cancelContentDialogButton = document.getElementById("cancel-question-source-content-modal");
             var createContentForm = document.querySelector("[data-create-content-form]");
             var createContentError = document.getElementById("question-source-content-error");
             var createContentSubmitButton = document.getElementById("submit-question-source-content-modal");
+            var contentOptionsElement = document.getElementById("question-source-content-options");
+            var knowledgeSubjectOptionsElement = document.getElementById("question-source-knowledge-subject-options");
             var knowledgeRowsElement = document.getElementById("question-source-knowledge-map-rows");
             var knowledgeCategoriesElement = document.getElementById("question-source-knowledge-categories");
+            var contentOptions = contentOptionsElement ? JSON.parse(contentOptionsElement.textContent || "[]") : [];
+            var knowledgeSubjectOptions = knowledgeSubjectOptionsElement ? JSON.parse(knowledgeSubjectOptionsElement.textContent || "[]") : [];
             var knowledgeRows = knowledgeRowsElement ? JSON.parse(knowledgeRowsElement.textContent || "[]") : [];
             var knowledgeCategories = knowledgeCategoriesElement ? JSON.parse(knowledgeCategoriesElement.textContent || "{}") : {};
 
-            function setDatalistOptions(list, values) {
-                if (!list) {
+            function escapeHtml(value) {
+                return String(value == null ? "" : value)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#39;");
+            }
+
+            function normalize(value) {
+                return String(value == null ? "" : value).trim();
+            }
+
+            function buildKnowledgeTitle(values) {
+                return [values.level1, values.level2, values.level3].map(normalize).filter(Boolean).join(" / ");
+            }
+
+            function getSelectorValues(root) {
+                return {
+                    subject: normalize(root.querySelector('[data-knowledge-value="subject"]')?.value),
+                    category: normalize(root.querySelector('[data-knowledge-value="category"]')?.value).toUpperCase(),
+                    level1: normalize(root.querySelector('[data-knowledge-value="level1"]')?.value),
+                    level2: normalize(root.querySelector('[data-knowledge-value="level2"]')?.value),
+                    level3: normalize(root.querySelector('[data-knowledge-value="level3"]')?.value),
+                };
+            }
+
+            function setUploadAvailability(enabled) {
+                if (sourceFileInput) {
+                    sourceFileInput.disabled = !enabled;
+                }
+                submitButton.disabled = !enabled;
+            }
+
+            function setContentFeedback(title, message) {
+                if (!contentFeedback) {
                     return;
                 }
-                var uniqueValues = Array.from(new Set(values.filter(Boolean))).sort();
-                list.innerHTML = uniqueValues.map(function (value) {
-                    return '<option value="' + String(value).replace(/"/g, "&quot;") + '"></option>';
-                }).join("");
+                var strong = contentFeedback.querySelector("strong");
+                var span = contentFeedback.querySelector("span");
+                if (strong) {
+                    strong.textContent = title;
+                }
+                if (span) {
+                    span.textContent = message;
+                }
+            }
+
+            function syncHiddenContentSelect(contentId) {
+                if (contentIdInput) {
+                    contentIdInput.value = contentId ? String(contentId) : "";
+                }
+                if (contentSelect) {
+                    contentSelect.value = contentId ? String(contentId) : "";
+                    contentSelect.disabled = false;
+                }
+            }
+
+            function updateSelectedContent() {
+                var targetRoot = document.querySelector('[data-knowledge-selector="question-source-target"]');
+                if (!targetRoot) {
+                    return;
+                }
+                var values = getSelectorValues(targetRoot);
+                var title = buildKnowledgeTitle(values);
+                if (!values.category || !values.level1) {
+                    syncHiddenContentSelect("");
+                    setUploadAvailability(false);
+                    setContentFeedback("尚未匹配知识点", "请选择学科、级别和一级目录。二级、三级目录可选。");
+                    return;
+                }
+                var matched = contentOptions.find(function (item) {
+                    return normalize(item.title) === title
+                        && normalize(item.phase || item.level_label).toUpperCase() === values.category;
+                });
+                if (!matched) {
+                    syncHiddenContentSelect("");
+                    setUploadAvailability(true);
+                    setContentFeedback("按知识点路径导入", "未绑定题源知识点，也可以上传；确认后题目会按当前知识点路径进入自由练习搜索。");
+                    return;
+                }
+                syncHiddenContentSelect(matched.id);
+                setUploadAvailability(true);
+                if (emptyStateHint) {
+                    emptyStateHint.hidden = true;
+                }
+                setContentFeedback(matched.title || "已匹配知识点", matched.level_label || matched.label || "可以上传练习题。");
             }
 
             function setupKnowledgeSelector(root) {
                 if (!root) {
                     return;
                 }
-                var subject = root.querySelector("[data-knowledge-subject]");
-                var category = root.querySelector("[data-knowledge-category]");
-                var level1 = root.querySelector("[data-knowledge-level1]");
-                var level2 = root.querySelector("[data-knowledge-level2]");
-                var level3 = root.querySelector("[data-knowledge-level3]");
-                var level1List = root.querySelector("[data-knowledge-level1-list]");
-                var level2List = root.querySelector("[data-knowledge-level2-list]");
-                var level3List = root.querySelector("[data-knowledge-level3-list]");
-                if (!subject || !category) {
+                var typeOrder = ["subject", "category", "level1", "level2", "level3"];
+                var inputs = {};
+                var controls = {};
+                typeOrder.forEach(function (type) {
+                    inputs[type] = root.querySelector('[data-knowledge-value="' + type + '"]');
+                    controls[type] = root.querySelector('[data-knowledge-combobox="' + type + '"]');
+                });
+                if (!inputs.subject || !inputs.category) {
                     return;
                 }
 
+                function getValue(type) {
+                    return normalize(inputs[type] ? inputs[type].value : "");
+                }
+
+                function setValue(type, value) {
+                    if (inputs[type]) {
+                        inputs[type].value = normalize(value);
+                    }
+                }
+
                 function matchingRows() {
-                    var currentSubject = String(subject.value || "").trim();
-                    var currentCategory = String(category.value || "").trim();
+                    var currentSubject = getValue("subject");
+                    var currentCategory = getValue("category");
                     return knowledgeRows.filter(function (row) {
                         return (!currentSubject || row.subject === currentSubject)
                             && (!currentCategory || row.category_code === currentCategory);
                     });
                 }
 
-                function updateCategories() {
-                    var current = category.value;
-                    var options = knowledgeCategories[String(subject.value || "").trim()] || [];
-                    category.innerHTML = '<option value="">选择级别</option>' + options.map(function (option) {
-                        var value = String(option.value || "");
-                        return '<option value="' + value + '">' + String(option.label || value) + '</option>';
-                    }).join("");
-                    if (current && options.some(function (option) { return option.value === current; })) {
-                        category.value = current;
+                function optionRows(type) {
+                    if (type === "subject") {
+                        return knowledgeSubjectOptions.map(function (option) {
+                            return { value: normalize(option.value), label: normalize(option.label || option.value) };
+                        }).filter(function (option) { return option.value; });
                     }
-                }
-
-                function updateKnowledgeOptions() {
+                    if (type === "category") {
+                        if (!getValue("subject")) {
+                            return [];
+                        }
+                        return (knowledgeCategories[getValue("subject")] || []).map(function (option) {
+                            return { value: normalize(option.value), label: normalize(option.label || option.value) };
+                        }).filter(function (option) { return option.value; });
+                    }
                     var rows = matchingRows();
-                    var level1Value = level1 ? String(level1.value || "").trim() : "";
-                    var level2Value = level2 ? String(level2.value || "").trim() : "";
-                    setDatalistOptions(level1List, rows.map(function (row) { return row.level_1; }));
-                    setDatalistOptions(level2List, rows.filter(function (row) {
-                        return !level1Value || row.level_1 === level1Value;
-                    }).map(function (row) { return row.level_2; }));
-                    setDatalistOptions(level3List, rows.filter(function (row) {
-                        return (!level1Value || row.level_1 === level1Value)
-                            && (!level2Value || row.level_2 === level2Value);
-                    }).map(function (row) { return row.level_3; }));
+                    if (type === "level1") {
+                        if (!getValue("category")) {
+                            return [];
+                        }
+                        return Array.from(new Set(rows.map(function (row) { return row.level_1; }).filter(Boolean))).sort().map(function (value) {
+                            return { value: value, label: value };
+                        });
+                    }
+                    if (type === "level2") {
+                        if (!getValue("level1")) {
+                            return [];
+                        }
+                        return Array.from(new Set(rows.filter(function (row) {
+                            return row.level_1 === getValue("level1");
+                        }).map(function (row) { return row.level_2; }).filter(Boolean))).sort().map(function (value) {
+                            return { value: value, label: value };
+                        });
+                    }
+                    if (!getValue("level2")) {
+                        return [];
+                    }
+                    return Array.from(new Set(rows.filter(function (row) {
+                        return row.level_1 === getValue("level1") && row.level_2 === getValue("level2");
+                    }).map(function (row) { return row.level_3; }).filter(Boolean))).sort().map(function (value) {
+                        return { value: value, label: value };
+                    });
                 }
 
-                subject.addEventListener("change", function () {
-                    updateCategories();
-                    updateKnowledgeOptions();
+                function defaultLabel(type) {
+                    return {
+                        subject: "选择学科",
+                        category: "选择级别",
+                        level1: "选择一级知识点",
+                        level2: "选择二级知识点",
+                        level3: "选择三级知识点",
+                    }[type] || "请选择";
+                }
+
+                function labelForValue(type, value) {
+                    var matched = optionRows(type).find(function (option) {
+                        return option.value === value;
+                    });
+                    return matched ? matched.label : value || defaultLabel(type);
+                }
+
+                function isEnabled(type) {
+                    if (type === "subject") {
+                        return true;
+                    }
+                    if (type === "category") {
+                        return Boolean(getValue("subject"));
+                    }
+                    if (type === "level1") {
+                        return Boolean(getValue("category"));
+                    }
+                    if (type === "level2") {
+                        return Boolean(getValue("level1"));
+                    }
+                    if (type === "level3") {
+                        return Boolean(getValue("level2"));
+                    }
+                    return true;
+                }
+
+                function clearChildren(type) {
+                    typeOrder.slice(typeOrder.indexOf(type) + 1).forEach(function (childType) {
+                        setValue(childType, "");
+                    });
+                }
+
+                function renderControl(type, query) {
+                    var control = controls[type];
+                    if (!control) {
+                        return;
+                    }
+                    var button = control.querySelector("[data-knowledge-combobox-button]");
+                    var label = control.querySelector("[data-knowledge-combobox-label]");
+                    var optionsRoot = control.querySelector("[data-knowledge-combobox-options]");
+                    var search = control.querySelector("[data-knowledge-combobox-search]");
+                    var enabled = isEnabled(type);
+                    if (button) {
+                        button.disabled = !enabled;
+                    }
+                    if (label) {
+                        label.textContent = labelForValue(type, getValue(type));
+                    }
+                    if (!optionsRoot) {
+                        return;
+                    }
+                    var normalizedQuery = normalize(query).toLowerCase();
+                    var options = optionRows(type).filter(function (option) {
+                        return !normalizedQuery
+                            || option.label.toLowerCase().includes(normalizedQuery)
+                            || option.value.toLowerCase().includes(normalizedQuery);
+                    }).slice(0, 10);
+                    if (!options.length && control.dataset.allowCustom === "true" && normalizedQuery) {
+                        options = [{ value: normalize(query), label: "使用：" + normalize(query) }];
+                    }
+                    if (!options.length) {
+                        optionsRoot.innerHTML = '<button type="button" class="homework-knowledge-combobox__option" disabled>暂无可选项</button>';
+                        return;
+                    }
+                    optionsRoot.innerHTML = options.map(function (option) {
+                        var selected = option.value === getValue(type) ? " is-selected" : "";
+                        return '<button type="button" class="homework-knowledge-combobox__option' + selected + '" data-value="' + escapeHtml(option.value) + '">' + escapeHtml(option.label) + '</button>';
+                    }).join("");
+                    optionsRoot.querySelectorAll("[data-value]").forEach(function (optionButton) {
+                        optionButton.addEventListener("click", function () {
+                            setValue(type, optionButton.getAttribute("data-value") || "");
+                            clearChildren(type);
+                            control.classList.remove("is-open");
+                            if (search) {
+                                search.value = "";
+                            }
+                            renderAll();
+                            if (root.dataset.knowledgeSelector === "question-source-target") {
+                                updateSelectedContent();
+                            }
+                        });
+                    });
+                }
+
+                function renderAll() {
+                    typeOrder.forEach(function (type) {
+                        renderControl(type, "");
+                    });
+                }
+
+                typeOrder.forEach(function (type) {
+                    var control = controls[type];
+                    if (!control) {
+                        return;
+                    }
+                    var button = control.querySelector("[data-knowledge-combobox-button]");
+                    var search = control.querySelector("[data-knowledge-combobox-search]");
+                    if (button) {
+                        button.addEventListener("click", function () {
+                            if (!isEnabled(type)) {
+                                return;
+                            }
+                            document.querySelectorAll(".homework-knowledge-combobox.is-open").forEach(function (item) {
+                                if (item !== control) {
+                                    item.classList.remove("is-open");
+                                }
+                            });
+                            control.classList.toggle("is-open");
+                            renderControl(type, search ? search.value : "");
+                            if (search) {
+                                search.focus();
+                            }
+                        });
+                    }
+                    if (search) {
+                        search.addEventListener("input", function () {
+                            renderControl(type, search.value);
+                        });
+                        search.addEventListener("keydown", function (event) {
+                            if (event.key !== "Enter" || control.dataset.allowCustom !== "true") {
+                                return;
+                            }
+                            event.preventDefault();
+                            var value = normalize(search.value);
+                            if (!value) {
+                                return;
+                            }
+                            setValue(type, value);
+                            clearChildren(type);
+                            control.classList.remove("is-open");
+                            search.value = "";
+                            renderAll();
+                        });
+                    }
                 });
-                category.addEventListener("change", updateKnowledgeOptions);
-                if (level1) {
-                    level1.addEventListener("input", updateKnowledgeOptions);
-                }
-                if (level2) {
-                    level2.addEventListener("input", updateKnowledgeOptions);
-                }
-                updateCategories();
-                updateKnowledgeOptions();
+                renderAll();
             }
 
             document.querySelectorAll("[data-knowledge-selector]").forEach(setupKnowledgeSelector);
+            document.addEventListener("click", function (event) {
+                if (!event.target.closest(".homework-knowledge-combobox")) {
+                    document.querySelectorAll(".homework-knowledge-combobox.is-open").forEach(function (item) {
+                        item.classList.remove("is-open");
+                    });
+                }
+            });
+            updateSelectedContent();
 
             function showDialog(dialog) {
                 if (!dialog) {
@@ -626,7 +1079,7 @@
                 });
             }
 
-            if (createContentForm && createContentSubmitButton && contentSelect) {
+            if (createContentForm && createContentSubmitButton) {
                 createContentForm.addEventListener("submit", async function (event) {
                     event.preventDefault();
                     setCreateContentError("");
@@ -649,13 +1102,74 @@
                             return;
                         }
 
-                        var option = document.createElement("option");
-                        option.value = String(payload.id);
-                        option.textContent = payload.label || payload.title || "新知识点";
-                        option.selected = true;
-                        contentSelect.appendChild(option);
-                        contentSelect.value = String(payload.id);
-                        contentSelect.disabled = false;
+                        var existingContent = contentOptions.find(function (item) {
+                            return String(item.id) === String(payload.id);
+                        });
+                        var contentPayload = {
+                            id: payload.id,
+                            title: payload.title || "",
+                            phase: payload.phase || (payload.knowledge_map ? payload.knowledge_map.category_code : ""),
+                            level_label: payload.level_label || "",
+                            label: payload.label || payload.title || "新知识点",
+                            summary: "当前知识点未补充额外说明。"
+                        };
+                        if (existingContent) {
+                            Object.assign(existingContent, contentPayload);
+                        } else {
+                            contentOptions.push(contentPayload);
+                        }
+                        if (contentSelect) {
+                            var option = Array.from(contentSelect.options || []).find(function (item) {
+                                return item.value === String(payload.id);
+                            });
+                            if (!option) {
+                                option = document.createElement("option");
+                                option.value = String(payload.id);
+                                option.textContent = payload.label || payload.title || "新知识点";
+                                contentSelect.appendChild(option);
+                            }
+                            contentSelect.value = String(payload.id);
+                            contentSelect.disabled = false;
+                        }
+                        if (payload.knowledge_map) {
+                            var map = payload.knowledge_map;
+                            var exists = knowledgeRows.some(function (row) {
+                                return row.subject === map.subject
+                                    && row.category_code === map.category_code
+                                    && row.level_1 === map.level_1
+                                    && row.level_2 === map.level_2
+                                    && row.level_3 === map.level_3;
+                            });
+                            if (!exists) {
+                                knowledgeRows.push({
+                                    subject: map.subject || "",
+                                    category_code: map.category_code || "",
+                                    level_1: map.level_1 || "",
+                                    level_2: map.level_2 || "",
+                                    level_3: map.level_3 || ""
+                                });
+                            }
+                            var targetRoot = document.querySelector('[data-knowledge-selector="question-source-target"]');
+                            if (targetRoot) {
+                                [
+                                    ["subject", map.subject],
+                                    ["category", map.category_code],
+                                    ["level1", map.level_1],
+                                    ["level2", map.level_2],
+                                    ["level3", map.level_3]
+                                ].forEach(function (item) {
+                                    var input = targetRoot.querySelector('[data-knowledge-value="' + item[0] + '"]');
+                                    var label = targetRoot.querySelector('[data-knowledge-combobox="' + item[0] + '"] [data-knowledge-combobox-label]');
+                                    if (input) {
+                                        input.value = item[1] || "";
+                                    }
+                                    if (label) {
+                                        label.textContent = item[1] || label.textContent;
+                                    }
+                                });
+                            }
+                        }
+                        syncHiddenContentSelect(payload.id);
                         if (sourceFileInput) {
                             sourceFileInput.disabled = false;
                         }
@@ -667,6 +1181,7 @@
                             openContentDialogButton.disabled = false;
                         }
                         createContentForm.reset();
+                        updateSelectedContent();
                         hideDialog(contentDialog);
                     } catch (error) {
                         setCreateContentError("新增知识点失败，请稍后重试。");
@@ -695,6 +1210,13 @@
             }
 
             uploadForm.addEventListener("submit", function (event) {
+                var targetRoot = document.querySelector('[data-knowledge-selector="question-source-target"]');
+                var targetValues = targetRoot ? getSelectorValues(targetRoot) : {};
+                if (!targetValues.category || !targetValues.level1) {
+                    event.preventDefault();
+                    setContentFeedback("尚未匹配知识点", "请选择学科、级别和一级目录后再上传。二级、三级目录可选。");
+                    return;
+                }
                 if (isSubmitting) {
                     event.preventDefault();
                     return;
