@@ -85,6 +85,204 @@
             margin-top: 16px;
         }
 
+        .exam-bank-missing-knowledge {
+            border: 1px solid rgba(210, 135, 38, 0.28);
+            border-radius: 8px;
+            background: #fffaf2;
+            margin-bottom: 16px;
+        }
+
+        .exam-bank-missing-knowledge summary {
+            align-items: center;
+            cursor: pointer;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+            padding: 12px 14px;
+            color: #8a4c00;
+            font-weight: 800;
+        }
+
+        .exam-bank-missing-knowledge__list {
+            display: grid;
+            gap: 8px;
+            margin: 0;
+            padding: 0 14px 14px;
+        }
+
+        .exam-bank-missing-knowledge__item {
+            align-items: flex-start;
+            border-top: 1px solid rgba(210, 135, 38, 0.18);
+            display: grid;
+            gap: 4px;
+            grid-template-columns: 96px 1fr auto;
+            padding-top: 10px;
+        }
+
+        .exam-bank-missing-knowledge__item a {
+            color: #16508c;
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .exam-bank-missing-knowledge__preview {
+            color: #496987;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        .exam-bank-missing-knowledge__badge {
+            background: rgba(214, 91, 42, 0.12);
+            border-radius: 999px;
+            color: #b8471c;
+            font-size: 0.78rem;
+            font-weight: 800;
+            padding: 4px 8px;
+            white-space: nowrap;
+        }
+
+        .exam-bank-question-nav {
+            align-items: center;
+            background: #f7fbff;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding: 12px;
+            position: sticky;
+            top: 12px;
+            z-index: 20;
+        }
+
+        .exam-bank-question-nav__label {
+            color: #496987;
+            font-size: 0.86rem;
+            font-weight: 800;
+            margin-right: 4px;
+        }
+
+        .exam-bank-question-nav__link {
+            align-items: center;
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.2);
+            border-radius: 6px;
+            color: #16508c;
+            display: inline-flex;
+            font-size: 0.86rem;
+            font-weight: 800;
+            justify-content: center;
+            min-height: 32px;
+            min-width: 38px;
+            padding: 5px 8px;
+            text-decoration: none;
+        }
+
+        .exam-bank-question-nav__link:hover {
+            background: #eaf5ff;
+            border-color: rgba(45, 95, 140, 0.36);
+        }
+
+        .exam-knowledge-selector {
+            overflow: visible;
+        }
+
+        .exam-knowledge-combobox {
+            position: relative;
+        }
+
+        .exam-knowledge-combobox__button {
+            align-items: center;
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.28);
+            border-radius: 6px;
+            color: #183b5b;
+            display: flex;
+            font: inherit;
+            justify-content: space-between;
+            min-height: 40px;
+            padding: 9px 10px;
+            text-align: left;
+            width: 100%;
+        }
+
+        .exam-knowledge-combobox__button:disabled {
+            background: #f3f7fb;
+            color: #8aa1b6;
+            cursor: not-allowed;
+        }
+
+        .exam-knowledge-combobox__button::after {
+            content: "∨";
+            color: #496987;
+            font-size: 0.78rem;
+            margin-left: 10px;
+        }
+
+        .exam-knowledge-combobox__panel {
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.24);
+            border-radius: 8px;
+            box-shadow: 0 16px 36px rgba(20, 55, 86, 0.18);
+            display: none;
+            left: 0;
+            max-height: 280px;
+            overflow: auto;
+            padding: 8px;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 50;
+        }
+
+        .exam-knowledge-combobox.is-open .exam-knowledge-combobox__panel {
+            display: grid;
+            gap: 6px;
+        }
+
+        .exam-knowledge-combobox__search {
+            border: 1px solid rgba(45, 95, 140, 0.3);
+            border-radius: 6px;
+            box-sizing: border-box;
+            font: inherit;
+            min-height: 36px;
+            padding: 7px 9px;
+            width: 100%;
+        }
+
+        .exam-knowledge-combobox__option {
+            background: #fff;
+            border: 0;
+            border-radius: 6px;
+            color: #183b5b;
+            cursor: pointer;
+            font: inherit;
+            padding: 8px 9px;
+            text-align: left;
+            width: 100%;
+        }
+
+        .exam-knowledge-combobox__option:hover,
+        .exam-knowledge-combobox__option.is-selected {
+            background: #eaf5ff;
+            color: #105a9c;
+            font-weight: 800;
+        }
+
+        .exam-knowledge-combobox__option--create {
+            color: #1f7a56;
+            font-weight: 800;
+        }
+
+        .exam-knowledge-combobox__empty {
+            color: #738aa0;
+            font-size: 0.86rem;
+            padding: 8px 9px;
+        }
+
         .exam-bank-edit-action-button {
             width: auto;
             min-width: 128px;
@@ -93,6 +291,10 @@
 
         @media (max-width: 760px) {
             .exam-bank-edit-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .exam-bank-missing-knowledge__item {
                 grid-template-columns: 1fr;
             }
         }
@@ -135,6 +337,31 @@
         </div>
         <form method="post" class="record-form" id="exam-bank-paper-edit-form">
             {% csrf_token %}
+            {% if missing_knowledge_questions %}
+                <details class="exam-bank-missing-knowledge" open>
+                    <summary>
+                        <span>未填写知识点题目 {{ missing_knowledge_questions|length }} 道</span>
+                        <span>{{ knowledge_subject|default:"未绑定科目" }} / {{ knowledge_category_code|default:"未绑定级别" }}</span>
+                    </summary>
+                    <div class="exam-bank-missing-knowledge__list">
+                        {% for item in missing_knowledge_questions %}
+                            <div class="exam-bank-missing-knowledge__item">
+                                <a href="#bank-question-{{ item.id }}">第 {{ item.question_no }} 题</a>
+                                <span class="exam-bank-missing-knowledge__preview">{{ item.stem_preview|default:"题干为空" }}</span>
+                                <span class="exam-bank-missing-knowledge__badge">缺少 {{ item.missing_text }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </details>
+            {% endif %}
+            {% if question_rows %}
+                <nav class="exam-bank-question-nav" aria-label="题号导航">
+                    <span class="exam-bank-question-nav__label">题号导航</span>
+                    {% for question in question_rows %}
+                        <a class="exam-bank-question-nav__link" href="#bank-question-{{ question.id }}">{{ question.question_no }}</a>
+                    {% endfor %}
+                </nav>
+            {% endif %}
             <div class="exam-bank-edit-grid">
                 <label class="exam-bank-edit-field">
                     <span>试卷名称</span>
@@ -178,18 +405,45 @@
                                 <input type="text" name="question_{{ question.id }}_answer" value="{{ question.answer_text }}" maxlength="255">
                             </label>
                         </div>
-                        <div class="exam-bank-edit-grid">
+                        <div class="exam-bank-edit-grid exam-knowledge-selector" data-knowledge-selector>
                             <label class="exam-bank-edit-field">
-                                <span>一级目录</span>
-                                <input type="text" name="question_{{ question.id }}_knowledge_level_1" value="{{ question.knowledge_level_1 }}" maxlength="128">
+                                <span>一级知识目录</span>
+                                <input type="hidden" name="question_{{ question.id }}_knowledge_level_1" value="{{ question.knowledge_level_1 }}" data-knowledge-input="level1">
+                                <div class="exam-knowledge-combobox" data-knowledge-combobox="level1">
+                                    <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                        <span data-knowledge-label>{{ question.knowledge_level_1|default:"请选择一级知识目录" }}</span>
+                                    </button>
+                                    <div class="exam-knowledge-combobox__panel">
+                                        <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索一级知识目录" data-knowledge-search>
+                                        <div data-knowledge-options></div>
+                                    </div>
+                                </div>
                             </label>
                             <label class="exam-bank-edit-field">
-                                <span>二级目录</span>
-                                <input type="text" name="question_{{ question.id }}_knowledge_level_2" value="{{ question.knowledge_level_2 }}" maxlength="128">
+                                <span>二级知识目录</span>
+                                <input type="hidden" name="question_{{ question.id }}_knowledge_level_2" value="{{ question.knowledge_level_2 }}" data-knowledge-input="level2">
+                                <div class="exam-knowledge-combobox" data-knowledge-combobox="level2">
+                                    <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                        <span data-knowledge-label>{{ question.knowledge_level_2|default:"请先选择一级知识目录" }}</span>
+                                    </button>
+                                    <div class="exam-knowledge-combobox__panel">
+                                        <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索二级知识目录" data-knowledge-search>
+                                        <div data-knowledge-options></div>
+                                    </div>
+                                </div>
                             </label>
                             <label class="exam-bank-edit-field">
-                                <span>三级目录（选填）</span>
-                                <input type="text" name="question_{{ question.id }}_knowledge_level_3" value="{{ question.knowledge_level_3 }}" maxlength="255">
+                                <span>三级知识目录（选填）</span>
+                                <input type="hidden" name="question_{{ question.id }}_knowledge_level_3" value="{{ question.knowledge_level_3 }}" data-knowledge-input="level3">
+                                <div class="exam-knowledge-combobox" data-knowledge-combobox="level3">
+                                    <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                        <span data-knowledge-label>{{ question.knowledge_level_3|default:"可选择三级知识目录" }}</span>
+                                    </button>
+                                    <div class="exam-knowledge-combobox__panel">
+                                        <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索三级知识目录" data-knowledge-search>
+                                        <div data-knowledge-options></div>
+                                    </div>
+                                </div>
                             </label>
                         </div>
                         <div class="exam-bank-edit-grid">
@@ -246,18 +500,45 @@
                             <input type="text" name="new_question___KEY___answer" value="" maxlength="255">
                         </label>
                     </div>
-                    <div class="exam-bank-edit-grid">
+                    <div class="exam-bank-edit-grid exam-knowledge-selector" data-knowledge-selector>
                         <label class="exam-bank-edit-field">
-                            <span>一级目录</span>
-                            <input type="text" name="new_question___KEY___knowledge_level_1" value="" maxlength="128">
+                            <span>一级知识目录</span>
+                            <input type="hidden" name="new_question___KEY___knowledge_level_1" value="" data-knowledge-input="level1">
+                            <div class="exam-knowledge-combobox" data-knowledge-combobox="level1">
+                                <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                    <span data-knowledge-label>请选择一级知识目录</span>
+                                </button>
+                                <div class="exam-knowledge-combobox__panel">
+                                    <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索一级知识目录" data-knowledge-search>
+                                    <div data-knowledge-options></div>
+                                </div>
+                            </div>
                         </label>
                         <label class="exam-bank-edit-field">
-                            <span>二级目录</span>
-                            <input type="text" name="new_question___KEY___knowledge_level_2" value="" maxlength="128">
+                            <span>二级知识目录</span>
+                            <input type="hidden" name="new_question___KEY___knowledge_level_2" value="" data-knowledge-input="level2">
+                            <div class="exam-knowledge-combobox" data-knowledge-combobox="level2">
+                                <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                    <span data-knowledge-label>请先选择一级知识目录</span>
+                                </button>
+                                <div class="exam-knowledge-combobox__panel">
+                                    <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索二级知识目录" data-knowledge-search>
+                                    <div data-knowledge-options></div>
+                                </div>
+                            </div>
                         </label>
                         <label class="exam-bank-edit-field">
-                            <span>三级目录（选填）</span>
-                            <input type="text" name="new_question___KEY___knowledge_level_3" value="" maxlength="255">
+                            <span>三级知识目录（选填）</span>
+                            <input type="hidden" name="new_question___KEY___knowledge_level_3" value="" data-knowledge-input="level3">
+                            <div class="exam-knowledge-combobox" data-knowledge-combobox="level3">
+                                <button type="button" class="exam-knowledge-combobox__button" data-knowledge-toggle>
+                                    <span data-knowledge-label>可选择三级知识目录</span>
+                                </button>
+                                <div class="exam-knowledge-combobox__panel">
+                                    <input type="search" class="exam-knowledge-combobox__search" placeholder="搜索三级知识目录" data-knowledge-search>
+                                    <div data-knowledge-options></div>
+                                </div>
+                            </div>
                         </label>
                     </div>
                     <div class="exam-bank-edit-grid">
@@ -299,13 +580,249 @@
 {% endblock %}
 
 {% block extra_body_end %}
+    {{ knowledge_map_rows|json_script:"exam-bank-edit-knowledge-map-data" }}
     <script>
         (function () {
             const list = document.querySelector("[data-exam-bank-edit-list]");
             const template = document.getElementById("new-exam-bank-question-template");
             const addButton = document.querySelector("[data-add-new-question]");
             const removeButton = document.querySelector("[data-remove-new-question]");
+            const knowledgeMapElement = document.getElementById("exam-bank-edit-knowledge-map-data");
+            const knowledgeRows = knowledgeMapElement ? JSON.parse(knowledgeMapElement.textContent || "[]") : [];
             let nextKey = 1;
+            let activeCombobox = null;
+
+            function normalizeText(value) {
+                return String(value || "").trim();
+            }
+
+            function getSelectorValue(selector, level) {
+                const input = selector.querySelector(`[data-knowledge-input="${level}"]`);
+                return input ? normalizeText(input.value) : "";
+            }
+
+            function getUniqueValues(values) {
+                const seen = new Set();
+                const result = [];
+                values.forEach((value) => {
+                    const text = normalizeText(value);
+                    if (text && !seen.has(text)) {
+                        seen.add(text);
+                        result.push(text);
+                    }
+                });
+                return result;
+            }
+
+            function getKnowledgeOptions(selector, level) {
+                const level1 = getSelectorValue(selector, "level1");
+                const level2 = getSelectorValue(selector, "level2");
+                if (level === "level1") {
+                    return getUniqueValues(knowledgeRows.map((row) => row.level_1));
+                }
+                if (level === "level2") {
+                    if (!level1) {
+                        return [];
+                    }
+                    return getUniqueValues(
+                        knowledgeRows
+                            .filter((row) => normalizeText(row.level_1) === level1)
+                            .map((row) => row.level_2)
+                    );
+                }
+                if (!level1 || !level2) {
+                    return [];
+                }
+                return getUniqueValues(
+                    knowledgeRows
+                        .filter((row) => normalizeText(row.level_1) === level1 && normalizeText(row.level_2) === level2)
+                        .map((row) => row.level_3)
+                );
+            }
+
+            function getPlaceholder(level, selector) {
+                if (level === "level1") {
+                    return "请选择或新增一级知识目录";
+                }
+                if (level === "level2") {
+                    return getSelectorValue(selector, "level1") ? "请选择或新增二级知识目录" : "请先选择一级知识目录";
+                }
+                return getSelectorValue(selector, "level2") ? "可选择或新增三级知识目录" : "请先选择二级知识目录";
+            }
+
+            function setComboboxOpen(combobox, shouldOpen) {
+                if (activeCombobox && activeCombobox !== combobox) {
+                    activeCombobox.classList.remove("is-open");
+                }
+                combobox.classList.toggle("is-open", shouldOpen);
+                activeCombobox = shouldOpen ? combobox : null;
+                if (shouldOpen) {
+                    const search = combobox.querySelector("[data-knowledge-search]");
+                    if (search) {
+                        search.value = "";
+                        search.focus();
+                    }
+                }
+            }
+
+            function renderKnowledgeOptions(selector, combobox) {
+                const level = combobox.dataset.knowledgeCombobox;
+                const optionsTarget = combobox.querySelector("[data-knowledge-options]");
+                const search = combobox.querySelector("[data-knowledge-search]");
+                const query = normalizeText(search ? search.value : "").toLowerCase();
+                const rawQuery = normalizeText(search ? search.value : "");
+                const selectedValue = getSelectorValue(selector, level);
+                const options = getKnowledgeOptions(selector, level)
+                    .filter((option) => option.toLowerCase().includes(query))
+                    .slice(0, 50);
+                if (!optionsTarget) {
+                    return;
+                }
+                optionsTarget.innerHTML = "";
+                if (level === "level3") {
+                    const clearButton = document.createElement("button");
+                    clearButton.type = "button";
+                    clearButton.className = "exam-knowledge-combobox__option";
+                    clearButton.textContent = "不填写三级知识目录";
+                    clearButton.addEventListener("click", () => {
+                        setKnowledgeValue(selector, level, "");
+                        setComboboxOpen(combobox, false);
+                    });
+                    optionsTarget.appendChild(clearButton);
+                }
+                const canCreate = Boolean(rawQuery) && !getKnowledgeOptions(selector, level).some((option) => option === rawQuery);
+                if (canCreate) {
+                    const createButton = document.createElement("button");
+                    createButton.type = "button";
+                    createButton.className = "exam-knowledge-combobox__option exam-knowledge-combobox__option--create";
+                    createButton.textContent = `新增“${rawQuery}”`;
+                    createButton.addEventListener("click", () => {
+                        setKnowledgeValue(selector, level, rawQuery);
+                        setComboboxOpen(combobox, false);
+                    });
+                    optionsTarget.appendChild(createButton);
+                }
+                options.forEach((option) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "exam-knowledge-combobox__option";
+                    if (option === selectedValue) {
+                        button.classList.add("is-selected");
+                    }
+                    button.textContent = option;
+                    button.addEventListener("click", () => {
+                        setKnowledgeValue(selector, level, option);
+                        setComboboxOpen(combobox, false);
+                    });
+                    optionsTarget.appendChild(button);
+                });
+                if (!options.length && !canCreate) {
+                    const empty = document.createElement("div");
+                    empty.className = "exam-knowledge-combobox__empty";
+                    empty.textContent = query ? "没有匹配的知识点" : "暂无可选知识点，可在上方输入后新增";
+                    optionsTarget.appendChild(empty);
+                }
+            }
+
+            function updateKnowledgeSelector(selector) {
+                ["level1", "level2", "level3"].forEach((level) => {
+                    const input = selector.querySelector(`[data-knowledge-input="${level}"]`);
+                    const combobox = selector.querySelector(`[data-knowledge-combobox="${level}"]`);
+                    const button = combobox ? combobox.querySelector("[data-knowledge-toggle]") : null;
+                    const label = combobox ? combobox.querySelector("[data-knowledge-label]") : null;
+                    if (!input || !combobox || !button || !label) {
+                        return;
+                    }
+                    const value = normalizeText(input.value);
+                    label.textContent = value || getPlaceholder(level, selector);
+                    button.disabled = (
+                        (level === "level2" && !getSelectorValue(selector, "level1"))
+                        || (level === "level3" && !getSelectorValue(selector, "level2"))
+                    );
+                    renderKnowledgeOptions(selector, combobox);
+                });
+            }
+
+            function syncLocalKnowledgeRows(selector) {
+                const level1 = getSelectorValue(selector, "level1");
+                const level2 = getSelectorValue(selector, "level2");
+                const level3 = getSelectorValue(selector, "level3");
+                if (!level1 || !level2) {
+                    return;
+                }
+                const exists = knowledgeRows.some((row) => (
+                    normalizeText(row.level_1) === level1
+                    && normalizeText(row.level_2) === level2
+                    && normalizeText(row.level_3) === level3
+                ));
+                if (!exists) {
+                    knowledgeRows.push({level_1: level1, level_2: level2, level_3: level3});
+                }
+            }
+
+            function setKnowledgeValue(selector, level, value) {
+                const input = selector.querySelector(`[data-knowledge-input="${level}"]`);
+                if (!input) {
+                    return;
+                }
+                input.value = normalizeText(value);
+                if (level === "level1") {
+                    const level2Input = selector.querySelector('[data-knowledge-input="level2"]');
+                    const level3Input = selector.querySelector('[data-knowledge-input="level3"]');
+                    if (level2Input) {
+                        level2Input.value = "";
+                    }
+                    if (level3Input) {
+                        level3Input.value = "";
+                    }
+                }
+                if (level === "level2") {
+                    const level3Input = selector.querySelector('[data-knowledge-input="level3"]');
+                    if (level3Input) {
+                        level3Input.value = "";
+                    }
+                }
+                syncLocalKnowledgeRows(selector);
+                updateKnowledgeSelector(selector);
+            }
+
+            function setupKnowledgeSelector(selector) {
+                if (!selector || selector.dataset.knowledgeReady === "true") {
+                    return;
+                }
+                selector.dataset.knowledgeReady = "true";
+                selector.querySelectorAll("[data-knowledge-combobox]").forEach((combobox) => {
+                    const toggle = combobox.querySelector("[data-knowledge-toggle]");
+                    const search = combobox.querySelector("[data-knowledge-search]");
+                    if (toggle) {
+                        toggle.addEventListener("click", () => {
+                            if (toggle.disabled) {
+                                return;
+                            }
+                            const shouldOpen = !combobox.classList.contains("is-open");
+                            setComboboxOpen(combobox, shouldOpen);
+                            renderKnowledgeOptions(selector, combobox);
+                        });
+                    }
+                    if (search) {
+                        search.addEventListener("input", () => renderKnowledgeOptions(selector, combobox));
+                        search.addEventListener("click", (event) => event.stopPropagation());
+                        search.addEventListener("keydown", (event) => {
+                            if (event.key !== "Enter") {
+                                return;
+                            }
+                            event.preventDefault();
+                            const value = normalizeText(search.value);
+                            if (!value) {
+                                return;
+                            }
+                            setKnowledgeValue(selector, combobox.dataset.knowledgeCombobox, value);
+                            setComboboxOpen(combobox, false);
+                        });
+                    }
+                });
+                updateKnowledgeSelector(selector);
+            }
 
             function refreshRemoveState() {
                 if (!removeButton) {
@@ -326,6 +843,7 @@
                     return;
                 }
                 list.appendChild(card);
+                card.querySelectorAll("[data-knowledge-selector]").forEach(setupKnowledgeSelector);
                 refreshRemoveState();
                 const stemField = card.querySelector("textarea");
                 if (stemField) {
@@ -348,6 +866,13 @@
             if (removeButton) {
                 removeButton.addEventListener("click", removeLastQuestionCard);
             }
+            document.querySelectorAll("[data-knowledge-selector]").forEach(setupKnowledgeSelector);
+            document.addEventListener("click", (event) => {
+                if (!activeCombobox || activeCombobox.contains(event.target)) {
+                    return;
+                }
+                setComboboxOpen(activeCombobox, false);
+            });
             refreshRemoveState();
         })();
     </script>

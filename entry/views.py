@@ -2991,6 +2991,116 @@ def build_exam_bank_paper_preview_question_rows(questions: list[ExamQuestionBank
     return rows
 
 
+def get_exam_bank_paper_edit_knowledge_rows(paper: ExamQuestionBankPaper) -> list[dict[str, str]]:
+    subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(paper))
+    category_code = normalize_exam_knowledge_category_code(paper.level)
+    if not subject or not category_code:
+        return []
+    queryset = (
+        ExamKnowledgePointMap.objects.filter(
+            subject=subject,
+            category_code__iexact=category_code,
+            is_active=True,
+        )
+        .exclude(level_1="")
+        .exclude(level_2="")
+        .order_by("sort_order", "level_1", "level_2", "level_3", "id")
+        .values("level_1", "level_2", "level_3")
+    )
+    seen_paths: set[tuple[str, str, str]] = set()
+    rows: list[dict[str, str]] = []
+    for item in queryset:
+        level_1 = str(item.get("level_1") or "").strip()
+        level_2 = str(item.get("level_2") or "").strip()
+        level_3 = str(item.get("level_3") or "").strip()
+        path_key = (level_1, level_2, level_3)
+        if not level_1 or not level_2 or path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+        rows.append({"level_1": level_1, "level_2": level_2, "level_3": level_3})
+    return rows
+
+
+def build_missing_knowledge_question_rows(question_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    missing_rows: list[dict[str, object]] = []
+    for question in question_rows:
+        missing_parts: list[str] = []
+        if not str(question.get("knowledge_level_1") or "").strip():
+            missing_parts.append("一级知识目录")
+        if not str(question.get("knowledge_level_2") or "").strip():
+            missing_parts.append("二级知识目录")
+        if missing_parts:
+            stem_preview = re.sub(r"\s+", " ", str(question.get("stem_md") or "")).strip()
+            missing_rows.append(
+                {
+                    "id": question.get("id"),
+                    "question_no": question.get("question_no"),
+                    "stem_preview": stem_preview[:96],
+                    "missing_text": "、".join(missing_parts),
+                }
+            )
+    return missing_rows
+
+
+def ensure_exam_bank_paper_knowledge_map_path(
+    *,
+    paper: ExamQuestionBankPaper,
+    portal_user: PortalUser,
+    level_1: str,
+    level_2: str,
+    level_3: str = "",
+) -> None:
+    normalized_level_1 = str(level_1 or "").strip()[:128]
+    normalized_level_2 = str(level_2 or "").strip()[:128]
+    normalized_level_3 = str(level_3 or "").strip()[:255]
+    if not normalized_level_1 or not normalized_level_2:
+        return
+    subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(paper))
+    category_code = normalize_exam_knowledge_category_code(paper.level)
+    if not subject or not category_code:
+        return
+    course_level_code = derive_exam_knowledge_course_level_code(category_code)
+    existing = ExamKnowledgePointMap.objects.filter(
+        subject=subject,
+        category_code__iexact=category_code,
+        level_1=normalized_level_1,
+        level_2=normalized_level_2,
+        level_3=normalized_level_3,
+    ).first()
+    if existing is not None:
+        update_fields = []
+        if not existing.is_active:
+            existing.is_active = True
+            update_fields.append("is_active")
+        if existing.course_level_code != course_level_code:
+            existing.course_level_code = course_level_code
+            update_fields.append("course_level_code")
+        if existing.uploaded_by_id != portal_user.id:
+            existing.uploaded_by = portal_user
+            update_fields.append("uploaded_by")
+        if update_fields:
+            existing.save(update_fields=[*update_fields, "updated_at"])
+        return
+    next_sort_order = (
+        ExamKnowledgePointMap.objects.filter(subject=subject, category_code__iexact=category_code)
+        .aggregate(max_order=Max("sort_order"))
+        .get("max_order")
+        or 0
+    ) + 1
+    ExamKnowledgePointMap.objects.create(
+        subject=subject,
+        course_level_code=course_level_code,
+        category_code=category_code,
+        level_1=normalized_level_1,
+        level_2=normalized_level_2,
+        level_3=normalized_level_3,
+        source_path=f"teacher_exam_bank_paper_edit:{paper.id}",
+        uploaded_by=portal_user,
+        sort_order=next_sort_order,
+        is_active=True,
+    )
+
+
 def get_exam_bank_paper_review_context(
     portal_user: PortalUser,
     paper_id: int,
@@ -3012,6 +3122,8 @@ def get_exam_bank_paper_review_context(
         if is_edit
         else build_exam_bank_paper_preview_question_rows(questions)
     )
+    knowledge_subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(paper))
+    knowledge_category_code = normalize_exam_knowledge_category_code(paper.level)
     return {
         "page_title": f"{'编辑' if is_edit else '预览'}试卷 · {paper.title}",
         "page_description": "发布前先检查整张试卷的题面、选项、答案、解析和题图。",
@@ -3029,13 +3141,21 @@ def get_exam_bank_paper_review_context(
         "is_edit": is_edit,
         "error_message": error_message,
         "success_message": success_message,
+        "knowledge_subject": knowledge_subject,
+        "knowledge_category_code": knowledge_category_code,
+        "knowledge_map_rows": get_exam_bank_paper_edit_knowledge_rows(paper) if is_edit else [],
+        "missing_knowledge_questions": build_missing_knowledge_question_rows(question_rows) if is_edit else [],
         "preview_href": reverse("teacher-exam-bank-paper-preview", args=[paper.id]),
         "edit_href": reverse("teacher-exam-bank-paper-edit", args=[paper.id]),
         "back_href": f"{reverse('teacher-exams')}#available-exam-papers",
     }
 
 
-def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: HttpRequest) -> None:
+def update_exam_bank_paper_from_request(
+    paper: ExamQuestionBankPaper,
+    request: HttpRequest,
+    portal_user: PortalUser,
+) -> None:
     question_ids = normalize_positive_int_list(request.POST.getlist("question_ids"))
     new_question_keys: list[str] = []
     seen_new_question_keys: set[str] = set()
@@ -3086,11 +3206,21 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
                 request.POST.get(f"question_{question_id}_analysis") or ""
             ).strip()
             full_json = dict(question.full_json) if isinstance(question.full_json, dict) else {}
-            full_json["knowledge_level_1"] = str(request.POST.get(f"question_{question_id}_knowledge_level_1") or "").strip()
-            full_json["knowledge_level_2"] = str(request.POST.get(f"question_{question_id}_knowledge_level_2") or "").strip()
-            full_json["knowledge_level_3"] = str(request.POST.get(f"question_{question_id}_knowledge_level_3") or "").strip()
+            knowledge_level_1 = str(request.POST.get(f"question_{question_id}_knowledge_level_1") or "").strip()
+            knowledge_level_2 = str(request.POST.get(f"question_{question_id}_knowledge_level_2") or "").strip()
+            knowledge_level_3 = str(request.POST.get(f"question_{question_id}_knowledge_level_3") or "").strip()
+            full_json["knowledge_level_1"] = knowledge_level_1
+            full_json["knowledge_level_2"] = knowledge_level_2
+            full_json["knowledge_level_3"] = knowledge_level_3
             question.full_json = full_json
             question.save(update_fields=["question_type", "stem_md", "answer_json", "analysis_md", "full_json", "updated_at"])
+            ensure_exam_bank_paper_knowledge_map_path(
+                paper=locked_paper,
+                portal_user=portal_user,
+                level_1=knowledge_level_1,
+                level_2=knowledge_level_2,
+                level_3=knowledge_level_3,
+            )
 
             for sort_order, option_key in enumerate(option_keys, start=1):
                 option_text = normalize_preserved_multiline_text(
@@ -3174,6 +3304,13 @@ def update_exam_bank_paper_from_request(paper: ExamQuestionBankPaper, request: H
                     "knowledge_level_2": knowledge_level_2,
                     "knowledge_level_3": knowledge_level_3,
                 },
+            )
+            ensure_exam_bank_paper_knowledge_map_path(
+                paper=locked_paper,
+                portal_user=portal_user,
+                level_1=knowledge_level_1,
+                level_2=knowledge_level_2,
+                level_3=knowledge_level_3,
             )
             for sort_order, option_key in enumerate(option_keys, start=1):
                 option_text = options.get(option_key, "")
@@ -6797,7 +6934,7 @@ def teacher_exam_bank_paper_edit(request: HttpRequest, paper_id: int) -> HttpRes
 
     if request.method == "POST":
         try:
-            update_exam_bank_paper_from_request(paper, request)
+            update_exam_bank_paper_from_request(paper, request, portal_user)
         except ValidationError as exc:
             message = "；".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             context = get_exam_bank_paper_review_context(portal_user, paper_id, mode="edit", error_message=message)
