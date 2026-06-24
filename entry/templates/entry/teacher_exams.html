@@ -127,6 +127,27 @@
             display: none;
         }
 
+        .teacher-exam-section-tabs {
+            margin-bottom: 16px;
+        }
+
+        .teacher-exam-section-tab {
+            appearance: none;
+            background: transparent;
+            border: 0;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .teacher-exam-section-tab:focus-visible {
+            outline: 3px solid rgba(15, 103, 184, 0.26);
+            outline-offset: 2px;
+        }
+
+        .teacher-exam-section-panel[hidden] {
+            display: none;
+        }
+
         @media (max-width: 720px) {
             .teacher-exam-schedule-grid {
                 grid-template-columns: 1fr;
@@ -170,7 +191,13 @@
         <div class="entry-hint-bar">{{ error_message }}</div>
     {% endif %}
 
-    <section class="surface-panel surface-panel--primary" id="exam-knowledge-management">
+    <nav class="portal-tab-bar teacher-tab-bar teacher-exam-section-tabs" aria-label="考试管理页面标签" role="tablist">
+        <button type="button" class="portal-tab teacher-tab portal-tab--active teacher-tab--active teacher-exam-section-tab" id="exam-knowledge-management-tab" data-exam-section-tab="exam-knowledge-management" aria-controls="exam-knowledge-management" aria-selected="true" role="tab">知识点管理</button>
+        <button type="button" class="portal-tab teacher-tab teacher-exam-section-tab" id="available-exam-papers-tab" data-exam-section-tab="available-exam-papers" aria-controls="available-exam-papers" aria-selected="false" role="tab">试卷管理</button>
+        <button type="button" class="portal-tab teacher-tab teacher-exam-section-tab" id="teacher-exam-management-tab" data-exam-section-tab="teacher-exam-management" aria-controls="teacher-exam-management" aria-selected="false" role="tab">考试管理列表</button>
+    </nav>
+
+    <section class="surface-panel surface-panel--primary teacher-exam-section-panel" id="exam-knowledge-management" data-exam-section-panel="exam-knowledge-management" role="tabpanel" aria-labelledby="exam-knowledge-management-tab">
         <div class="section-heading">
             <p class="section-heading__eyebrow">Knowledge Management</p>
             <h3>知识点管理</h3>
@@ -338,7 +365,7 @@
         </form>
     </dialog>
 
-    <section class="surface-panel surface-panel--primary" id="available-exam-papers">
+    <section class="surface-panel surface-panel--primary teacher-exam-section-panel" id="available-exam-papers" data-exam-section-panel="available-exam-papers" role="tabpanel" aria-labelledby="available-exam-papers-tab" hidden>
         <div class="section-heading">
             <p class="section-heading__eyebrow">Paper Management</p>
             <h3>试卷管理</h3>
@@ -402,7 +429,7 @@
         </div>
     </section>
 
-    <section class="surface-panel surface-panel--primary" id="teacher-exam-management">
+    <section class="surface-panel surface-panel--primary teacher-exam-section-panel" id="teacher-exam-management" data-exam-section-panel="teacher-exam-management" role="tabpanel" aria-labelledby="teacher-exam-management-tab" hidden>
         <div class="section-heading">
             <p class="section-heading__eyebrow">Exam Datagrid</p>
             <h3>考试管理列表</h3>
@@ -721,6 +748,42 @@
             let knowledgeManagementTable = null;
             let availablePaperTable = null;
             let examManagementTable = null;
+            const examSectionTabs = Array.from(document.querySelectorAll("[data-exam-section-tab]"));
+            const examSectionPanels = Array.from(document.querySelectorAll("[data-exam-section-panel]"));
+            const defaultExamSectionId = "exam-knowledge-management";
+            const getCurrentExamSectionId = () => {
+                const hashId = String(window.location.hash || "").replace(/^#/, "");
+                return examSectionPanels.some((panel) => panel.id === hashId) ? hashId : defaultExamSectionId;
+            };
+            const redrawExamSectionTable = (sectionId) => {
+                window.requestAnimationFrame(() => {
+                    if (sectionId === "exam-knowledge-management" && knowledgeManagementTable) {
+                        knowledgeManagementTable.redraw(true);
+                    }
+                    if (sectionId === "available-exam-papers" && availablePaperTable) {
+                        availablePaperTable.redraw(true);
+                    }
+                    if (sectionId === "teacher-exam-management" && examManagementTable) {
+                        examManagementTable.redraw(true);
+                    }
+                });
+            };
+            const activateExamSection = (sectionId, updateHash) => {
+                const targetId = examSectionPanels.some((panel) => panel.id === sectionId) ? sectionId : defaultExamSectionId;
+                examSectionTabs.forEach((tab) => {
+                    const active = tab.dataset.examSectionTab === targetId;
+                    tab.classList.toggle("portal-tab--active", active);
+                    tab.classList.toggle("teacher-tab--active", active);
+                    tab.setAttribute("aria-selected", active ? "true" : "false");
+                });
+                examSectionPanels.forEach((panel) => {
+                    panel.hidden = panel.id !== targetId;
+                });
+                if (updateHash && window.history && window.history.replaceState) {
+                    window.history.replaceState(null, "", "#" + targetId);
+                }
+                redrawExamSectionTable(targetId);
+            };
 
             const syncStudents = () => {
                 const courseId = courseSelect ? courseSelect.value : "";
@@ -1654,6 +1717,10 @@
             if (knowledgeGroupEditCancel) {
                 knowledgeGroupEditCancel.addEventListener("click", () => hideDialog(knowledgeGroupEditDialog));
             }
+            examSectionTabs.forEach((tab) => {
+                tab.addEventListener("click", () => activateExamSection(tab.dataset.examSectionTab || defaultExamSectionId, true));
+            });
+            window.addEventListener("hashchange", () => activateExamSection(getCurrentExamSectionId(), false));
             [
                 knowledgeManagementSubjectFilter,
                 knowledgeManagementLevelFilter,
@@ -1761,6 +1828,7 @@
                     }
                 }
             });
+            activateExamSection(getCurrentExamSectionId(), false);
             buildKnowledgeManagementTable();
             buildAvailablePaperTable();
             buildExamManagementTable();
@@ -1774,6 +1842,7 @@
             applyKnowledgeManagementFilter();
             applyAvailablePaperFilter();
             applyExamManagementFilter();
+            activateExamSection(getCurrentExamSectionId(), false);
             if (hasRunningAvailablePaperWork()) {
                 startAvailablePaperStatusPolling();
             }
