@@ -31,6 +31,7 @@ services:
       - .env
     environment:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DASHIMA_SCRATCH_EDITOR_URL: ${DASHIMA_SCRATCH_EDITOR_URL:-/scratch/editor.html}
     restart: unless-stopped
     depends_on:
       db:
@@ -140,12 +141,23 @@ services:
     volumes:
       - /opt/codemaster/media:/recordings
 
+  scratch-editor:
+    build:
+      context: ./services/scratch-editor
+      target: runtime
+      args:
+        ROOT: /scratch/
+    restart: unless-stopped
+    expose:
+      - "80"
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
       - web
       - realtime
+      - scratch-editor
     ports:
       - "80:80"
       - "443:443"

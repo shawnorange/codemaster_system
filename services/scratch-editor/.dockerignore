@@ -1,0 +1,15 @@
+.git
+.github
+node_modules
+build
+dist
+coverage
+.nyc_output
+translations
+locale
+src/generated
+static/microbit
+*.png
+*.log
+npm-*
+.DS_Store

@@ -38,6 +38,7 @@ services:
       LIVEKIT_RECORDING_ENABLED: ${LIVEKIT_RECORDING_ENABLED:-True}
       LIVEKIT_RECORDING_FILE_PREFIX: ${LIVEKIT_RECORDING_FILE_PREFIX:-/recordings/live-classroom}
       LIVEKIT_RECORDING_PUBLIC_URL_PREFIX: ${LIVEKIT_RECORDING_PUBLIC_URL_PREFIX:-/media/live-classroom}
+      DASHIMA_SCRATCH_EDITOR_URL: ${DASHIMA_SCRATCH_EDITOR_URL:-http://127.0.0.1:8601/editor.html}
     depends_on:
       db:
         condition: service_healthy
@@ -145,6 +146,16 @@ services:
           address: redis:6379
     volumes:
       - media:/recordings
+
+  scratch-editor:
+    build:
+      context: ./services/scratch-editor
+      target: dev
+    environment:
+      NODE_ENV: development
+      PORT: 8601
+    ports:
+      - "127.0.0.1:8601:8601"
 
   nginx:
     image: nginx:1.27-alpine

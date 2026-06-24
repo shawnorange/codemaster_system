@@ -45,3 +45,12 @@ htmlcov/
 .gstack/
 .tmp_sqlite_media/
 .tmp_sqlite_staticfiles/
+services/scratch-editor/node_modules/
+services/scratch-editor/build/
+services/scratch-editor/dist/
+services/scratch-editor/coverage/
+services/scratch-editor/.nyc_output/
+services/scratch-editor/src/generated/
+services/scratch-editor/translations/
+services/scratch-editor/locale/
+services/scratch-editor/static/microbit/

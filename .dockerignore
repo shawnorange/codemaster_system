@@ -31,3 +31,4 @@ logs
 *.pfx
 project_inputs
 .tmp_quicklook
+services/scratch-editor
