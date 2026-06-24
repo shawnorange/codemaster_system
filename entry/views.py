@@ -19,7 +19,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import UploadedFile
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
+from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
 from django.urls import reverse
@@ -132,6 +132,7 @@ from .models import (
     HomeworkSummary,
     LessonHourLedger,
     PortalUser,
+    ProgrammingSubmission,
     Question,
     RewardRecord,
     Student,
@@ -4073,6 +4074,412 @@ def student_exam_print(request: HttpRequest, session_id: int) -> HttpResponse:
     return render(request, "entry/student_exam_print.html", context)
 
 
+def get_scratch_programming_config(question: ExamQuestion) -> dict[str, object]:
+    snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+    programming_config = snapshot.get("programming_json") if isinstance(snapshot.get("programming_json"), dict) else {}
+    return programming_config
+
+
+def get_scratch_editor_url_for_question(question: ExamQuestion) -> str:
+    programming_config = get_scratch_programming_config(question)
+    return str(
+        programming_config.get("editor_url") or getattr(settings, "DASHIMA_SCRATCH_EDITOR_URL", "")
+    ).strip()
+
+
+def save_programming_uploaded_file(uploaded_file: UploadedFile, *, submission_id: int, role: str) -> str:
+    suffix = Path(str(uploaded_file.name or "")).suffix.lower()
+    if role == "project" and suffix != ".sb3":
+        suffix = ".sb3"
+    if role == "screenshot" and suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        suffix = ".png"
+    relative_path = f"programming_submissions/{submission_id}/{role}_{uuid.uuid4().hex}{suffix}"
+    return default_storage.save(relative_path, uploaded_file)
+
+
+def normalize_programming_block_count(value: object) -> int | None:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 0 else None
+
+
+def get_programming_submission_project_file_path(submission: ProgrammingSubmission, *, prefer_submitted: bool = False) -> str:
+    artifacts = submission.artifacts_json if isinstance(submission.artifacts_json, dict) else {}
+    if prefer_submitted:
+        submitted_path = str(artifacts.get("submitted_project_file_path") or "").strip()
+        if submitted_path:
+            return submitted_path
+    return str(submission.project_file_path or artifacts.get("project_file_path") or "").strip()
+
+
+def build_programming_project_file_url(*, request: HttpRequest, submission: ProgrammingSubmission) -> str:
+    project_file_path = get_programming_submission_project_file_path(submission, prefer_submitted=True)
+    if not project_file_path:
+        return ""
+    filename = Path(project_file_path).name
+    return request.build_absolute_uri(
+        build_redirect_with_query(
+            reverse("api-programming-submission-project-file", args=[submission.id]),
+            params={"filename": filename},
+        )
+    )
+
+
+def build_programming_submission_editor_url(
+    *,
+    request: HttpRequest,
+    submission: ProgrammingSubmission,
+    question: ExamQuestion,
+) -> str:
+    editor_url = get_scratch_editor_url_for_question(question)
+    programming_config = get_scratch_programming_config(question)
+    return_url = request.build_absolute_uri(
+        f"{reverse('student-exam-detail', args=[submission.exam_session_id])}#student-exam-question-{question.id}"
+    )
+    callback_url = request.build_absolute_uri(
+        reverse("api-programming-submission-artifacts", args=[submission.id])
+    )
+    params = {
+        "source": "codemaster",
+        "platform": submission.platform,
+        "submission_id": submission.id,
+        "token": submission.launch_token,
+        "session_id": submission.exam_session_id,
+        "paper_id": submission.exam_session.paper_id if submission.exam_session_id else "",
+        "question_id": question.id,
+        "question_no": question.question_no,
+        "callback_url": callback_url,
+        "return_url": return_url,
+    }
+    project_url = ""
+    if get_programming_submission_project_file_path(submission):
+        project_url = build_programming_project_file_url(request=request, submission=submission)
+        params["project_file_url"] = project_url
+    elif submission.project_url:
+        project_url = submission.project_url
+    elif programming_config.get("template_project"):
+        project_url = str(programming_config.get("template_project"))
+    if project_url:
+        params["project_url"] = project_url
+    if programming_config.get("template_project"):
+        params["template_project"] = str(programming_config.get("template_project"))
+    return build_redirect_with_query(editor_url, params=params)
+
+
+def build_programming_submission_review_editor_url(
+    *,
+    request: HttpRequest,
+    submission: ProgrammingSubmission,
+) -> str:
+    question = submission.exam_question
+    editor_url = submission.editor_url or (get_scratch_editor_url_for_question(question) if question else "")
+    project_url = ""
+    if get_programming_submission_project_file_path(submission, prefer_submitted=True):
+        project_url = build_programming_project_file_url(request=request, submission=submission)
+    elif submission.project_url:
+        project_url = submission.project_url
+    if not editor_url or not project_url:
+        return ""
+
+    session = submission.exam_session
+    return_url = ""
+    if session:
+        return_url = request.build_absolute_uri(
+            reverse("teacher-student-exam-detail", args=[submission.student_id, session.id])
+        )
+    params = {
+        "source": "codemaster",
+        "mode": "teacher_review",
+        "platform": submission.platform,
+        "submission_id": submission.id,
+        "student_id": submission.student_id,
+        "student_name": submission.student.display_name if submission.student_id else "",
+        "project_title": submission.project_title or "Scratch 作品",
+        "project_url": project_url,
+        "project_file_url": project_url,
+        "readonly": "1",
+        "return_url": return_url,
+    }
+    if session:
+        params["session_id"] = session.id
+        params["paper_id"] = session.paper_id
+    if question:
+        params["question_id"] = question.id
+        params["question_no"] = question.question_no
+    return build_redirect_with_query(editor_url, params=params)
+
+
+@role_required("student")
+def student_programming_scratch_launch(request: HttpRequest, session_id: int, question_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    session = (
+        ExamSession.objects.select_related("paper", "student")
+        .filter(id=session_id, student=student, is_active=True, paper__is_active=True)
+        .get()
+    )
+    question = (
+        ExamQuestion.objects.select_related("paper")
+        .filter(id=question_id, paper=session.paper, question_type=ExamQuestion.QUESTION_TYPE_PROGRAMMING, is_active=True)
+        .get()
+    )
+    editor_url = get_scratch_editor_url_for_question(question)
+    if not editor_url:
+        return redirect(
+            build_redirect_with_query(
+                reverse("student-exam-detail", args=[session.id]),
+                params={"op": "scratch_editor_missing"},
+                anchor=f"student-exam-question-{question.id}",
+            )
+        )
+
+    submission, _created = ProgrammingSubmission.objects.update_or_create(
+        student=student,
+        exam_session=session,
+        exam_question=question,
+        platform=ProgrammingSubmission.PLATFORM_SCRATCH,
+        defaults={
+            "editor_url": editor_url,
+        },
+    )
+    return redirect(
+        build_programming_submission_editor_url(
+            request=request,
+            submission=submission,
+            question=question,
+        )
+    )
+
+
+@role_required("teacher")
+def teacher_programming_scratch_review_launch(request: HttpRequest, submission_id: int) -> HttpResponse:
+    portal_user = get_portal_user_from_request(request)
+    submission = (
+        ProgrammingSubmission.objects.select_related(
+            "student",
+            "exam_session",
+            "exam_session__paper",
+            "exam_question",
+        )
+        .filter(id=submission_id, platform=ProgrammingSubmission.PLATFORM_SCRATCH)
+        .first()
+    )
+    if not submission or not submission.exam_session or not submission.exam_question:
+        raise Http404("未找到该 Scratch 作品")
+    if submission.exam_session.paper.teacher_id != portal_user.id:
+        return HttpResponseForbidden("无权查看该 Scratch 作品。")
+
+    editor_url = build_programming_submission_review_editor_url(request=request, submission=submission)
+    if not editor_url:
+        return redirect(
+            build_redirect_with_query(
+                reverse("teacher-student-exam-detail", args=[submission.student_id, submission.exam_session_id]),
+                params={"op": "scratch_review_missing"},
+                anchor=f"teacher-exam-question-{submission.exam_question_id}",
+            )
+        )
+    return redirect(editor_url)
+
+
+def build_programming_project_file_response_headers(response: HttpResponse) -> HttpResponse:
+    response["Access-Control-Allow-Origin"] = "*"
+    response["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+    response["Access-Control-Allow-Headers"] = "Content-Type"
+    response["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return response
+
+
+@csrf_exempt
+def api_programming_submission_project_file(request: HttpRequest, submission_id: int) -> HttpResponse:
+    if request.method == "OPTIONS":
+        return build_programming_project_file_response_headers(HttpResponse(status=204))
+    if request.method not in {"GET", "HEAD"}:
+        return build_programming_project_file_response_headers(
+            JsonResponse({"ok": False, "error": "method_not_allowed"}, status=405)
+        )
+
+    submission = ProgrammingSubmission.objects.filter(id=submission_id).first()
+    if not submission:
+        raise Http404("未找到该 Scratch 作品文件")
+    artifacts = submission.artifacts_json if isinstance(submission.artifacts_json, dict) else {}
+    candidate_paths = [
+        str(artifacts.get("submitted_project_file_path") or "").strip(),
+        str(submission.project_file_path or "").strip(),
+        str(artifacts.get("project_file_path") or "").strip(),
+    ]
+    candidate_paths = [path for path in candidate_paths if path]
+    if not candidate_paths:
+        raise Http404("未找到该 Scratch 作品文件")
+    requested_filename = str(request.GET.get("filename") or "").strip()
+    project_file_path = ""
+    if requested_filename:
+        for candidate_path in candidate_paths:
+            if Path(candidate_path).name == requested_filename:
+                project_file_path = candidate_path
+                break
+    else:
+        project_file_path = candidate_paths[0]
+    if not project_file_path:
+        raise Http404("未找到该 Scratch 作品文件")
+    if not default_storage.exists(project_file_path):
+        raise Http404("未找到该 Scratch 作品文件")
+
+    actual_filename = Path(project_file_path).name
+    response = FileResponse(
+        default_storage.open(project_file_path, "rb"),
+        as_attachment=False,
+        filename=actual_filename,
+        content_type="application/octet-stream",
+    )
+    return build_programming_project_file_response_headers(response)
+
+
+def build_programming_cors_response(payload: dict[str, object], *, status: int = 200) -> JsonResponse:
+    response = JsonResponse(payload, status=status)
+    response["Access-Control-Allow-Origin"] = "*"
+    response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    return response
+
+
+def get_programming_submission_token(request: HttpRequest, payload: dict[str, object] | None = None) -> str:
+    authorization = str(request.headers.get("Authorization") or "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip()
+    if payload and payload.get("token"):
+        return str(payload.get("token") or "").strip()
+    return str(request.POST.get("token") or request.GET.get("token") or "").strip()
+
+
+def load_programming_submission_payload(request: HttpRequest) -> dict[str, object]:
+    if request.content_type and "application/json" in request.content_type:
+        try:
+            return json.loads(request.body.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+    return {key: value for key, value in request.POST.items()}
+
+
+def parse_programming_json_payload(value: object) -> dict[str, object] | list[object] | None:
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+@csrf_exempt
+def api_programming_submission_artifacts(request: HttpRequest, submission_id: int) -> JsonResponse:
+    if request.method == "OPTIONS":
+        return build_programming_cors_response({"ok": True})
+    if request.method != "POST":
+        return build_programming_cors_response({"ok": False, "error": "method_not_allowed"}, status=405)
+
+    payload = load_programming_submission_payload(request)
+    token = get_programming_submission_token(request, payload)
+    try:
+        launch_token = uuid.UUID(str(token))
+    except (TypeError, ValueError):
+        return build_programming_cors_response({"ok": False, "error": "invalid_submission_token"}, status=403)
+    submission = (
+        ProgrammingSubmission.objects.select_related("student", "exam_session", "exam_question")
+        .filter(id=submission_id, launch_token=launch_token)
+        .first()
+    )
+    if not submission:
+        return build_programming_cors_response({"ok": False, "error": "invalid_submission_token"}, status=403)
+
+    update_fields = ["updated_at"]
+    artifacts = dict(submission.artifacts_json) if isinstance(submission.artifacts_json, dict) else {}
+    previous_project_file_path = str(submission.project_file_path or artifacts.get("project_file_path") or "").strip()
+    previous_block_count = normalize_programming_block_count(artifacts.get("block_count"))
+    artifacts_payload = parse_programming_json_payload(payload.get("artifacts"))
+    incoming_block_count = None
+    if isinstance(artifacts_payload, dict):
+        incoming_block_count = normalize_programming_block_count(artifacts_payload.get("block_count"))
+        artifacts.update(artifacts_payload)
+    project_file = request.FILES.get("project_file") or request.FILES.get("sb3")
+    if project_file:
+        uploaded_project_file_path = save_programming_uploaded_file(project_file, submission_id=submission.id, role="project")
+        artifacts["last_uploaded_project_file_path"] = uploaded_project_file_path
+        should_replace_project_file = True
+        if (
+            previous_project_file_path
+            and previous_block_count is not None
+            and incoming_block_count is not None
+            and incoming_block_count < previous_block_count
+        ):
+            should_replace_project_file = False
+        if should_replace_project_file:
+            submission.project_file_path = uploaded_project_file_path
+            artifacts["project_file_path"] = submission.project_file_path
+            update_fields.append("project_file_path")
+        else:
+            artifacts["project_file_path"] = previous_project_file_path
+            artifacts["ignored_project_file_path"] = uploaded_project_file_path
+            if previous_block_count is not None:
+                artifacts["block_count"] = previous_block_count
+    screenshot = request.FILES.get("screenshot")
+    if screenshot:
+        submission.screenshot_path = save_programming_uploaded_file(screenshot, submission_id=submission.id, role="screenshot")
+        artifacts["screenshot_path"] = submission.screenshot_path
+        update_fields.append("screenshot_path")
+
+    project_title = str(payload.get("project_title") or "").strip()
+    if project_title:
+        submission.project_title = project_title[:255]
+        update_fields.append("project_title")
+    project_url = str(payload.get("project_url") or "").strip()
+    if project_url:
+        submission.project_url = project_url[:500]
+        update_fields.append("project_url")
+    learning_events_payload = parse_programming_json_payload(payload.get("learning_events"))
+    if isinstance(learning_events_payload, (dict, list)):
+        submission.learning_events_json = learning_events_payload or {}
+        update_fields.append("learning_events_json")
+    ai_summary_payload = parse_programming_json_payload(payload.get("ai_summary"))
+    if isinstance(ai_summary_payload, (dict, list)):
+        submission.ai_summary_json = ai_summary_payload or {}
+        update_fields.append("ai_summary_json")
+
+    submission.artifacts_json = artifacts
+    submission.last_saved_at = timezone.now()
+    update_fields.extend(["artifacts_json", "last_saved_at"])
+    if str(payload.get("status") or "").strip() == ProgrammingSubmission.STATUS_SUBMITTED:
+        submission.status = ProgrammingSubmission.STATUS_SUBMITTED
+        submission.submitted_at = timezone.now()
+        submitted_project_file_path = get_programming_submission_project_file_path(submission)
+        if submitted_project_file_path:
+            artifacts["submitted_project_file_path"] = submitted_project_file_path
+            submitted_block_count = normalize_programming_block_count(artifacts.get("block_count"))
+            if submitted_block_count is not None:
+                artifacts["submitted_block_count"] = submitted_block_count
+        update_fields.extend(["status", "submitted_at"])
+    elif submission.status == ProgrammingSubmission.STATUS_DRAFT:
+        update_fields.append("status")
+
+    submission.save(update_fields=sorted(set(update_fields)))
+    return build_programming_cors_response(
+        {
+            "ok": True,
+            "submission_id": submission.id,
+            "status": submission.status,
+            "project_file_path": submission.project_file_path,
+            "screenshot_path": submission.screenshot_path,
+            "updated_at": submission.updated_at.isoformat(),
+        }
+    )
+
+
 @role_required("student")
 def api_student_exam_proctor_event(request: HttpRequest, session_id: int) -> JsonResponse:
     portal_user = get_portal_user_from_request(request)
@@ -5725,6 +6132,7 @@ def sync_exam_questions_from_bank_paper(*, exam_paper: ExamPaper, bank_paper: Ex
                     "knowledge_level_2": str(full_json.get("knowledge_level_2") or "").strip(),
                     "knowledge_level_3": str(full_json.get("knowledge_level_3") or "").strip(),
                     "question_type": bank_question.question_type,
+                    "programming_json": bank_question.programming_json if isinstance(bank_question.programming_json, dict) else {},
                     "image_paths": image_paths,
                     "material_image_paths": material_image_paths,
                     "question_image_paths": question_image_paths,

@@ -94,6 +94,7 @@ from .models import (
     HomeworkSubmissionAnswer,
     LessonHourLedger,
     PortalUser,
+    ProgrammingSubmission,
     RewardRecord,
     Student,
     StudentContentAccess,
@@ -3776,10 +3777,122 @@ def build_student_site_message_context(portal_user: PortalUser) -> dict:
     }
 
 
+def build_scratch_editor_launch_url(
+    question: ExamQuestion,
+    *,
+    session: ExamSession | None = None,
+) -> str:
+    if question.question_type != ExamQuestion.QUESTION_TYPE_PROGRAMMING:
+        return ""
+    if session:
+        return reverse("student-programming-scratch-launch", args=[session.id, question.id])
+
+    snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+    programming_config = snapshot.get("programming_json") if isinstance(snapshot.get("programming_json"), dict) else {}
+    editor_url = str(
+        programming_config.get("editor_url") or getattr(settings, "DASHIMA_SCRATCH_EDITOR_URL", "")
+    ).strip()
+    if not editor_url:
+        return ""
+
+    params = {
+        "source": "codemaster",
+        "platform": "scratch",
+        "question_id": question.id,
+        "question_no": question.question_no,
+    }
+    if session:
+        params.update(
+            {
+                "session_id": session.id,
+                "paper_id": session.paper_id,
+            }
+        )
+    if programming_config.get("template_project"):
+        params["template_project"] = str(programming_config.get("template_project"))
+
+    separator = "&" if "?" in editor_url else "?"
+    return f"{editor_url}{separator}{urlencode(params)}"
+
+
+def build_programming_media_url(relative_path: object) -> str:
+    path = str(relative_path or "").strip()
+    if not path:
+        return ""
+    if path.startswith(("http://", "https://", "/")):
+        return path
+    media_url = str(getattr(settings, "MEDIA_URL", "/media/") or "/media/")
+    return media_url.rstrip("/") + "/" + path.lstrip("/")
+
+
+def get_programming_display_project_file_path(submission: ProgrammingSubmission, artifacts: dict[str, object]) -> str:
+    if submission.status in {ProgrammingSubmission.STATUS_SUBMITTED, ProgrammingSubmission.STATUS_REVIEWED}:
+        submitted_path = str(artifacts.get("submitted_project_file_path") or "").strip()
+        if submitted_path:
+            return submitted_path
+    return str(submission.project_file_path or artifacts.get("project_file_path") or "").strip()
+
+
+def serialize_programming_submission(submission: ProgrammingSubmission | None) -> dict[str, object]:
+    if not submission:
+        return {}
+    status_text = {
+        ProgrammingSubmission.STATUS_DRAFT: "草稿",
+        ProgrammingSubmission.STATUS_SUBMITTED: "已提交",
+        ProgrammingSubmission.STATUS_REVIEWED: "已查阅",
+    }.get(submission.status, submission.status)
+    artifacts = submission.artifacts_json if isinstance(submission.artifacts_json, dict) else {}
+    learning_events = submission.learning_events_json if isinstance(submission.learning_events_json, (dict, list)) else {}
+    ai_summary = submission.ai_summary_json if isinstance(submission.ai_summary_json, (dict, list)) else {}
+    project_file_path = get_programming_display_project_file_path(submission, artifacts)
+    return {
+        "id": submission.id,
+        "platform": submission.platform,
+        "status": submission.status,
+        "status_text": status_text,
+        "project_title": submission.project_title or "Scratch 作品",
+        "project_file_path": project_file_path,
+        "project_file_url": build_programming_media_url(project_file_path),
+        "project_url": submission.project_url,
+        "review_launch_url": reverse("teacher-programming-scratch-review-launch", args=[submission.id])
+        if project_file_path or submission.project_url
+        else "",
+        "screenshot_path": submission.screenshot_path,
+        "screenshot_url": build_programming_media_url(submission.screenshot_path),
+        "last_saved_at_text": format_datetime(submission.last_saved_at) if submission.last_saved_at else "",
+        "submitted_at_text": format_datetime(submission.submitted_at) if submission.submitted_at else "",
+        "updated_at_text": format_datetime(submission.updated_at),
+        "artifacts": artifacts,
+        "learning_events": learning_events,
+        "learning_event_count": len(learning_events) if isinstance(learning_events, list) else int(artifacts.get("learning_event_count") or 0),
+        "ai_summary": ai_summary,
+    }
+
+
+def get_programming_submission_for_exam_question(
+    *,
+    session: ExamSession | None,
+    question: ExamQuestion,
+) -> ProgrammingSubmission | None:
+    if not session or question.question_type != ExamQuestion.QUESTION_TYPE_PROGRAMMING:
+        return None
+    return (
+        ProgrammingSubmission.objects.filter(
+            student_id=session.student_id,
+            exam_session=session,
+            exam_question=question,
+            platform=ProgrammingSubmission.PLATFORM_SCRATCH,
+        )
+        .order_by("-updated_at", "-id")
+        .first()
+    )
+
+
 def serialize_exam_question(
     question: ExamQuestion,
     *,
     answer: ExamSubmissionAnswer | None = None,
+    session: ExamSession | None = None,
     show_feedback: bool = False,
     requires_explanation: bool = False,
     selected_answer_override: str | None = None,
@@ -3799,6 +3912,7 @@ def serialize_exam_question(
         if student_explanation_override is not None
         else (str(answer.explanation_text or "").strip() if answer else "")
     )
+    programming_submission = get_programming_submission_for_exam_question(session=session, question=question)
     question_type_text = {
         ExamQuestion.QUESTION_TYPE_SINGLE_CHOICE: "单选题",
         getattr(ExamQuestion, "QUESTION_TYPE_TRUE_FALSE", "true_false"): "判断题",
@@ -3884,6 +3998,8 @@ def serialize_exam_question(
         "student_answer_text": (student_explanation if question.question_type == ExamQuestion.QUESTION_TYPE_PROGRAMMING else selected_answer) or "未作答",
         "programming_submission_text": student_explanation,
         "programming_submission_html": render_exam_markdown_for_display(student_explanation) if student_explanation else "",
+        "scratch_editor_launch_url": build_scratch_editor_launch_url(question, session=session),
+        "programming_artifact": serialize_programming_submission(programming_submission),
         "student_explanation": student_explanation,
         "student_explanation_html": render_exam_markdown_for_display(student_explanation) if student_explanation else "",
         "is_correct": bool(answer and answer.is_correct),
@@ -4711,16 +4827,29 @@ def build_teacher_student_exam_detail_context(
 ) -> dict:
     session = (
         ExamSession.objects.select_related("paper", "paper__teacher", "paper__course", "student")
-        .filter(id=session_id, student_id=student_id, paper__teacher=portal_user, is_active=True, paper__is_active=True)
+        .filter(id=session_id, student_id=student_id, is_active=True, paper__is_active=True)
         .get()
     )
+    can_view_session = portal_user.role == PortalUser.ROLE_PRINCIPAL or session.paper.teacher_id == portal_user.id
+    if not can_view_session:
+        assignment_filter = {
+            "teacher": portal_user,
+            "student_id": student_id,
+            "is_active": True,
+        }
+        if session.paper.course_id:
+            assignment_filter["course_id"] = session.paper.course_id
+        can_view_session = TeacherStudentAssignment.objects.filter(**assignment_filter).exists()
+    if not can_view_session:
+        raise ExamSession.DoesNotExist
+
     questions = get_exam_session_questions(session)
     answers = {
         answer.question_id: answer
         for answer in session.answers.select_related("question").all()
     }
     question_rows = [
-        serialize_exam_question(question, answer=answers.get(question.id), show_feedback=True)
+        serialize_exam_question(question, answer=answers.get(question.id), session=session, show_feedback=True)
         for question in questions
     ]
     wrong_rows = [question for question in question_rows if question["is_wrong"]]
@@ -5892,6 +6021,7 @@ def build_student_exam_detail_context(
         serialize_exam_question(
             question,
             answer=answers.get(question.id),
+            session=session,
             show_feedback=show_feedback,
             requires_explanation=requires_explanations,
             selected_answer_override=(selected_answer_overrides or {}).get(question.id),

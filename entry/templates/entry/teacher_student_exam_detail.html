@@ -283,6 +283,24 @@
                                             </label>
                                         {% endfor %}
                                     {% elif question.question_type == "programming" %}
+                                        {% if question.programming_artifact %}
+                                            <div class="record-inline-feedback">
+                                                <strong>Scratch 作品</strong>
+                                                <span>{{ question.programming_artifact.project_title }} · {{ question.programming_artifact.status_text }}{% if question.programming_artifact.last_saved_at_text %} · {{ question.programming_artifact.last_saved_at_text }}{% endif %}</span>
+                                                {% if question.programming_artifact.review_launch_url %}
+                                                    <a class="login-button" href="{{ question.programming_artifact.review_launch_url }}" target="_blank" rel="noopener">打开 Scratch 查看作品</a>
+                                                {% endif %}
+                                                {% if question.programming_artifact.project_file_url %}
+                                                    <a href="{{ question.programming_artifact.project_file_url }}" target="_blank" rel="noopener">下载 .sb3</a>
+                                                {% endif %}
+                                                {% if question.programming_artifact.screenshot_url %}
+                                                    <a href="{{ question.programming_artifact.screenshot_url }}" target="_blank" rel="noopener">查看截图</a>
+                                                {% endif %}
+                                                {% if question.programming_artifact.learning_event_count %}
+                                                    <span>学习事件 {{ question.programming_artifact.learning_event_count }} 条</span>
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
                                         <div class="record-inline-feedback">
                                             <strong>学生提交作品 / 说明</strong>
                                             {% if question.programming_submission_html %}

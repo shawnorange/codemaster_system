@@ -1554,6 +1554,75 @@ class ExamSubmissionAnswer(models.Model):
         return f"{self.session} - 第{self.question.question_no}题"
 
 
+class ProgrammingSubmission(models.Model):
+    PLATFORM_SCRATCH = "scratch"
+    PLATFORM_CPP = "cpp"
+    PLATFORM_CHOICES = [
+        (PLATFORM_SCRATCH, "Scratch"),
+        (PLATFORM_CPP, "C++"),
+    ]
+
+    STATUS_DRAFT = "draft"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_REVIEWED = "reviewed"
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, "草稿"),
+        (STATUS_SUBMITTED, "已提交"),
+        (STATUS_REVIEWED, "已查阅"),
+    ]
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="programming_submissions")
+    exam_session = models.ForeignKey(
+        ExamSession,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="programming_submissions",
+    )
+    exam_question = models.ForeignKey(
+        ExamQuestion,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="programming_submissions",
+    )
+    platform = models.CharField("平台", max_length=32, choices=PLATFORM_CHOICES, default=PLATFORM_SCRATCH)
+    status = models.CharField("状态", max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    launch_token = models.UUIDField("启动令牌", default=uuid.uuid4, unique=True, editable=False)
+    editor_url = models.CharField("编辑器地址", max_length=500, blank=True)
+    project_title = models.CharField("作品标题", max_length=255, blank=True)
+    project_file_path = models.CharField("作品文件路径", max_length=500, blank=True)
+    project_url = models.CharField("作品访问地址", max_length=500, blank=True)
+    screenshot_path = models.CharField("作品截图路径", max_length=500, blank=True)
+    artifacts_json = models.JSONField("作品附件信息", default=dict, blank=True)
+    learning_events_json = models.JSONField("学习事件摘要", default=dict, blank=True)
+    ai_summary_json = models.JSONField("AI 助手摘要", default=dict, blank=True)
+    last_saved_at = models.DateTimeField("最近保存时间", null=True, blank=True)
+    submitted_at = models.DateTimeField("提交时间", null=True, blank=True)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        verbose_name = "编程提交"
+        verbose_name_plural = "编程提交"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "exam_session", "exam_question", "platform"],
+                name="programming_submission_exam_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["student", "platform", "status"], name="prog_sub_student_status_idx"),
+            models.Index(fields=["exam_session", "exam_question"], name="prog_sub_exam_question_idx"),
+            models.Index(fields=["launch_token"], name="prog_sub_launch_token_idx"),
+        ]
+
+    def __str__(self) -> str:
+        question_no = self.exam_question.question_no if self.exam_question_id else "-"
+        return f"{self.student.display_name} - {self.platform} - 第{question_no}题"
+
+
 class ExamProctorEvent(models.Model):
     EVENT_VISIBILITY_HIDDEN = "visibility_hidden"
     EVENT_BLUR = "blur"

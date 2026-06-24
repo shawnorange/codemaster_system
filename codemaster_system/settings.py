@@ -169,6 +169,10 @@ LIVEKIT_CLIENT_JS_URL = get_env(
 LIVEKIT_RECORDING_ENABLED = get_env_bool("LIVEKIT_RECORDING_ENABLED", default=False)
 LIVEKIT_RECORDING_FILE_PREFIX = get_env("LIVEKIT_RECORDING_FILE_PREFIX", default="/recordings/live-classroom")
 LIVEKIT_RECORDING_PUBLIC_URL_PREFIX = get_env("LIVEKIT_RECORDING_PUBLIC_URL_PREFIX", default="/media/live-classroom")
+DASHIMA_SCRATCH_EDITOR_URL = get_env(
+    "DASHIMA_SCRATCH_EDITOR_URL",
+    default="http://localhost:8601/editor.html",
+)
 
 
 INSTALLED_APPS = [

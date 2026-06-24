@@ -52,6 +52,7 @@ from entry.models import (
     ExamSession,
     ExamSubmissionAnswer,
     PortalUser,
+    ProgrammingSubmission,
     Student,
     StudentSiteMessage,
     Teacher,
@@ -3897,6 +3898,138 @@ class ExamMVPTests(TestCase):
         self.assertContains(result_response, "已交卷")
         self.assertContains(result_response, "你的提交")
         self.assertContains(result_response, "scratch.mit.edu/projects/123456789")
+
+    def test_scratch_programming_artifacts_are_saved_submitted_and_visible_to_teacher(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.course,
+            title="Scratch 在线作品回传测试",
+            status=ExamPaper.STATUS_PUBLISHED,
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now() - timedelta(minutes=5),
+            end_at=timezone.now() + timedelta(days=1),
+        )
+        question = ExamQuestion.objects.create(
+            paper=paper,
+            question_no=1,
+            question_type=ExamQuestion.QUESTION_TYPE_PROGRAMMING,
+            stem="制作一个角色点击后说你好。",
+            options_json={},
+            correct_answer="",
+            score="25",
+            source_snapshot_json={
+                "programming_json": {
+                    "submission_mode": "scratch_project",
+                    "grading_mode": "manual",
+                    "editor_url": "https://scratch.local/editor.html",
+                }
+            },
+        )
+        session = ExamSession.objects.create(
+            paper=paper,
+            student=self.student,
+            assigned_by=self.teacher,
+            status=ExamSession.STATUS_IN_PROGRESS,
+            started_at=timezone.now(),
+        )
+
+        self.sign_in(self.student_user)
+        launch_response = self.client.get(reverse("student-programming-scratch-launch", args=[session.id, question.id]))
+        self.assertEqual(launch_response.status_code, 302)
+        submission = ProgrammingSubmission.objects.get(student=self.student, exam_session=session, exam_question=question)
+        self.assertIn("callback_url=", launch_response["Location"])
+        self.assertIn(f"submission_id={submission.id}", launch_response["Location"])
+        self.assertIn(f"token={submission.launch_token}", launch_response["Location"])
+
+        invalid_response = self.client.post(
+            reverse("api-programming-submission-artifacts", args=[submission.id]),
+            {"token": "bad-token", "status": ProgrammingSubmission.STATUS_DRAFT},
+        )
+        self.assertEqual(invalid_response.status_code, 403)
+
+        save_response = self.client.post(
+            reverse("api-programming-submission-artifacts", args=[submission.id]),
+            {
+                "token": submission.launch_token,
+                "status": ProgrammingSubmission.STATUS_DRAFT,
+                "project_title": "小猫说你好",
+                "artifacts": json.dumps({"block_count": 7}, ensure_ascii=False),
+                "learning_events": json.dumps(
+                    [
+                        {"type": "block_create", "blockType": "event_whenflagclicked"},
+                        {"type": "project_run", "source": "green_flag"},
+                    ],
+                    ensure_ascii=False,
+                ),
+                "ai_summary": json.dumps({"summary": "学生已经运行过作品"}, ensure_ascii=False),
+                "project_file": SimpleUploadedFile("scratch-work.txt", b"fake sb3 bytes", content_type="application/octet-stream"),
+                "screenshot": SimpleUploadedFile("preview.gif", b"fake image bytes", content_type="image/gif"),
+            },
+        )
+        self.assertEqual(save_response.status_code, 200)
+        self.assertTrue(save_response.json()["ok"])
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, ProgrammingSubmission.STATUS_DRAFT)
+        self.assertEqual(submission.project_title, "小猫说你好")
+        self.assertTrue(submission.project_file_path.endswith(".sb3"))
+        saved_project_file_path = submission.project_file_path
+        self.assertTrue(submission.screenshot_path.endswith(".png"))
+        self.assertTrue(default_storage.exists(submission.project_file_path))
+        self.assertEqual(submission.artifacts_json["block_count"], 7)
+        self.assertEqual(len(submission.learning_events_json), 2)
+        self.assertEqual(submission.ai_summary_json["summary"], "学生已经运行过作品")
+        self.assertIsNotNone(submission.last_saved_at)
+
+        project_filename = submission.project_file_path.split("/")[-1]
+        project_file_response = self.client.get(
+            reverse("api-programming-submission-project-file", args=[submission.id]) + f"?filename={project_filename}"
+        )
+        self.assertEqual(project_file_response.status_code, 200)
+        self.assertEqual(project_file_response["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(project_file_response["Cross-Origin-Resource-Policy"], "cross-origin")
+
+        relaunch_response = self.client.get(reverse("student-programming-scratch-launch", args=[session.id, question.id]))
+        self.assertEqual(relaunch_response.status_code, 302)
+        self.assertIn("project_url=", relaunch_response["Location"])
+        self.assertIn(project_filename, relaunch_response["Location"])
+
+        submit_response = self.client.post(
+            reverse("api-programming-submission-artifacts", args=[submission.id]),
+            {
+                "token": submission.launch_token,
+                "status": ProgrammingSubmission.STATUS_SUBMITTED,
+                "project_title": "小猫说你好",
+                "artifacts": json.dumps({"block_count": 0}, ensure_ascii=False),
+                "project_file": SimpleUploadedFile("blank.sb3", b"blank project bytes", content_type="application/octet-stream"),
+            },
+        )
+        self.assertEqual(submit_response.status_code, 200)
+        submission.refresh_from_db()
+        self.assertEqual(submission.status, ProgrammingSubmission.STATUS_SUBMITTED)
+        self.assertEqual(submission.project_file_path, saved_project_file_path)
+        self.assertEqual(submission.artifacts_json["submitted_project_file_path"], saved_project_file_path)
+        self.assertIn("ignored_project_file_path", submission.artifacts_json)
+        self.assertIsNotNone(submission.submitted_at)
+
+        self.sign_in(self.teacher)
+        teacher_response = self.client.get(reverse("teacher-student-exam-detail", args=[self.student.id, session.id]))
+        self.assertEqual(teacher_response.status_code, 200)
+        self.assertContains(teacher_response, "小猫说你好")
+        self.assertContains(teacher_response, "已提交")
+        self.assertContains(teacher_response, "打开 Scratch 查看作品")
+        self.assertContains(teacher_response, "下载 .sb3")
+        self.assertContains(teacher_response, "学习事件 2 条")
+
+        review_response = self.client.get(reverse("teacher-programming-scratch-review-launch", args=[submission.id]))
+        self.assertEqual(review_response.status_code, 302)
+        review_location = review_response["Location"]
+        self.assertTrue(review_location.startswith("https://scratch.local/editor.html"))
+        self.assertIn("mode=teacher_review", review_location)
+        self.assertIn("readonly=1", review_location)
+        self.assertIn("project_url=", review_location)
+        self.assertIn(project_filename, review_location)
+        self.assertNotIn("callback_url=", review_location)
+        self.assertNotIn("token=", review_location)
 
     def test_student_exam_result_renders_analysis_code_and_print_page(self) -> None:
         session = self.create_exam_via_teacher_view()

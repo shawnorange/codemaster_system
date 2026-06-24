@@ -572,6 +572,27 @@
                                                     </label>
                                                 {% endfor %}
                                             {% elif question.question_type == "programming" %}
+                                                {% if question.scratch_editor_launch_url and not show_feedback %}
+                                                    <div class="record-inline-feedback">
+                                                        <strong>Scratch 编程平台</strong>
+                                                        <a class="login-button" href="{{ question.scratch_editor_launch_url }}" target="_blank" rel="noopener">打开 Scratch 编程平台</a>
+                                                        {% if question.programming_artifact %}
+                                                            <span>{{ question.programming_artifact.status_text }}{% if question.programming_artifact.last_saved_at_text %} · {{ question.programming_artifact.last_saved_at_text }}{% endif %}</span>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
+                                                {% if question.programming_artifact and show_feedback %}
+                                                    <div class="record-inline-feedback">
+                                                        <strong>Scratch 作品</strong>
+                                                        <span>{{ question.programming_artifact.status_text }}{% if question.programming_artifact.submitted_at_text %} · {{ question.programming_artifact.submitted_at_text }}{% endif %}</span>
+                                                        {% if question.programming_artifact.project_file_url %}
+                                                            <a href="{{ question.programming_artifact.project_file_url }}" target="_blank" rel="noopener">下载 .sb3</a>
+                                                        {% endif %}
+                                                        {% if question.programming_artifact.screenshot_url %}
+                                                            <a href="{{ question.programming_artifact.screenshot_url }}" target="_blank" rel="noopener">查看截图</a>
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
                                                 <label class="student-exam-explanation-field">
                                                     <span>提交 Scratch 作品链接 / 文件名 / 操作说明</span>
                                                     <textarea
