@@ -1161,6 +1161,9 @@
         var editNameInput = document.getElementById(config.editNameInputId);
         var editPhoneInput = document.getElementById(config.editPhoneInputId);
         var editCourseSelect = document.getElementById(config.editCourseSelectId);
+        var editCourseSelected = document.getElementById(config.editCourseSelectedId);
+        var editCourseInputs = document.getElementById(config.editCourseInputsId);
+        var editManualSubjectInput = document.getElementById(config.editManualSubjectInputId);
         var editCloseButton = document.getElementById(config.editCloseButtonId);
         var editCancelButton = document.getElementById(config.editCancelButtonId);
         var nameSearchInput = document.getElementById(config.nameSearchInputId);
@@ -1178,8 +1181,10 @@
                 escapeHtml(row.name || "") +
                 '" data-teacher-phone="' +
                 escapeHtml(row.phone || "") +
-                '" data-teacher-course-id="' +
-                escapeHtml(row.course_id || "") +
+                '" data-teacher-course-ids="' +
+                escapeHtml(Array.isArray(row.course_ids) ? row.course_ids.join(",") : row.course_id || "") +
+                '" data-teacher-subject-manual="' +
+                escapeHtml(row.subject_manual || "") +
                 '">修改</button>';
             var stateAction = row.is_active ? "delete_teacher" : "restore_teacher";
             var stateLabel = row.is_active ? "删除" : "恢复";
@@ -1271,6 +1276,42 @@
             }
         }
 
+        function renderTeacherCoursePickerSelection(select, selectedContainer, inputContainer, courseIds) {
+            if (!select || !selectedContainer || !inputContainer) {
+                return false;
+            }
+            select.value = "";
+            selectedContainer.innerHTML = "";
+            inputContainer.innerHTML = "";
+            courseIds.forEach(function (courseId) {
+                var option = Array.prototype.find.call(select.options, function (candidate) {
+                    return String(candidate.value || "") === String(courseId || "");
+                });
+                if (!option) {
+                    return;
+                }
+                var hiddenInput = document.createElement("input");
+                hiddenInput.type = "hidden";
+                hiddenInput.name = "teacher_course_ids";
+                hiddenInput.value = String(courseId || "");
+                inputContainer.appendChild(hiddenInput);
+
+                var chip = document.createElement("span");
+                chip.className = "principal-subject-chip";
+                chip.dataset.courseId = String(courseId || "");
+                chip.appendChild(document.createTextNode(String(option.textContent || "").trim() + " "));
+
+                var removeButton = document.createElement("button");
+                removeButton.type = "button";
+                removeButton.setAttribute("aria-label", "移除 " + String(option.textContent || "").trim());
+                removeButton.dataset.subjectRemove = String(courseId || "");
+                removeButton.textContent = "×";
+                chip.appendChild(removeButton);
+                selectedContainer.appendChild(chip);
+            });
+            return true;
+        }
+
         function submitTeacherStateForm(actionName, teacherId) {
             var csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
             var form = document.createElement("form");
@@ -1305,7 +1346,31 @@
                         editPhoneInput.value = editButton.getAttribute("data-teacher-phone") || "";
                     }
                     if (editCourseSelect) {
-                        editCourseSelect.value = editButton.getAttribute("data-teacher-course-id") || "";
+                        var courseIds = String(editButton.getAttribute("data-teacher-course-ids") || "")
+                            .split(",")
+                            .map(function (value) {
+                                return value.trim();
+                            })
+                            .filter(Boolean);
+                        var renderedPicker = renderTeacherCoursePickerSelection(
+                            editCourseSelect,
+                            editCourseSelected,
+                            editCourseInputs,
+                            courseIds
+                        );
+                        if (!renderedPicker) {
+                            Array.prototype.forEach.call(editCourseSelect.options, function (option) {
+                                option.selected = false;
+                            });
+                            Array.prototype.forEach.call(editCourseSelect.options, function (option) {
+                                option.selected = courseIds.indexOf(String(option.value || "")) !== -1;
+                            });
+                        }
+                    }
+                    if (editManualSubjectInput) {
+                        var manualSubject = editButton.getAttribute("data-teacher-subject-manual") || "";
+                        editManualSubjectInput.value = manualSubject;
+                        editManualSubjectInput.hidden = !manualSubject;
                     }
                     showDialog(editModal);
                     return;

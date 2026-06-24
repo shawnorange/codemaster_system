@@ -243,8 +243,12 @@
                             {% if item.error_message %}&#10;{{ item.error_message }}{% endif %}
                         </p>
                         <div class="content-access-card__footer">
-                            <span>截图 {{ item.rendered_page_count }}/{{ item.page_count }} 页</span>
-                            <span>OCR {{ item.ocr_page_count }}/{{ item.page_count }} 页</span>
+                            {% if item.is_text_source_import %}
+                                <span>文本转换 {{ item.ocr_page_count }}/{{ item.page_count }} 页</span>
+                            {% else %}
+                                <span>截图 {{ item.rendered_page_count }}/{{ item.page_count }} 页</span>
+                                <span>OCR {{ item.ocr_page_count }}/{{ item.page_count }} 页</span>
+                            {% endif %}
                             {% if item.workspace_relative_path %}
                                 <span>workspace: {{ item.workspace_relative_path }}</span>
                             {% endif %}
@@ -540,6 +544,8 @@
                 page_count: Number(row.page_count || 0),
                 rendered_page_count: Number(row.rendered_page_count || 0),
                 ocr_page_count: Number(row.ocr_page_count || 0),
+                source_type: normalizeText(row.source_type),
+                is_text_source_import: Boolean(row.is_text_source_import),
                 created_at: normalizeText(row.created_at),
                 updated_at: normalizeText(row.updated_at),
                 preview_href: normalizeText(row.preview_href),
@@ -589,6 +595,9 @@
                             formatter: (cell) => {
                                 const row = cell.getRow().getData();
                                 const total = row.page_count || "-";
+                                if (row.is_text_source_import) {
+                                    return "文本转换 " + escapeHtml(row.ocr_page_count) + "/" + escapeHtml(total) + " 页";
+                                }
                                 return "截图 " + escapeHtml(row.rendered_page_count) + "/" + escapeHtml(total) + " 页 · OCR " + escapeHtml(row.ocr_page_count) + "/" + escapeHtml(total) + " 页";
                             },
                         },
@@ -690,6 +699,8 @@
                     page_count: Number(row.page_count || 0),
                     rendered_page_count: Number(row.rendered_page_count || 0),
                     ocr_page_count: Number(row.ocr_page_count || 0),
+                    source_type: normalizeText(row.source_type),
+                    is_text_source_import: Boolean(row.is_text_source_import),
                     created_at: normalizeText(row.created_at),
                     updated_at: normalizeText(row.updated_at),
                     preview_href: normalizeText(row.preview_href),

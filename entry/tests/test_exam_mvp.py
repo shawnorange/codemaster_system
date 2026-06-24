@@ -25,12 +25,17 @@ from django.utils import timezone
 
 from entry.auth import AUTH_COOKIE_NAME, AUTH_COOKIE_SALT
 from entry.exam_paper_import import (
+    SOURCE_TYPE_DOCX,
+    confirm_exam_question_bank_import_job,
     format_exam_markdown_for_teacher_edit,
+    process_text_exam_import_job,
     restore_exam_markdown_code_fences_from_original,
     split_ocr_markdown_into_question_blocks,
 )
 from entry.models import (
     Course,
+    CourseCategory,
+    CourseLevel,
     ExamPaper,
     ExamProctorEvent,
     ExamQuestion,
@@ -52,7 +57,13 @@ from entry.models import (
     Teacher,
     TeacherStudentAssignment,
 )
-from entry.portal_context import normalize_exam_question_no_for_sort, render_exam_markdown_for_display
+from entry.portal_context import (
+    exclude_markdown_embedded_image_paths,
+    infer_exam_bank_paper_subject,
+    normalize_exam_question_no_for_sort,
+    render_exam_markdown_for_display,
+    teacher_can_operate_exam_subject,
+)
 
 
 class ExamMVPTests(TestCase):
@@ -252,6 +263,55 @@ class ExamMVPTests(TestCase):
         )
         with zipfile.ZipFile(buffer, "w") as archive:
             archive.writestr("word/document.xml", document_xml)
+        return buffer.getvalue()
+
+    def build_docx_with_image_bytes(self, lines: list[str]) -> bytes:
+        buffer = BytesIO()
+        paragraphs = []
+        for line in lines:
+            if line == "[image]":
+                paragraphs.append(
+                    '<w:p><w:r><w:drawing>'
+                    '<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+                    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+                    "<a:graphicData>"
+                    '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+                    "<pic:blipFill>"
+                    '<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/>'
+                    "</pic:blipFill>"
+                    "</pic:pic>"
+                    "</a:graphicData>"
+                    "</a:graphic>"
+                    "</wp:inline>"
+                    "</w:drawing></w:r></w:p>"
+                )
+                continue
+            paragraphs.append(f"<w:p><w:r><w:t>{html.escape(line)}</w:t></w:r></w:p>")
+        document_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body>"
+            + "".join(paragraphs)
+            + "</w:body></w:document>"
+        )
+        rels_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            'Target="media/image1.png"/>'
+            "</Relationships>"
+        )
+        png_bytes = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+            b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+            b"\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc`\x00\x00\x00\x02\x00\x01"
+            b"\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("word/document.xml", document_xml)
+            archive.writestr("word/_rels/document.xml.rels", rels_xml)
+            archive.writestr("word/media/image1.png", png_bytes)
         return buffer.getvalue()
 
     def create_exam_via_teacher_view(
@@ -741,6 +801,49 @@ class ExamMVPTests(TestCase):
         self.assertIsInstance(image_paths, list)
         self.assertEqual(image_paths, [programming_exam_question.image_path])
 
+    def test_teacher_new_exam_paper_page_defaults_to_teacher_subject_course(self) -> None:
+        scratch_teacher = PortalUser.objects.create(
+            username="scratch_exam_teacher",
+            role=PortalUser.ROLE_TEACHER,
+            full_name="Scratch 考试老师",
+            phone="13810001001",
+        )
+        scratch_course = Course.objects.create(slug="scratch", title="Scratch", summary="图形化编程")
+        scratch_category = CourseCategory.objects.create(
+            course=scratch_course,
+            slug="grade-exam",
+            title="图形化等级考试",
+            summary="Scratch 等级考试",
+            sort_order=1,
+            is_active=True,
+        )
+        CourseLevel.objects.create(
+            category=scratch_category,
+            code="S2",
+            title="图形化编程二级",
+            summary="图形化编程二级",
+            sort_order=2,
+            is_active=True,
+        )
+        teacher_profile = Teacher.objects.create(
+            user=scratch_teacher,
+            display_name=scratch_teacher.full_name,
+            phone=scratch_teacher.phone,
+            subject="Scratch",
+        )
+        teacher_profile.courses.add(scratch_course)
+        self.sign_in(scratch_teacher)
+
+        response = self.client.get(reverse("teacher-exam-paper-new"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_course_id"], scratch_course.id)
+        self.assertContains(
+            response,
+            f'<option value="{scratch_course.id}" selected>Scratch</option>',
+            html=False,
+        )
+
     def test_teacher_new_exam_paper_page_creates_import_job(self) -> None:
         self.sign_in(self.teacher)
         response = self.client.get(reverse("teacher-exam-paper-new"))
@@ -826,6 +929,166 @@ class ExamMVPTests(TestCase):
         self.assertEqual(duplicate_response.status_code, 302)
         self.assertIn("op=existing", duplicate_response["Location"])
         self.assertEqual(ExamQuestionBankImportJob.objects.filter(source_pdf_id="2026_3_c_1").count(), 1)
+
+    def test_docx_import_extracts_embedded_images_and_scratch_programming_metadata(self) -> None:
+        docx_bytes = self.build_docx_with_image_bytes(
+            [
+                "一、单选题",
+                "1. 下列哪个区域显示 Scratch 角色运行效果？",
+                "[image]",
+                "A. 舞台区",
+                "B. 代码区",
+                "C. 角色列表",
+                "D. 背景库",
+                "标准答案：A",
+                "试题解析：舞台区用于显示角色运行效果。",
+                "二、操作题",
+                "1. 操作题 请制作一个角色说你好并移动 10 步。",
+            ]
+        )
+        scratch_course = Course.objects.create(slug="scratch-docx-import", title="Scratch", summary="Scratch DOCX 导入")
+        import_job = ExamQuestionBankImportJob.objects.create(
+            teacher=self.teacher,
+            course=scratch_course,
+            level_code="S2",
+            title="Scratch DOCX 导入测试",
+            year=2026,
+            month=9,
+            source_pdf_id="scratch_docx_import_test",
+            source_filename="2026年9月图形化二级.docx",
+            source_sha256=hashlib.sha256(docx_bytes).hexdigest(),
+            status=ExamQuestionBankImportJob.STATUS_UPLOADED,
+        )
+        import_job.source_pdf.save("scratch_docx_import_test.docx", ContentFile(docx_bytes), save=True)
+        workspace_dir = Path(self._media_root) / "exam_import_test_workspace"
+        raw_ocr_dir = workspace_dir / "raw"
+        response_dir = workspace_dir / "responses"
+        raw_ocr_dir.mkdir(parents=True, exist_ok=True)
+        response_dir.mkdir(parents=True, exist_ok=True)
+
+        process_text_exam_import_job(
+            import_job,
+            workspace_dir=workspace_dir,
+            raw_ocr_dir=raw_ocr_dir,
+            response_dir=response_dir,
+            source_type=SOURCE_TYPE_DOCX,
+        )
+        import_job.refresh_from_db()
+        self.assertEqual(import_job.status, ExamQuestionBankImportJob.STATUS_OCR_DONE)
+        raw_markdown_path = self._media_root_path(import_job.raw_ocr_json[0]["markdown_relative_path"])
+        raw_markdown = raw_markdown_path.read_text(encoding="utf-8")
+        self.assertIn("![DOCX 图片", raw_markdown)
+
+        paper, stats = confirm_exam_question_bank_import_job(import_job)
+
+        self.assertEqual(stats["questions_created"], 2)
+        image_asset = ExamQuestionBankAsset.objects.get(question__paper=paper, relative_path__contains="docx_media/")
+        self.assertEqual(image_asset.asset_type, "image/png")
+        choice_question = paper.questions.get(question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE)
+        self.assertEqual(choice_question.answer_json["correct_answer"], "A")
+        self.assertEqual(choice_question.answer_json["source"], "docx_embedded_answer")
+        self.assertIn("舞台区用于显示角色运行效果", choice_question.analysis_md)
+        programming_question = paper.questions.get(question_type=ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING)
+        self.assertEqual(programming_question.programming_json["submission_mode"], "scratch_project")
+        self.assertEqual(programming_question.programming_json["grading_mode"], "manual")
+
+    def test_scratch_docx_split_handles_solo_numbers_and_embedded_answer_analysis(self) -> None:
+        markdown = "\n".join(
+            [
+                "1.",
+                "小猫初始位置如下图所示，下面哪个选项能让小猫吃到老鼠？（ ）",
+                "![DOCX 图片 1](/media/exam/docx_media/docx_image_001.png)",
+                "A.",
+                "![DOCX 图片 2](/media/exam/docx_media/docx_image_002.png)",
+                "B.",
+                "![DOCX 图片 3](/media/exam/docx_media/docx_image_003.png)",
+                "C.",
+                "![DOCX 图片 4](/media/exam/docx_media/docx_image_004.png)",
+                "D.",
+                "![DOCX 图片 5](/media/exam/docx_media/docx_image_005.png)",
+                "标准答案：B",
+                "试题解析：Cat 2要朝着Mouse1的方向走，所以答案是B。",
+                "二、判断题(共1题，共2分)",
+                "26.",
+                "默认角色小猫，运行程序后小猫会消失。（ ）",
+                "正确",
+                "错误",
+                "标准答案：错误",
+                "试题解析：运行后角色仍会显示，故答案为错误。",
+                "三、编程题(共2题，共30分)",
+                "36.",
+                "魔法扫帚",
+                "1.准备工作",
+                "（1）添加背景：Night City With Street；",
+                "2.功能实现",
+                "（1）扫帚不停左右移动，碰到边缘就反弹；",
+                "参考程序：",
+                "Broom角色",
+                "![DOCX 图片 6](/media/exam/docx_media/docx_image_006.png)",
+                "评分标准：",
+                "（1）能够添加角色Broom；（2分）",
+                "展示地址：点击浏览",
+                "37.",
+                "绘制乒乓球拍",
+                "1.准备工作",
+                "（1）默认小猫角色；",
+                "评分标准：",
+                "（1）设置画笔颜色为黑色；（1分）",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown, scratch_docx_mode=True)
+
+        self.assertEqual([question["question_no"] for question in parsed_questions], [1, 26, 36, 37])
+        self.assertEqual(parsed_questions[0]["answer_json"]["correct_answer"], "B")
+        self.assertIn("Cat 2要朝着Mouse1", parsed_questions[0]["analysis_md"])
+        self.assertEqual(parsed_questions[1]["question_type"], ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE)
+        self.assertEqual(parsed_questions[1]["answer_json"]["answer"], "×")
+        self.assertEqual(parsed_questions[2]["question_type"], ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING)
+        self.assertIn("1.准备工作", parsed_questions[2]["stem_md"])
+        self.assertIn("参考程序", parsed_questions[2]["analysis_md"])
+        self.assertIn("能够添加角色Broom", parsed_questions[2]["analysis_md"])
+        self.assertEqual(parsed_questions[0]["score"], "")
+
+    def test_scratch_docx_rules_do_not_apply_without_explicit_mode(self) -> None:
+        markdown = "\n".join(
+            [
+                "1.",
+                "小猫初始位置如下图所示，下面哪个选项能让小猫吃到老鼠？（ ）",
+                "A. 向左走",
+                "B. 向右走",
+                "标准答案：B",
+                "试题解析：朝目标方向移动。",
+            ]
+        )
+
+        parsed_questions = split_ocr_markdown_into_question_blocks(markdown)
+
+        self.assertEqual(parsed_questions, [])
+
+    def test_exam_markdown_display_renders_docx_images(self) -> None:
+        html_text = str(
+            render_exam_markdown_for_display(
+                "题目图片\n![DOCX 图片 1](/media/exam_paper_import_workspace/demo/docx_media/docx_image_001.png)"
+            )
+        )
+
+        self.assertIn('<img class="exam-markdown-body__image"', html_text)
+        self.assertIn('src="/media/exam_paper_import_workspace/demo/docx_media/docx_image_001.png"', html_text)
+        self.assertIn('alt="DOCX 图片 1"', html_text)
+
+    def test_markdown_embedded_images_are_not_rendered_twice_as_extra_paths(self) -> None:
+        markdown = "题干\n![DOCX 图片 1](/media/exam_paper_import_workspace/demo/docx_media/docx_image_001.png)"
+
+        remaining_paths = exclude_markdown_embedded_image_paths(
+            [
+                "exam_paper_import_workspace/demo/docx_media/docx_image_001.png",
+                "exam_paper_import_workspace/demo/docx_media/docx_image_002.png",
+            ],
+            markdown,
+        )
+
+        self.assertEqual(remaining_paths, ["exam_paper_import_workspace/demo/docx_media/docx_image_002.png"])
 
     def test_teacher_new_exam_paper_page_defaults_pdf_to_crop_demo(self) -> None:
         self.sign_in(self.teacher)
@@ -996,6 +1259,36 @@ class ExamMVPTests(TestCase):
 
         updated_response = self.client.get(reverse("teacher-exam-paper-new"))
         self.assertNotContains(updated_response, "2024年3月C++二级真题")
+
+    def test_graphical_docx_bank_paper_is_inferred_as_scratch_subject(self) -> None:
+        scratch_teacher = PortalUser.objects.create(
+            username="scratch_bank_teacher",
+            role=PortalUser.ROLE_TEACHER,
+            full_name="Scratch 题库老师",
+            phone="13810002001",
+        )
+        scratch_course = Course.objects.create(slug="scratch-bank", title="Scratch", summary="Scratch")
+        teacher_profile = Teacher.objects.create(
+            user=scratch_teacher,
+            display_name=scratch_teacher.full_name,
+            phone=scratch_teacher.phone,
+            subject="Scratch",
+        )
+        teacher_profile.courses.add(scratch_course)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="S1",
+            year=2025,
+            month=9,
+            source_pdf_id="2025_9_202509",
+            source_file="202509图形化一级.docx",
+            title="202509图形化一级",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+
+        self.assertEqual(infer_exam_bank_paper_subject(bank_paper), "Scratch")
+        self.assertTrue(teacher_can_operate_exam_subject(scratch_teacher, "Scratch"))
+        self.assertTrue(teacher_can_operate_exam_subject(scratch_teacher, infer_exam_bank_paper_subject(bank_paper)))
 
     def test_teacher_new_exam_paper_page_soft_deletes_published_bank_paper_for_restore(self) -> None:
         self.sign_in(self.teacher)
@@ -1956,6 +2249,65 @@ class ExamMVPTests(TestCase):
         self.assertEqual(row["knowledge_status_text"], "识别中 0/1")
         self.assertFalse(row["can_generate_knowledge"])
 
+    @override_settings(EXAM_AI_KNOWLEDGE_STALE_MINUTES=1)
+    def test_teacher_exam_bank_paper_status_expires_stale_knowledge_generation(self) -> None:
+        teacher_profile = Teacher.objects.create(
+            user=self.teacher,
+            display_name=self.teacher.full_name,
+            phone=self.teacher.phone,
+            subject="C++",
+        )
+        teacher_profile.courses.add(self.cpp_course)
+        self.sign_in(self.teacher)
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="GESP2",
+            year=2026,
+            month=6,
+            source_pdf_id="stale_knowledge_status_paper",
+            source_file="stale-knowledge-status.pdf",
+            title="卡住的知识点状态试卷",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+        pending_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="stale-knowledge-status-q-001",
+            question_no=1,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 1 题 下列说法正确的是？",
+            answer_json={"correct_answer": "A"},
+            analysis_md="",
+            programming_json={},
+            full_json={"knowledge_status": "pending"},
+        )
+        running_question = ExamQuestionBankQuestion.objects.create(
+            paper=bank_paper,
+            question_uid="stale-knowledge-status-q-002",
+            question_no=2,
+            question_type=ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+            stem_md="第 2 题 下列说法正确的是？",
+            answer_json={"correct_answer": "B"},
+            analysis_md="",
+            programming_json={},
+            full_json={"knowledge_status": "running"},
+        )
+        stale_time = timezone.now() - timedelta(minutes=15)
+        ExamQuestionBankQuestion.objects.filter(id__in=[pending_question.id, running_question.id]).update(updated_at=stale_time)
+
+        response = self.client.get(reverse("teacher-exam-bank-paper-status"))
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.json()["rows"] if item["id"] == bank_paper.id)
+        self.assertEqual(row["knowledge_status_text"], "识别失败")
+        self.assertTrue(row["can_generate_knowledge"])
+        self.assertEqual(row["knowledge_failed_count"], 2)
+        statuses = list(
+            ExamQuestionBankQuestion.objects.filter(paper=bank_paper)
+            .order_by("question_no")
+            .values_list("full_json", flat=True)
+        )
+        self.assertEqual([item["knowledge_status"] for item in statuses], ["failed", "failed"])
+
     def test_gesp2_cpp_knowledge_mapping_is_seeded_for_search_and_ai_prompt(self) -> None:
         from entry.views import load_exam_knowledge_mapping_markdown, search_exam_knowledge_point_maps
 
@@ -1977,6 +2329,78 @@ class ExamMVPTests(TestCase):
         mapping_markdown = load_exam_knowledge_mapping_markdown(bank_paper)
 
         self.assertIn("| 数学判断 | 奇偶判断 |", mapping_markdown)
+
+    def test_scratch_bank_paper_loads_knowledge_mapping_by_course_level_code(self) -> None:
+        from entry.views import get_exam_bank_paper_edit_knowledge_rows, load_exam_knowledge_mapping_markdown
+
+        ExamKnowledgePointMap.objects.update_or_create(
+            subject="scratch",
+            category_code="中国电子学会",
+            level_1="熟悉编程软件",
+            level_2="舞台区和角色区",
+            level_3="认识 Scratch 基本区域",
+            defaults={"course_level_code": "S1", "is_active": True, "sort_order": 1},
+        )
+        ExamKnowledgePointMap.objects.update_or_create(
+            subject="scratch",
+            category_code="中国电子学会",
+            level_1="选择语句",
+            level_2="如果那么",
+            level_3="条件判断",
+            defaults={"course_level_code": "S2", "is_active": True, "sort_order": 2},
+        )
+        bank_paper = ExamQuestionBankPaper.objects.create(
+            level="S1",
+            year=2026,
+            month=9,
+            source_pdf_id="scratch_s1_knowledge_map_prompt_paper",
+            source_file="202609图形化一级.docx",
+            title="202609图形化一级",
+            source=ExamQuestionBankPaper.SOURCE_LOCAL_OCR,
+            is_active=True,
+        )
+
+        mapping_markdown = load_exam_knowledge_mapping_markdown(bank_paper)
+
+        self.assertIn("| 熟悉编程软件 | 舞台区和角色区 | 认识 Scratch 基本区域 |", mapping_markdown)
+        self.assertNotIn("| 选择语句 | 如果那么 | 条件判断 |", mapping_markdown)
+        edit_rows = get_exam_bank_paper_edit_knowledge_rows(bank_paper)
+        self.assertIn(
+            {"level_1": "熟悉编程软件", "level_2": "舞台区和角色区", "level_3": "认识 Scratch 基本区域"},
+            edit_rows,
+        )
+        self.assertNotIn(
+            {"level_1": "选择语句", "level_2": "如果那么", "level_3": "条件判断"},
+            edit_rows,
+        )
+
+    def test_teacher_can_create_single_exam_knowledge_point_for_owned_subject(self) -> None:
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-exams"),
+            {
+                "form_action": "create_exam_knowledge_point",
+                "knowledge_subject": "python",
+                "knowledge_course_level_code": "P1",
+                "knowledge_category_manual": "Python等级考试",
+                "knowledge_level_1": "基础语法",
+                "knowledge_level_2": "变量",
+                "knowledge_level_3": "赋值语句",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("op=knowledge_created", response["Location"])
+        knowledge = ExamKnowledgePointMap.objects.get(
+            subject="python",
+            category_code="PYTHON等级考试",
+            level_1="基础语法",
+            level_2="变量",
+            level_3="赋值语句",
+        )
+        self.assertEqual(knowledge.course_level_code, "P1")
+        self.assertEqual(knowledge.uploaded_by, self.teacher)
 
     def test_bank_paper_knowledge_generation_updates_editable_fields_and_published_exam(self) -> None:
         from entry.views import generate_bank_paper_knowledge_points
@@ -3419,6 +3843,60 @@ class ExamMVPTests(TestCase):
         self.assertContains(result_response, "点开后将直接记时并增加一条练习记录，请确定你有完整的练习时间。")
         self.assertContains(result_response, "data-practice-confirm-cancel", html=False)
         self.assertContains(result_response, "data-practice-confirm-submit", html=False)
+
+    def test_student_submits_scratch_programming_question_for_manual_review(self) -> None:
+        paper = ExamPaper.objects.create(
+            teacher=self.teacher,
+            course=self.course,
+            title="Scratch 编程题测试",
+            status=ExamPaper.STATUS_PUBLISHED,
+            mode=ExamPaper.MODE_DEADLINE,
+            start_at=timezone.now() - timedelta(minutes=5),
+            end_at=timezone.now() + timedelta(days=1),
+        )
+        question = ExamQuestion.objects.create(
+            paper=paper,
+            question_no=1,
+            question_type=ExamQuestion.QUESTION_TYPE_PROGRAMMING,
+            stem="制作一个角色说你好。",
+            options_json={},
+            correct_answer="",
+            score="25",
+            source_snapshot_json={"programming_json": {"submission_mode": "scratch_project", "grading_mode": "manual"}},
+        )
+        session = ExamSession.objects.create(
+            paper=paper,
+            student=self.student,
+            assigned_by=self.teacher,
+            status=ExamSession.STATUS_IN_PROGRESS,
+            started_at=timezone.now(),
+        )
+
+        self.sign_in(self.student_user)
+        detail_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, f'name="programming_submission_{question.id}"', html=False)
+        self.assertContains(detail_response, "提交 Scratch 作品链接")
+
+        submit_response = self.client.post(
+            reverse("student-exam-detail", args=[session.id]),
+            {
+                "form_action": "submit_exam",
+                f"programming_submission_{question.id}": "https://scratch.mit.edu/projects/123456789/ 角色会说你好",
+            },
+        )
+        self.assertEqual(submit_response.status_code, 302)
+        session.refresh_from_db()
+        self.assertEqual(session.status, ExamSession.STATUS_SUBMITTED)
+        self.assertEqual(session.total_count, 0)
+        answer = ExamSubmissionAnswer.objects.get(session=session, question=question)
+        self.assertEqual(answer.selected_answer, "")
+        self.assertIn("scratch.mit.edu/projects/123456789", answer.explanation_text)
+
+        result_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertContains(result_response, "已交卷")
+        self.assertContains(result_response, "你的提交")
+        self.assertContains(result_response, "scratch.mit.edu/projects/123456789")
 
     def test_student_exam_result_renders_analysis_code_and_print_page(self) -> None:
         session = self.create_exam_via_teacher_view()

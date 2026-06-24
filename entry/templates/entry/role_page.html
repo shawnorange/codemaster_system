@@ -44,6 +44,49 @@
                 grid-template-columns: 1fr;
             }
 
+            .principal-subject-picker {
+                display: grid;
+                gap: 8px;
+                min-width: 220px;
+            }
+
+            .principal-subject-picker__selected {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                min-height: 0;
+            }
+
+            .principal-subject-picker__selected:empty {
+                display: none;
+            }
+
+            .principal-subject-chip {
+                align-items: center;
+                background: #eef2ff;
+                border: 1px solid #c7d2fe;
+                border-radius: 999px;
+                color: #312e81;
+                display: inline-flex;
+                font-size: 0.82rem;
+                font-weight: 700;
+                gap: 6px;
+                line-height: 1;
+                padding: 6px 9px;
+                white-space: nowrap;
+            }
+
+            .principal-subject-chip button {
+                appearance: none;
+                background: transparent;
+                border: 0;
+                color: inherit;
+                cursor: pointer;
+                font: inherit;
+                line-height: 1;
+                padding: 0;
+            }
+
             @media (max-width: 960px) {
                 .hero-panel__metrics--teacher-workbench {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -408,13 +451,43 @@
                                         name="teacher_username"
                                         value="{{ page_shell.teacher_form_values.username }}"
                                         placeholder="用户名（默认教师姓名）"
+                                        aria-describedby="principal-teacher-username-hint"
                                     >
-                                    <select name="teacher_course_id" required>
-                                        <option value="">所教授学科</option>
-                                        {% for option in page_shell.teacher_course_options %}
-                                            <option value="{{ option.value }}" {% if option.value == page_shell.teacher_form_values.course_id %}selected{% endif %}>{{ option.label }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <span id="principal-teacher-username-hint" class="section-heading__eyebrow">这个用作登陆名</span>
+                                    <div class="principal-subject-picker">
+                                        <select id="principal-teacher-create-course-select" class="portal-filter-control portal-grid-filter-control" aria-label="所教授学科" autocomplete="off" data-subject-picker-select data-subject-picker-selected-id="principal-teacher-create-course-selected" data-subject-picker-inputs-id="principal-teacher-create-course-inputs">
+                                            <option value="">请选择学科</option>
+                                            {% for option in page_shell.teacher_course_options %}
+                                                <option value="{{ option.value }}">{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <div id="principal-teacher-create-course-inputs" data-subject-picker-inputs>
+                                            {% for option in page_shell.teacher_course_options %}
+                                                {% if option.value in page_shell.teacher_form_values.course_ids %}
+                                                    <input type="hidden" name="teacher_course_ids" value="{{ option.value }}">
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                        <div id="principal-teacher-create-course-selected" class="principal-subject-picker__selected" data-subject-picker-selected>
+                                            {% for option in page_shell.teacher_course_options %}
+                                                {% if option.value in page_shell.teacher_form_values.course_ids %}
+                                                    <span class="principal-subject-chip" data-course-id="{{ option.value }}">{{ option.label }} <button type="button" aria-label="移除 {{ option.label }}" data-subject-remove="{{ option.value }}">×</button></span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    <div class="portal-stack-spacing-xs">
+                                        <button type="button" class="teacher-anchor-link" data-manual-subject-toggle="principal-teacher-create-manual-subject">没有对应学科， 手动填写</button>
+                                        <input
+                                            id="principal-teacher-create-manual-subject"
+                                            type="text"
+                                            name="teacher_subject_manual"
+                                            value="{{ page_shell.teacher_form_values.subject_manual }}"
+                                            class="portal-filter-control portal-grid-filter-control"
+                                            placeholder="手动填写学科；多个学科请用英文分号 ; 分隔"
+                                            {% if not page_shell.teacher_form_values.subject_manual %}hidden{% endif %}
+                                        >
+                                    </div>
                                     <input
                                         type="text"
                                         name="teacher_phone"
@@ -473,12 +546,27 @@
                                     <div class="record-form">
                                         <input id="principal-teacher-edit-name" type="text" name="teacher_name" placeholder="教师姓名" required>
                                         <input id="principal-teacher-edit-phone" type="text" name="teacher_phone" placeholder="手机号" inputmode="tel" required>
-                                        <select id="principal-teacher-edit-course" name="teacher_course_id" required>
-                                            <option value="">所教授学科</option>
-                                            {% for option in page_shell.teacher_course_options %}
-                                                <option value="{{ option.value }}">{{ option.label }}</option>
-                                            {% endfor %}
-                                        </select>
+                                        <div class="principal-subject-picker">
+                                            <select id="principal-teacher-edit-course" class="portal-filter-control portal-grid-filter-control" aria-label="所教授学科" autocomplete="off" data-subject-picker-select data-subject-picker-selected-id="principal-teacher-edit-course-selected" data-subject-picker-inputs-id="principal-teacher-edit-course-inputs">
+                                                <option value="">请选择学科</option>
+                                                {% for option in page_shell.teacher_course_options %}
+                                                    <option value="{{ option.value }}">{{ option.label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <div id="principal-teacher-edit-course-inputs" data-subject-picker-inputs></div>
+                                            <div id="principal-teacher-edit-course-selected" class="principal-subject-picker__selected" data-subject-picker-selected></div>
+                                        </div>
+                                        <div class="portal-stack-spacing-xs">
+                                            <button type="button" class="teacher-anchor-link" data-manual-subject-toggle="principal-teacher-edit-manual-subject">没有对应学科， 手动填写</button>
+                                            <input
+                                                id="principal-teacher-edit-manual-subject"
+                                                type="text"
+                                                name="teacher_subject_manual"
+                                                class="portal-filter-control portal-grid-filter-control"
+                                                placeholder="手动填写学科；多个学科请用英文分号 ; 分隔"
+                                                hidden
+                                            >
+                                        </div>
                                     </div>
 
                                     <div class="topic-access-modal__footer">
@@ -708,10 +796,80 @@
                         editNameInputId: "principal-teacher-edit-name",
                         editPhoneInputId: "principal-teacher-edit-phone",
                         editCourseSelectId: "principal-teacher-edit-course",
+                        editCourseSelectedId: "principal-teacher-edit-course-selected",
+                        editCourseInputsId: "principal-teacher-edit-course-inputs",
+                        editManualSubjectInputId: "principal-teacher-edit-manual-subject",
                         editCloseButtonId: "principal-teacher-edit-close",
                         editCancelButtonId: "principal-teacher-edit-cancel"
                     });
                 }
+                document.querySelectorAll("[data-manual-subject-toggle]").forEach(function (button) {
+                    button.addEventListener("click", function () {
+                        var input = document.getElementById(button.getAttribute("data-manual-subject-toggle") || "");
+                        if (!input) {
+                            return;
+                        }
+                        input.hidden = false;
+                        input.focus();
+                    });
+                });
+                function setupSubjectPicker(select) {
+                    var selected = document.getElementById(select.getAttribute("data-subject-picker-selected-id") || "");
+                    var inputs = document.getElementById(select.getAttribute("data-subject-picker-inputs-id") || "");
+                    if (!selected || !inputs) {
+                        return;
+                    }
+                    function hasCourse(courseId) {
+                        return Array.prototype.some.call(inputs.querySelectorAll('input[name="teacher_course_ids"]'), function (input) {
+                            return String(input.value || "") === String(courseId || "");
+                        });
+                    }
+                    function removeCourse(courseId) {
+                        Array.prototype.forEach.call(inputs.querySelectorAll('input[name="teacher_course_ids"]'), function (input) {
+                            if (String(input.value || "") === String(courseId || "")) {
+                                input.remove();
+                            }
+                        });
+                        Array.prototype.forEach.call(selected.querySelectorAll("[data-course-id]"), function (chip) {
+                            if (String(chip.getAttribute("data-course-id") || "") === String(courseId || "")) {
+                                chip.remove();
+                            }
+                        });
+                    }
+                    function addCourse(courseId, label) {
+                        if (!courseId || hasCourse(courseId)) {
+                            return;
+                        }
+                        var input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = "teacher_course_ids";
+                        input.value = courseId;
+                        inputs.appendChild(input);
+                        var chip = document.createElement("span");
+                        chip.className = "principal-subject-chip";
+                        chip.dataset.courseId = courseId;
+                        chip.appendChild(document.createTextNode(label + " "));
+                        var removeButton = document.createElement("button");
+                        removeButton.type = "button";
+                        removeButton.setAttribute("aria-label", "移除 " + label);
+                        removeButton.dataset.subjectRemove = courseId;
+                        removeButton.textContent = "×";
+                        chip.appendChild(removeButton);
+                        selected.appendChild(chip);
+                    }
+                    select.addEventListener("change", function () {
+                        var option = select.options[select.selectedIndex];
+                        addCourse(select.value, option ? option.textContent.trim() : select.value);
+                        select.value = "";
+                    });
+                    selected.addEventListener("click", function (event) {
+                        var button = event.target.closest("[data-subject-remove]");
+                        if (button) {
+                            removeCourse(button.getAttribute("data-subject-remove") || "");
+                        }
+                    });
+                }
+                document.querySelectorAll("[data-subject-picker-select]").forEach(setupSubjectPicker);
                 if ("{{ page_shell.active_tab }}" === "messages") {
                     window.CodeMasterTeacherTabulator.initTeacherWorkbenchMessages({
                         tableId: "teacher-workbench-messages-table",

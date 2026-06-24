@@ -639,6 +639,93 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(teacher_profile.subject, "C++")
         self.assertTrue(teacher_profile.courses.filter(id=self.cpp_course.id).exists())
 
+    def test_principal_manual_scratch_subject_creates_course_scope_for_student_pool(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_create_scratch_teacher",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="Scratch 校长",
+            phone="13800001021",
+        )
+        self.sign_in(principal)
+
+        response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "create_teacher",
+                "teacher_name": "Scratch老师",
+                "teacher_subject_manual": "scratch",
+                "teacher_phone": "13800001022",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        teacher_user = PortalUser.objects.get(username="Scratch老师")
+        teacher_profile = Teacher.objects.get(user=teacher_user)
+        scratch_course = Course.objects.get(slug="scratch")
+        self.assertEqual(teacher_profile.subject, "Scratch")
+        self.assertTrue(teacher_profile.courses.filter(id=scratch_course.id).exists())
+        self.assertTrue(
+            CourseCategory.objects.filter(course=scratch_course, slug="grade-exam").exists()
+        )
+        self.assertEqual(
+            list(
+                CourseLevel.objects.filter(category__course=scratch_course)
+                .order_by("sort_order")
+                .values_list("code", flat=True)
+            ),
+            ["S1", "S2", "S3", "S4"],
+        )
+
+        self.sign_in(teacher_user)
+        workbench_response = self.client.get(reverse("teacher-students"))
+        self.assertContains(workbench_response, "/teacher/courses/scratch/student-pool")
+        pool_response = self.client.get(reverse("teacher-course-student-pool", args=["scratch"]))
+        self.assertEqual(pool_response.status_code, 200)
+        self.assertEqual(pool_response.context["available_level_codes"], ["S1", "S2", "S3", "S4"])
+
+    def test_principal_manual_unknown_subject_still_creates_student_pool_course(self) -> None:
+        principal = PortalUser.objects.create(
+            username="principal_create_manual_subject_teacher",
+            role=PortalUser.ROLE_PRINCIPAL,
+            full_name="手填学科校长",
+            phone="13800001031",
+        )
+        self.sign_in(principal)
+
+        response = self.client.post(
+            reverse("principal-dashboard"),
+            {
+                "form_action": "create_teacher",
+                "teacher_name": "创客老师",
+                "teacher_subject_manual": "创客课",
+                "teacher_phone": "13800001032",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        teacher_user = PortalUser.objects.get(username="创客老师")
+        teacher_profile = Teacher.objects.get(user=teacher_user)
+        manual_course = teacher_profile.courses.get(title="创客课")
+        self.assertEqual(teacher_profile.subject, "创客课")
+        self.assertEqual(
+            list(
+                CourseLevel.objects.filter(category__course=manual_course)
+                .order_by("sort_order")
+                .values_list("code", flat=True)
+            ),
+            ["DEFAULT"],
+        )
+
+        self.sign_in(teacher_user)
+        workbench_response = self.client.get(reverse("teacher-students"))
+        self.assertContains(
+            workbench_response,
+            reverse("teacher-course-student-pool", args=[manual_course.slug]),
+        )
+        pool_response = self.client.get(reverse("teacher-course-student-pool", args=[manual_course.slug]))
+        self.assertEqual(pool_response.status_code, 200)
+        self.assertEqual(pool_response.context["available_level_codes"], ["DEFAULT"])
+
     def test_principal_create_teacher_rejects_duplicate_username(self) -> None:
         principal = PortalUser.objects.create(
             username="principal_duplicate_teacher",
@@ -800,6 +887,7 @@ class HomeworkMVPTests(TestCase):
         student = Student.objects.select_related("user", "parent_user", "teacher_user").get(display_name="单个新增学生")
         self.assertEqual(student.parent_user.phone, "13800000999")
         self.assertEqual(student.parent_user.username, "parent_13800000999")
+        self.assertEqual(student.user.username, "单个新增学生")
         self.assertEqual(student.teacher_user, self.teacher)
         self.assertEqual(student.primary_course_name, self.cpp_course.title)
         self.assertEqual(student.primary_track_name, "GESP")
@@ -819,6 +907,73 @@ class HomeworkMVPTests(TestCase):
         self.assertTrue(assignment.is_active)
         self.assertEqual(assignment.student_id, student.id)
         self.assertEqual(assignment.course, self.cpp_course)
+
+    def test_teacher_can_add_single_scratch_student_from_course_student_pool(self) -> None:
+        scratch_course, _ = Course.objects.get_or_create(
+            slug="scratch",
+            defaults={"title": "Scratch", "summary": "图形化编程"},
+        )
+        scratch_category, _ = CourseCategory.objects.get_or_create(
+            course=scratch_course,
+            slug="grade-exam",
+            defaults={
+                "title": "图形化等级考试",
+                "summary": "Scratch 等级考试",
+                "sort_order": 1,
+                "is_active": True,
+            },
+        )
+        CourseLevel.objects.get_or_create(
+            category=scratch_category,
+            code="S2",
+            defaults={
+                "title": "图形化编程二级",
+                "summary": "图形化编程二级",
+                "sort_order": 2,
+                "is_active": True,
+            },
+        )
+        teacher_profile, _ = Teacher.objects.get_or_create(
+            user=self.teacher,
+            defaults={
+                "display_name": self.teacher.full_name,
+                "phone": self.teacher.phone,
+                "subject": "Scratch",
+            },
+        )
+        teacher_profile.courses.add(scratch_course)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-course-student-pool", args=[scratch_course.slug]),
+            {
+                "form_action": "create_single_student",
+                "new_student_name": "Scratch新增学生",
+                "new_parent_phone": "13800001099",
+                "new_course_id": str(scratch_course.id),
+                "new_permission_level_code": "S2",
+                "new_primary_level_name": "S2",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "单个学生添加成功，已加入当前课程。")
+        self.assertNotContains(response, "当前学习内容不能为空。")
+
+        student = Student.objects.get(display_name="Scratch新增学生")
+        self.assertEqual(student.primary_course_name, scratch_course.title)
+        self.assertEqual(student.primary_track_name, "图形化编程")
+        self.assertEqual(student.primary_level_name, "S2")
+        self.assertTrue(
+            TeacherStudentAssignment.objects.filter(
+                teacher=self.teacher,
+                student=student,
+                course=scratch_course,
+                level_code="S2",
+                is_active=True,
+            ).exists()
+        )
 
     def test_teacher_cannot_add_duplicate_single_student_by_name_and_parent_phone(self) -> None:
         self.sign_in(self.teacher)
@@ -899,6 +1054,28 @@ class HomeworkMVPTests(TestCase):
         existing_parent.refresh_from_db()
         self.assertTrue(existing_parent.check_password("legacy-pass"))
 
+    def test_teacher_can_add_multiple_children_for_same_parent_phone(self) -> None:
+        self.sign_in(self.teacher)
+
+        for student_name in ["同家长学生一", "同家长学生二"]:
+            response = self.client.post(
+                reverse("teacher-course-student-pool", args=[self.cpp_course.slug]),
+                {
+                    "form_action": "create_single_student",
+                    "new_student_name": student_name,
+                    "new_parent_phone": "13800000777",
+                    "new_course_id": str(self.cpp_course.id),
+                    "new_permission_level_code": "C1",
+                    "new_primary_level_name": "GESP1",
+                },
+                follow=True,
+            )
+            self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(PortalUser.objects.filter(role=PortalUser.ROLE_PARENT, phone="13800000777").count(), 1)
+        self.assertEqual(PortalUser.objects.filter(role=PortalUser.ROLE_STUDENT, username__in=["同家长学生一", "同家长学生二"]).count(), 2)
+        self.assertEqual(Student.objects.filter(parent_user__phone="13800000777").count(), 2)
+
     def test_teacher001_can_see_student_import_button_on_course_students_page(self) -> None:
         self.sign_in(self.import_admin)
 
@@ -933,15 +1110,15 @@ class HomeworkMVPTests(TestCase):
         self.assertNotContains(response, "C++ · 添加新学生")
         self.assertContains(response, "导入学生")
 
-    def test_non_teacher001_cannot_see_student_import_button_on_course_students_page(self) -> None:
+    def test_teacher_can_see_student_import_button_on_course_students_page(self) -> None:
         self.sign_in(self.teacher)
 
         response = self.client.get(reverse("teacher-course-students-detail", args=[self.cpp_course.slug]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "导入学生")
+        self.assertContains(response, "导入学生")
 
-    def test_non_teacher001_cannot_see_student_import_button_on_teacher_workbench(self) -> None:
+    def test_teacher_can_see_student_import_button_on_teacher_workbench(self) -> None:
         self.sign_in(self.teacher)
 
         response = self.client.get(reverse("teacher-students"), {"tab": "students"})
@@ -949,9 +1126,9 @@ class HomeworkMVPTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "添加新学生")
         self.assertNotContains(response, "C++ · 添加新学生")
-        self.assertNotContains(response, "导入学生")
+        self.assertContains(response, "导入学生")
 
-    def test_non_teacher001_cannot_post_student_csv_import(self) -> None:
+    def test_teacher_can_post_student_csv_import(self) -> None:
         self.sign_in(self.teacher)
 
         response = self.client.post(
@@ -966,8 +1143,9 @@ class HomeworkMVPTests(TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(Student.objects.filter(display_name="张三").exists())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        self.assertTrue(Student.objects.filter(display_name="张三").exists())
 
     def test_teacher001_can_import_student_csv(self) -> None:
         self.sign_in(self.import_admin)
@@ -991,7 +1169,7 @@ class HomeworkMVPTests(TestCase):
         student = Student.objects.select_related("user", "parent_user", "teacher_user").get(display_name="张三")
         self.assertEqual(student.parent_user.username, "parent_13800001002")
         self.assertEqual(student.parent_user.phone, "13800001002")
-        self.assertRegex(student.user.username, r"^student_13800001002_\d{4}$")
+        self.assertEqual(student.user.username, "张三")
         self.assertEqual(student.user.phone, "")
         self.assertEqual(student.teacher_user, self.import_admin)
         self.assertEqual(student.primary_course_name, self.cpp_course.title)
@@ -1065,7 +1243,7 @@ class HomeworkMVPTests(TestCase):
 
         student = Student.objects.select_related("user", "parent_user", "teacher_user").get(display_name="王五")
         self.assertEqual(student.parent_user.username, "parent_13800001012")
-        self.assertRegex(student.user.username, r"^student_13800001012_\d{4}$")
+        self.assertEqual(student.user.username, "王五")
         self.assertEqual(student.primary_track_name, "二分查找")
         self.assertEqual(student.primary_level_name, "GESP5")
         assignment = TeacherStudentAssignment.objects.get(
@@ -1144,6 +1322,68 @@ class HomeworkMVPTests(TestCase):
         )
         self.assertEqual(assignment.level_code, "C1")
         self.assertTrue(assignment.is_active)
+
+    def test_scratch_teacher_can_import_student_csv(self) -> None:
+        scratch_course, _ = Course.objects.get_or_create(
+            slug="scratch",
+            defaults={"title": "Scratch", "summary": "图形化编程"},
+        )
+        scratch_category, _ = CourseCategory.objects.get_or_create(
+            course=scratch_course,
+            slug="grade-exam",
+            defaults={
+                "title": "图形化等级考试",
+                "summary": "Scratch 等级考试",
+                "sort_order": 1,
+                "is_active": True,
+            },
+        )
+        CourseLevel.objects.get_or_create(
+            category=scratch_category,
+            code="S2",
+            defaults={
+                "title": "图形化编程二级",
+                "summary": "图形化编程二级",
+                "sort_order": 2,
+                "is_active": True,
+            },
+        )
+        teacher_profile, _ = Teacher.objects.get_or_create(
+            user=self.teacher,
+            defaults={
+                "display_name": self.teacher.full_name,
+                "phone": self.teacher.phone,
+                "subject": "Scratch",
+            },
+        )
+        teacher_profile.courses.add(scratch_course)
+        self.sign_in(self.teacher)
+
+        response = self.client.post(
+            reverse("teacher-course-students-detail", args=[scratch_course.slug]),
+            {
+                "form_action": "import_students_csv",
+                "student_csv_file": SimpleUploadedFile(
+                    "scratch_students.csv",
+                    "学生姓名,家长手机号,当前学习内容,当前级别\n图形化导入学生,13800001106,图形化编程,S2\n".encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_import_result"]["success_count"], 1)
+        student = Student.objects.get(display_name="图形化导入学生", parent_user__phone="13800001106")
+        self.assertEqual(student.primary_course_name, scratch_course.title)
+        self.assertEqual(student.primary_track_name, "图形化编程")
+        self.assertEqual(student.primary_level_name, "S2")
+        self.assertEqual(student.user.username, "图形化导入学生")
+        assignment = TeacherStudentAssignment.objects.get(
+            teacher=self.teacher,
+            student=student,
+            course=scratch_course,
+        )
+        self.assertEqual(assignment.level_code, "S2")
 
     def test_reimport_same_student_does_not_duplicate_student_and_updates_assignment(self) -> None:
         self.sign_in(self.import_admin)

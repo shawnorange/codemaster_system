@@ -1411,6 +1411,17 @@ body::before {
     margin-top: 4px;
 }
 
+.exam-markdown-body__image {
+    display: block;
+    max-width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+    margin: 8px 0;
+    border: 1px solid rgba(45, 95, 140, 0.14);
+    border-radius: 8px;
+    background: #fff;
+}
+
 .homework-card__status-copy {
     max-width: 44ch;
 }

@@ -571,9 +571,25 @@
                                                         </div>
                                                     </label>
                                                 {% endfor %}
+                                            {% elif question.question_type == "programming" %}
+                                                <label class="student-exam-explanation-field">
+                                                    <span>提交 Scratch 作品链接 / 文件名 / 操作说明</span>
+                                                    <textarea
+                                                        name="programming_submission_{{ question.id }}"
+                                                        rows="6"
+                                                        placeholder="可以填写 Scratch 项目链接、上传文件名、作品说明或操作步骤，老师会根据提交内容人工查看。"
+                                                        {% if show_feedback %}disabled{% endif %}
+                                                    >{{ question.programming_submission_text }}</textarea>
+                                                </label>
+                                                {% if show_feedback and question.programming_submission_html %}
+                                                    <div class="record-inline-feedback">
+                                                        <strong>你的提交</strong>
+                                                        <div class="exam-markdown-body">{{ question.programming_submission_html }}</div>
+                                                    </div>
+                                                {% endif %}
                                             {% else %}
                                                 <div class="student-exam-programming-placeholder">
-                                                    编程题在线提交与评测下一步接入；当前先展示题面，提交选择题后可查看解析。
+                                                    当前题型暂不支持在线作答。
                                                 </div>
                                             {% endif %}
                                             {% if show_answer_sheet and question.requires_explanation and question.is_gradable %}

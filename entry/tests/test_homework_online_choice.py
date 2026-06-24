@@ -2897,7 +2897,7 @@ class HomeworkBatchCreateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "布置作业")
         self.assertContains(response, reverse("teacher-homework-batch-create") + "?course=cpp")
-        self.assertNotContains(response, "导入学生")
+        self.assertContains(response, "导入学生")
 
     def test_batch_homework_page_returns_200_for_teacher(self) -> None:
         self.sign_in(self.teacher)

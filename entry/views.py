@@ -1,5 +1,6 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
 import json
 import re
 import uuid
@@ -22,7 +23,9 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponseForbidde
 from django.shortcuts import redirect, render
 from django.templatetags.static import static
 from django.urls import reverse
+from django.utils.html import escape
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.safestring import mark_safe
 from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -84,6 +87,7 @@ from .exam_paper_import import (
     detect_exam_import_source_type,
     format_exam_markdown_for_teacher_edit,
     get_supported_exam_import_extensions,
+    is_scratch_docx_import_job,
     is_raw_ocr_page_question,
     materialize_raw_ocr_paper_questions,
     restore_exam_markdown_code_fences_from_original,
@@ -105,6 +109,7 @@ from .homework_online import (
 from .manual_overrides import update_question_manual_override
 from .models import (
     Course,
+    CourseCategory,
     CourseContent,
     CourseLevel,
     ExamPaper,
@@ -204,7 +209,9 @@ from .portal_context import (
     normalize_grid_page,
     normalize_grid_page_size,
     infer_exam_bank_paper_subject,
+    infer_exam_paper_subject_title,
     render_exam_markdown_for_display,
+    teacher_can_operate_exam_subject,
     get_student_by_user,
     set_student_content_visibility,
     student_has_content_access,
@@ -846,6 +853,115 @@ def build_exam_import_job_preview_rows(import_job: ExamQuestionBankImportJob) ->
             }
         )
     return rows
+
+
+def get_scratch_docx_preview_section_label(question_type: object) -> str:
+    normalized = str(question_type or "")
+    if normalized == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE:
+        return "二、判断题"
+    if normalized == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING:
+        return "三、编程题"
+    return "一、单选题"
+
+
+SCRATCH_DOCX_INLINE_IMAGE_RE = re.compile(r"!\[([^\]]*)]\(([^)]+)\)")
+
+
+def render_scratch_docx_preview_markdown(value: object) -> str:
+    markdown_text = str(value or "")
+    if not SCRATCH_DOCX_INLINE_IMAGE_RE.search(markdown_text):
+        return render_exam_markdown_for_display(markdown_text)
+
+    parts: list[str] = []
+    offset = 0
+    for match in SCRATCH_DOCX_INLINE_IMAGE_RE.finditer(markdown_text):
+        text_part = markdown_text[offset:match.start()]
+        if text_part.strip():
+            parts.append(str(render_exam_markdown_for_display(text_part)))
+        image_path = str(match.group(2) or "").strip().strip('"').strip("'")
+        image_url = image_path if image_path.startswith("/media/") else build_media_relative_url(image_path)
+        image_alt = str(match.group(1) or "题目图片").strip() or "题目图片"
+        parts.append(
+            '<figure class="scratch-docx-inline-image">'
+            f'<img src="{escape(image_url)}" alt="{escape(image_alt)}">'
+            "</figure>"
+        )
+        offset = match.end()
+
+    trailing_text = markdown_text[offset:]
+    if trailing_text.strip():
+        parts.append(str(render_exam_markdown_for_display(trailing_text)))
+    return mark_safe("".join(parts))
+
+
+def build_scratch_docx_import_question_preview(import_job: ExamQuestionBankImportJob) -> list[dict[str, object]]:
+    if not is_scratch_docx_import_job(import_job):
+        return []
+    preview_rows = build_exam_import_job_preview_rows(import_job)
+    combined_markdown = "\n\n".join(str(row.get("markdown_text") or "").strip() for row in preview_rows if str(row.get("markdown_text") or "").strip())
+    if not combined_markdown:
+        return []
+    parsed_questions = split_ocr_markdown_into_question_blocks(combined_markdown, scratch_docx_mode=True)
+    section_order = [
+        ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
+        ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
+    ]
+    sections_by_type: dict[str, dict[str, object]] = {}
+    for question_type in section_order:
+        sections_by_type[question_type] = {
+            "question_type": question_type,
+            "label": get_scratch_docx_preview_section_label(question_type),
+            "question_count": 0,
+            "total_score": "",
+            "questions": [],
+        }
+
+    for parsed_question in parsed_questions:
+        question_type = str(parsed_question.get("question_type") or ExamQuestionBankQuestion.QUESTION_TYPE_RAW_MARKDOWN)
+        section = sections_by_type.setdefault(
+            question_type,
+            {
+                "question_type": question_type,
+                "label": get_scratch_docx_preview_section_label(question_type),
+                "question_count": 0,
+                "total_score": "",
+                "questions": [],
+            },
+        )
+        answer_json = parsed_question.get("answer_json") if isinstance(parsed_question.get("answer_json"), dict) else {}
+        answer_text = str(answer_json.get("correct_answer") or answer_json.get("answer") or "").strip()
+        options = parsed_question.get("options") if isinstance(parsed_question.get("options"), dict) else {}
+        stem_md = str(parsed_question.get("stem_md") or "")
+        analysis_md = str(parsed_question.get("analysis_md") or "")
+        question_preview = {
+            "question_no": int(parsed_question.get("question_no") or 0),
+            "anchor": f"scratch-docx-q-{int(parsed_question.get('question_no') or 0)}",
+            "question_type": question_type,
+            "question_type_text": get_exam_bank_question_type_review_label(question_type),
+            "score": str(parsed_question.get("score") or ""),
+            "answer_text": answer_text,
+            "stem_html": render_scratch_docx_preview_markdown(stem_md),
+            "analysis_html": render_scratch_docx_preview_markdown(analysis_md or "当前没有解析。"),
+            "has_analysis": bool(analysis_md.strip()),
+            "options": [
+                {
+                    "key": key,
+                    "text_html": render_scratch_docx_preview_markdown(str(options.get(key) or "")) if str(options.get(key) or "").strip() else "",
+                }
+                for key in EXAM_IMPORT_MANUAL_CHOICE_KEYS
+            ],
+        }
+        section["questions"].append(question_preview)
+        section["question_count"] = int(section["question_count"] or 0) + 1
+        if parsed_question.get("section_total_score"):
+            section["total_score"] = str(parsed_question.get("section_total_score") or "")
+
+    return [
+        section
+        for section in sections_by_type.values()
+        if section["questions"]
+    ]
 
 
 EXAM_IMPORT_MANUAL_CHOICE_KEYS = ("A", "B", "C", "D")
@@ -2639,8 +2755,7 @@ def teacher_exam_pdf_crop_demo(request: HttpRequest, session_id: str) -> HttpRes
 
 def is_manual_choice_review_import(import_job: ExamQuestionBankImportJob) -> bool:
     source_type = detect_exam_import_source_type(import_job.source_filename or import_job.source_pdf.name)
-    course_title = import_job.course.title if import_job.course_id and import_job.course else ""
-    return source_type == "image" or str(course_title or "").strip().lower() == "scratch"
+    return source_type == "image"
 
 
 def collect_manual_choice_review_payloads(request: HttpRequest, *, required: bool) -> dict[int, dict[str, object]]:
@@ -2678,6 +2793,13 @@ def collect_manual_choice_review_payloads(request: HttpRequest, *, required: boo
 def serialize_exam_import_job_row(item: ExamQuestionBankImportJob) -> dict[str, object]:
     can_confirm = item.status == ExamQuestionBankImportJob.STATUS_OCR_DONE
     is_imported = item.status == ExamQuestionBankImportJob.STATUS_IMPORTED
+    source_type = detect_exam_import_source_type(item.source_filename or item.source_pdf.name)
+    is_text_source_import = bool(source_type and source_type not in {"pdf", "image"})
+    status_text = item.get_status_display()
+    if is_text_source_import and item.status == ExamQuestionBankImportJob.STATUS_OCR_DONE:
+        status_text = "文本转换完成"
+    elif is_text_source_import and item.status == ExamQuestionBankImportJob.STATUS_RENDERING:
+        status_text = "文本转换中"
     return {
         "id": item.id,
         "title": item.title,
@@ -2685,7 +2807,9 @@ def serialize_exam_import_job_row(item: ExamQuestionBankImportJob) -> dict[str, 
         "level_code": item.level_code,
         "source_filename": item.source_filename,
         "source_pdf_id": item.source_pdf_id,
-        "status_text": item.get_status_display(),
+        "source_type": source_type,
+        "is_text_source_import": is_text_source_import,
+        "status_text": status_text,
         "status": item.status,
         "status_notes": item.status_notes,
         "error_message": item.error_message,
@@ -2701,7 +2825,7 @@ def serialize_exam_import_job_row(item: ExamQuestionBankImportJob) -> dict[str, 
         "confirm_label": "已确认" if is_imported else "确认",
         "confirm_disabled_reason": ""
         if can_confirm
-        else "已入库" if is_imported else "OCR 完成后可确认入库",
+        else "已入库" if is_imported else "处理完成后可确认入库",
         "status_tone": (
             "success"
             if item.status in {ExamQuestionBankImportJob.STATUS_OCR_DONE, ExamQuestionBankImportJob.STATUS_IMPORTED}
@@ -2785,7 +2909,7 @@ def serialize_confirmed_exam_bank_paper_row(
         "knowledge_done_count": knowledge_done_count,
         "knowledge_running_count": knowledge_running_count,
         "knowledge_failed_count": knowledge_failed_count,
-        "can_generate_knowledge": knowledge_running_count == 0,
+        "can_generate_knowledge": knowledge_running_count == 0 and knowledge_done_count < knowledge_total_count,
         "publish_href": f"{reverse('teacher-exams')}#available-exam-papers",
         "has_exam_management_record": has_exam_management_record,
         "delete_label": "删除" if has_exam_management_record else "硬删除",
@@ -2996,15 +3120,22 @@ def get_exam_bank_paper_edit_knowledge_rows(paper: ExamQuestionBankPaper) -> lis
     category_code = normalize_exam_knowledge_category_code(paper.level)
     if not subject or not category_code:
         return []
-    queryset = (
-        ExamKnowledgePointMap.objects.filter(
+    queryset = ExamKnowledgePointMap.objects.filter(
+        subject=subject,
+        category_code__iexact=category_code,
+        is_active=True,
+    )
+    if not queryset.exists():
+        queryset = ExamKnowledgePointMap.objects.filter(
             subject=subject,
-            category_code__iexact=category_code,
+            course_level_code__iexact=category_code,
             is_active=True,
         )
+    queryset = (
+        queryset
         .exclude(level_1="")
         .exclude(level_2="")
-        .order_by("sort_order", "level_1", "level_2", "level_3", "id")
+        .order_by("category_code", "sort_order", "level_1", "level_2", "level_3", "id")
         .values("level_1", "level_2", "level_3")
     )
     seen_paths: set[tuple[str, str, str]] = set()
@@ -3019,6 +3150,32 @@ def get_exam_bank_paper_edit_knowledge_rows(paper: ExamQuestionBankPaper) -> lis
         seen_paths.add(path_key)
         rows.append({"level_1": level_1, "level_2": level_2, "level_3": level_3})
     return rows
+
+
+def resolve_exam_bank_paper_knowledge_scope(paper: ExamQuestionBankPaper) -> tuple[str, str, str]:
+    subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(paper))
+    category_code = normalize_exam_knowledge_category_code(paper.level)
+    if not subject or not category_code:
+        return "", "", ""
+    course_level_code = derive_exam_knowledge_course_level_code(category_code) or category_code
+    if ExamKnowledgePointMap.objects.filter(
+        subject=subject,
+        category_code__iexact=category_code,
+        is_active=True,
+    ).exists():
+        return subject, category_code, course_level_code
+    existing_category_code = (
+        ExamKnowledgePointMap.objects.filter(
+            subject=subject,
+            course_level_code__iexact=category_code,
+            is_active=True,
+        )
+        .exclude(category_code="")
+        .order_by("category_code")
+        .values_list("category_code", flat=True)
+        .first()
+    )
+    return subject, normalize_exam_knowledge_category_code(existing_category_code or category_code), course_level_code
 
 
 def build_missing_knowledge_question_rows(question_rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -3055,11 +3212,9 @@ def ensure_exam_bank_paper_knowledge_map_path(
     normalized_level_3 = str(level_3 or "").strip()[:255]
     if not normalized_level_1 or not normalized_level_2:
         return
-    subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(paper))
-    category_code = normalize_exam_knowledge_category_code(paper.level)
+    subject, category_code, course_level_code = resolve_exam_bank_paper_knowledge_scope(paper)
     if not subject or not category_code:
         return
-    course_level_code = derive_exam_knowledge_course_level_code(category_code)
     existing = ExamKnowledgePointMap.objects.filter(
         subject=subject,
         category_code__iexact=category_code,
@@ -3780,7 +3935,12 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
         if focus_question_id:
             context["focus_question_id"] = focus_question_id
         if request.GET.get("op") == "submitted":
-            context["success_message"] = "考试已提交并自动判分。"
+            session_status = str((context.get("session") or {}).get("status") or "")
+            context["success_message"] = (
+                "考试已提交，编程题等待老师查看。"
+                if session_status == ExamSession.STATUS_SUBMITTED
+                else "考试已提交并自动判分。"
+            )
         elif request.GET.get("op") == "practice_started":
             context["success_message"] = "练习场次已创建，可以开始作答。"
         elif request.GET.get("op") == "code_accepted":
@@ -3859,6 +4019,7 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
 
         selected_answers = {}
         explanation_texts = {}
+        programming_submissions = {}
         for key, value in request.POST.items():
             if key.startswith("question_"):
                 question_id = normalize_positive_int(key.split("_", 1)[1], default=0, minimum=1)
@@ -3868,18 +4029,24 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
                 question_id = normalize_positive_int(key.split("_", 1)[1], default=0, minimum=1)
                 if question_id:
                     explanation_texts[question_id] = str(value).strip()
+            elif key.startswith("programming_submission_"):
+                question_id = normalize_positive_int(key.rsplit("_", 1)[1], default=0, minimum=1)
+                if question_id:
+                    programming_submissions[question_id] = str(value).strip()
         try:
             graded_session = grade_exam_session(
                 session,
                 student=student,
                 selected_answers=selected_answers,
                 explanation_texts=explanation_texts,
+                programming_submissions=programming_submissions,
             )
         except ExamError as exc:
+            explanation_overrides = {**explanation_texts, **programming_submissions}
             return render_exam(
                 error_message=str(exc),
                 selected_answer_overrides=selected_answers,
-                explanation_overrides=explanation_texts,
+                explanation_overrides=explanation_overrides,
                 focus_question_id=getattr(exc, "target_question_id", None),
             )
         return redirect(
@@ -4557,9 +4724,12 @@ def exam_bank_paper_has_exam_management_record(bank_paper_id: int) -> bool:
     return ExamPaper.objects.filter(description__contains=marker, is_active=True).exists()
 
 
-def get_exam_bank_paper_ids_with_exam_management_records() -> set[int]:
+def get_exam_bank_paper_ids_with_exam_management_records(teacher: PortalUser | None = None) -> set[int]:
     bank_paper_ids: set[int] = set()
-    descriptions = ExamPaper.objects.filter(is_active=True).exclude(description="").values_list("description", flat=True)
+    queryset = ExamPaper.objects.filter(is_active=True).exclude(description="")
+    if teacher is not None:
+        queryset = queryset.filter(teacher=teacher)
+    descriptions = queryset.values_list("description", flat=True)
     for description in descriptions:
         bank_paper_id = get_exam_bank_paper_id_from_exam_description(str(description or ""))
         if bank_paper_id:
@@ -4591,6 +4761,18 @@ def delete_exam_bank_paper_by_usage(bank_paper_id: int) -> dict[str, object]:
                 updated_at=timezone.now(),
             )
         return {"deleted_count": 1, "mode": "hard"}
+
+
+def ensure_teacher_can_operate_exam_bank_paper(portal_user: PortalUser, bank_paper: ExamQuestionBankPaper) -> None:
+    subject_title = infer_exam_bank_paper_subject(bank_paper)
+    if not teacher_can_operate_exam_subject(portal_user, subject_title):
+        raise ExamError("这张试卷不属于当前老师负责的学科，不能操作。")
+
+
+def ensure_teacher_can_operate_exam_paper(portal_user: PortalUser, paper: ExamPaper) -> None:
+    subject_title = infer_exam_paper_subject_title(paper)
+    if not teacher_can_operate_exam_subject(portal_user, subject_title):
+        raise ExamError("这场考试不属于当前老师负责的学科，不能操作。")
 
 
 def get_bank_question_exam_answer(question: ExamQuestionBankQuestion) -> str:
@@ -4743,19 +4925,213 @@ def normalize_exam_knowledge_category_code(value: object) -> str:
     return code[:32]
 
 
+SCRATCH_LEVEL_LABEL_MAP = {
+    "一级": "S1",
+    "1级": "S1",
+    "S1": "S1",
+    "二级": "S2",
+    "2级": "S2",
+    "S2": "S2",
+    "三级": "S3",
+    "3级": "S3",
+    "S3": "S3",
+    "四级": "S4",
+    "4级": "S4",
+    "S4": "S4",
+}
+
+TEACHER_MANUAL_SUBJECT_COURSE_SCAFFOLDS = {
+    "scratch": {
+        "slug": "scratch",
+        "title": "Scratch",
+        "summary": "图形化编程与创意表达主线。",
+        "category": {
+            "slug": "grade-exam",
+            "title": "图形化等级考试",
+            "summary": "承接图形化编程一级至四级学生池和练习范围。",
+        },
+        "levels": [
+            ("S1", "图形化编程一级", "图形化编程一级"),
+            ("S2", "图形化编程二级", "图形化编程二级"),
+            ("S3", "图形化编程三级", "图形化编程三级"),
+            ("S4", "图形化编程四级", "图形化编程四级"),
+        ],
+    },
+}
+
+
+def build_manual_subject_course_slug(subject_name: object) -> str:
+    raw_subject = str(subject_name or "").strip()
+    subject_key = normalize_knowledge_map_subject(raw_subject)
+    if subject_key == "drone":
+        subject_key = "uav"
+    base_slug = subject_key if re.fullmatch(r"[a-z0-9_-]+", subject_key or "") else ""
+    if not base_slug:
+        base_slug = slugify(raw_subject)
+    digest = hashlib.sha1(raw_subject.encode("utf-8")).hexdigest()[:8]
+    if not base_slug:
+        base_slug = f"manual-{digest}"
+    if len(base_slug) > 40:
+        base_slug = f"{base_slug[:31].rstrip('-_')}-{digest}"
+    if not Course.objects.filter(slug=base_slug).exclude(title__iexact=raw_subject).exists():
+        return base_slug
+    return f"{base_slug[:31].rstrip('-_')}-{digest}"
+
+
+def ensure_course_default_student_pool_level(course: Course, *, category_title: str = "通用分组") -> None:
+    category, _ = CourseCategory.objects.get_or_create(
+        course=course,
+        slug="general",
+        defaults={
+            "title": category_title,
+            "summary": "用于学生池新增学生的默认分组。",
+            "sort_order": 1,
+            "is_active": True,
+        },
+    )
+    CourseLevel.objects.get_or_create(
+        category=category,
+        code="DEFAULT",
+        defaults={
+            "title": "默认级别",
+            "summary": "用于未细分级别的新学科学生关系。",
+            "sort_order": 1,
+            "is_active": True,
+        },
+    )
+
+
+def ensure_teacher_manual_subject_course(subject_name: object) -> Course | None:
+    raw_subject = str(subject_name or "").strip()
+    if not raw_subject:
+        return None
+    subject_key = normalize_knowledge_map_subject(subject_name)
+    if subject_key == "drone":
+        subject_key = "uav"
+
+    scaffold = TEACHER_MANUAL_SUBJECT_COURSE_SCAFFOLDS.get(subject_key)
+    if scaffold is None:
+        course = (
+            Course.objects.filter(Q(slug__iexact=subject_key) | Q(title__iexact=raw_subject))
+            .order_by("id")
+            .first()
+        )
+        if course is None:
+            course = Course.objects.create(
+                slug=build_manual_subject_course_slug(raw_subject),
+                title=raw_subject,
+                summary=f"{raw_subject} 课程方向。",
+            )
+        ensure_course_default_student_pool_level(course)
+        return course
+
+    course = (
+        Course.objects.filter(Q(slug__iexact=scaffold["slug"]) | Q(title__iexact=scaffold["title"]))
+        .order_by("id")
+        .first()
+    )
+    if course is None:
+        course = Course.objects.create(
+            slug=scaffold["slug"],
+            title=scaffold["title"],
+            summary=scaffold["summary"],
+        )
+
+    category_data = scaffold["category"]
+    category = (
+        CourseCategory.objects.filter(course=course, slug=category_data["slug"])
+        .order_by("id")
+        .first()
+    )
+    if category is None:
+        category = CourseCategory.objects.create(
+            course=course,
+            slug=category_data["slug"],
+            title=category_data["title"],
+            summary=category_data["summary"],
+            sort_order=1,
+            is_active=True,
+        )
+    for sort_order, (level_code, level_title, level_summary) in enumerate(scaffold["levels"], start=1):
+        CourseLevel.objects.get_or_create(
+            category=category,
+            code=level_code,
+            defaults={
+                "title": level_title,
+                "summary": level_summary,
+                "sort_order": sort_order,
+                "is_active": True,
+            },
+        )
+    return course
+
+
+def resolve_teacher_courses_from_subjects(
+    selected_course_ids: list[int],
+    manual_subject_parts: list[str],
+) -> list[Course]:
+    courses_by_id = {
+        course.id: course
+        for course in Course.objects.filter(id__in=selected_course_ids).order_by("id")
+    }
+    courses = [courses_by_id[course_id] for course_id in selected_course_ids if course_id in courses_by_id]
+    seen_course_ids = {course.id for course in courses}
+    for subject_part in manual_subject_parts:
+        course = ensure_teacher_manual_subject_course(subject_part)
+        if course is not None and course.id not in seen_course_ids:
+            courses.append(course)
+            seen_course_ids.add(course.id)
+    return courses
+
+
+def infer_scratch_course_level_code_from_markdown_heading(line: object) -> str:
+    text = re.sub(r"^[#\s]+", "", str(line or "").strip())
+    match = re.search(r"^(.+?)[（(]\s*([^）)]+)\s*[）)]", text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    heading_title = match.group(1).strip()
+    if "图形化" not in heading_title and "scratch" not in heading_title.lower():
+        return ""
+    return SCRATCH_LEVEL_LABEL_MAP.get(match.group(2).strip().upper(), SCRATCH_LEVEL_LABEL_MAP.get(match.group(2).strip(), ""))
+
+
+def infer_exam_knowledge_category_code_from_markdown(markdown_text: object) -> str:
+    for raw_line in str(markdown_text or "").splitlines():
+        text = re.sub(r"^[#\s]+", "", raw_line.strip())
+        if not text:
+            continue
+        match = re.search(r"^(.+?)[（(]\s*(一级|二级|三级|四级|[1-4]级|S[1-4])\s*[）)]", text, flags=re.IGNORECASE)
+        if match:
+            category_code = normalize_exam_knowledge_category_code(match.group(1))
+            if category_code:
+                return category_code
+    return ""
+
+
 def infer_exam_knowledge_category_code_from_filename(filename: object) -> str:
-    stem = Path(str(filename or "")).stem.upper().replace(" ", "")
+    raw_stem = Path(str(filename or "")).stem.strip()
+    stem = raw_stem.upper().replace(" ", "")
     csp_match = re.search(r"CSP[-_]?([JS])", stem)
     if csp_match:
         return f"CSP-{csp_match.group(1)}"
     gesp_match = re.search(r"GESP[-_]?([1-8])", stem)
     if gesp_match:
         return f"GESP{gesp_match.group(1)}"
+    cleaned = re.sub(r"^\d{4,8}", "", raw_stem).strip()
+    cleaned = re.sub(r"(?i)S\s*[1-4]\s*[-_~至到]\s*S\s*[1-4]", "", cleaned)
+    cleaned = re.sub(r"(?i)\bS\s*[1-4]\b", "", cleaned)
+    cleaned = re.sub(r"(知识点|知识对照|知识体系|知识目录|对照|导入|表格|markdown|md)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[-_（）()\s]+$", "", cleaned).strip()
+    cleaned = re.sub(r"^[-_（）()\s]+", "", cleaned).strip()
+    if cleaned and re.search(r"[\u4e00-\u9fffA-Za-z]", cleaned):
+        return normalize_exam_knowledge_category_code(cleaned)
     return ""
 
 
 def derive_exam_knowledge_course_level_code(category_code: object) -> str:
     category_code = normalize_exam_knowledge_category_code(category_code)
+    if category_code in {"S1", "S2", "S3", "S4"}:
+        return category_code
     match = re.fullmatch(r"GESP([1-8])", category_code)
     if match:
         level_number = int(match.group(1))
@@ -4901,13 +5277,24 @@ def ensure_course_content_for_knowledge_path(
 
 
 def parse_exam_knowledge_markdown_table_rows(markdown_text: str) -> list[tuple[str, str, str]]:
-    rows: list[tuple[str, str, str]] = []
+    return [
+        (entry["level_1"], entry["level_2"], entry["level_3"])
+        for entry in parse_exam_knowledge_markdown_table_entries(markdown_text)
+    ]
+
+
+def parse_exam_knowledge_markdown_table_entries(markdown_text: str) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
     in_table = False
+    current_course_level_code = ""
     for raw_line in str(markdown_text or "").splitlines():
         line = raw_line.strip()
+        heading_course_level_code = infer_scratch_course_level_code_from_markdown_heading(line)
+        if heading_course_level_code:
+            current_course_level_code = heading_course_level_code
         if not line.startswith("|") or not line.endswith("|"):
             if in_table:
-                break
+                in_table = False
             continue
         cells = [cell.strip().strip("*") for cell in line.strip("|").split("|")]
         if len(cells) < 3:
@@ -4924,14 +5311,21 @@ def parse_exam_knowledge_markdown_table_rows(markdown_text: str) -> list[tuple[s
         level_2 = cells[1].strip()
         level_3 = cells[2].strip()
         if level_1 and level_2:
-            rows.append((level_1[:128], level_2[:128], level_3[:255]))
-    return rows
+            row = {
+                "course_level_code": current_course_level_code,
+                "level_1": level_1[:128],
+                "level_2": level_2[:128],
+                "level_3": level_3[:255],
+            }
+            entries.append(row)
+    return entries
 
 
 def import_exam_knowledge_markdown(
     *,
     portal_user: PortalUser,
     subject: str,
+    category_code: str,
     uploaded_file: UploadedFile,
 ) -> int:
     subject = normalize_exam_knowledge_subject(subject)
@@ -4941,16 +5335,20 @@ def import_exam_knowledge_markdown(
         raise ValidationError("请先选择 md 文件。")
     if not str(uploaded_file.name or "").lower().endswith(".md"):
         raise ValidationError("当前只支持上传 .md 文件。")
-    category_code = infer_exam_knowledge_category_code_from_filename(uploaded_file.name)
-    course_level_code = derive_exam_knowledge_course_level_code(category_code)
-    if not category_code:
-        raise ValidationError("无法从 md 文件名识别考试名称，请使用类似 GESP2知识点.md、CSP-J知识点.md 的文件名。")
     raw_bytes = uploaded_file.read()
     try:
         markdown_text = raw_bytes.decode("utf-8")
     except UnicodeDecodeError:
         markdown_text = raw_bytes.decode("utf-8-sig")
-    rows = parse_exam_knowledge_markdown_table_rows(markdown_text)
+    category_code = (
+        normalize_exam_knowledge_category_code(category_code)
+        or infer_exam_knowledge_category_code_from_filename(uploaded_file.name)
+        or infer_exam_knowledge_category_code_from_markdown(markdown_text)
+    )
+    if not category_code:
+        raise ValidationError("无法识别考试名称，请选择已有考试名称，或使用类似 GESP2知识点.md、CSP-J知识点.md、图形化编程S1-S4知识对照.md 的文件名。")
+    default_course_level_code = derive_exam_knowledge_course_level_code(category_code)
+    rows = parse_exam_knowledge_markdown_table_entries(markdown_text)
     if not rows:
         raise ValidationError("没有在 md 文件中识别到知识点表格。")
     existing_max_order = (
@@ -4962,13 +5360,14 @@ def import_exam_knowledge_markdown(
     source_path = f"uploaded:{uploaded_file.name}"[:255]
     imported_count = 0
     with transaction.atomic():
-        for index, (level_1, level_2, level_3) in enumerate(rows, start=1):
+        for index, row in enumerate(rows, start=1):
+            course_level_code = row["course_level_code"] or default_course_level_code
             ExamKnowledgePointMap.objects.update_or_create(
                 subject=subject,
                 category_code=category_code,
-                level_1=level_1,
-                level_2=level_2,
-                level_3=level_3,
+                level_1=row["level_1"],
+                level_2=row["level_2"],
+                level_3=row["level_3"],
                 defaults={
                     "course_level_code": course_level_code,
                     "source_path": source_path,
@@ -5017,7 +5416,7 @@ def search_exam_knowledge_point_maps(
 
 def load_exam_knowledge_mapping_markdown(bank_paper: ExamQuestionBankPaper) -> str:
     subject = normalize_exam_knowledge_subject(infer_exam_bank_paper_subject(bank_paper))
-    category_code = re.sub(r"[^0-9A-Za-z_-]", "", str(bank_paper.level or "").strip().upper())
+    category_code = normalize_exam_knowledge_category_code(bank_paper.level)
     if subject and category_code:
         rows = list(
             ExamKnowledgePointMap.objects.filter(
@@ -5028,8 +5427,20 @@ def load_exam_knowledge_mapping_markdown(bank_paper: ExamQuestionBankPaper) -> s
         )
         if rows:
             return build_exam_knowledge_mapping_markdown_from_rows(rows)
+        rows = list(
+            ExamKnowledgePointMap.objects.filter(
+                subject=subject,
+                course_level_code__iexact=category_code,
+                is_active=True,
+            ).order_by("category_code", "sort_order", "id")
+        )
+        if rows:
+            return build_exam_knowledge_mapping_markdown_from_rows(rows)
     mapping_path = get_exam_knowledge_mapping_path(bank_paper)
     if not mapping_path.is_file():
+        if subject and subject != "cpp":
+            level_label = category_code or str(bank_paper.level or "").strip() or "当前级别"
+            raise ExamPaperImportError(f"未找到 {infer_exam_bank_paper_subject(bank_paper)} {level_label} 对应的知识对照表，请先在知识点管理中导入。")
         raise ExamPaperImportError(f"未找到 {bank_paper.level} 对应的知识对照表：{mapping_path.relative_to(settings.BASE_DIR)}")
     return mapping_path.read_text(encoding="utf-8").strip()
 
@@ -5225,7 +5636,7 @@ def start_exam_bank_paper_knowledge_generation(bank_paper_id: int) -> bool:
             for question in questions
             if str((question.full_json if isinstance(question.full_json, dict) else {}).get("knowledge_status") or "") in {"pending", "running"}
         )
-        can_start = total_count > 0 and running_count == 0 and done_count <= 0
+        can_start = total_count > done_count and running_count == 0
         if not can_start:
             return False
         if any(
@@ -5423,7 +5834,16 @@ def get_or_create_free_practice_source_exam_paper(bank_paper: ExamQuestionBankPa
         return existing_paper
 
     subject_title = infer_exam_bank_paper_subject(bank_paper)
-    course = Course.objects.filter(title__iexact=subject_title).order_by("id").first()
+    subject_key = normalize_knowledge_map_subject(subject_title)
+    course = next(
+        (
+            candidate
+            for candidate in Course.objects.order_by("id")
+            if normalize_knowledge_map_subject(candidate.title) == subject_key
+            or normalize_knowledge_map_subject(candidate.slug) == subject_key
+        ),
+        None,
+    )
     owner = resolve_free_practice_source_owner()
     description = "\n".join(
         [
@@ -5804,6 +6224,7 @@ def create_or_update_exam_management_from_bank_paper(
     bank_paper: ExamQuestionBankPaper,
     schedule: dict[str, object],
 ) -> tuple[ExamPaper, bool]:
+    ensure_teacher_can_operate_exam_bank_paper(teacher, bank_paper)
     materialize_raw_ocr_paper_questions(bank_paper)
     separate_programming_reference_solutions_for_paper(bank_paper)
     marker = build_exam_bank_paper_publish_marker(bank_paper.id)
@@ -5937,6 +6358,8 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             success_message = "知识点目录已删除。"
         elif op == "knowledge_updated":
             success_message = "知识点目录已更新。"
+        elif op == "knowledge_created":
+            success_message = "知识点已新增。"
         elif op in {"bank_paper_added", "bank_paper_exists"}:
             paper_id = normalize_positive_int(request.GET.get("paper_id"), default=0, minimum=1)
             paper = ExamPaper.objects.filter(id=paper_id, teacher=portal_user, is_active=True).first()
@@ -5966,6 +6389,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.POST.get("paper_id"), default=0, minimum=1)
             try:
                 paper = ExamPaper.objects.get(id=paper_id, teacher=portal_user, is_active=True)
+                ensure_teacher_can_operate_exam_paper(portal_user, paper)
                 sync_exam_questions_from_linked_bank_paper(paper)
                 activated_paper = activate_exam_access_code(paper=paper, teacher=portal_user)
             except (ExamPaper.DoesNotExist, ExamError) as exc:
@@ -5981,8 +6405,11 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.POST.get("paper_id"), default=0, minimum=1)
             try:
                 paper = ExamPaper.objects.get(id=paper_id, teacher=portal_user, is_active=True)
+                ensure_teacher_can_operate_exam_paper(portal_user, paper)
             except ExamPaper.DoesNotExist:
                 return render_exam_page(error_message="未找到可删除的考试。")
+            except ExamError as exc:
+                return render_exam_page(error_message=str(exc))
             if paper.sessions.filter(is_active=True, status=ExamSession.STATUS_IN_PROGRESS).exists():
                 return render_exam_page(error_message="当前正在考试中，不允许删除。")
             paper.is_active = False
@@ -5992,6 +6419,13 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
 
         if action == "delete_bank_paper":
             bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
+            bank_paper = ExamQuestionBankPaper.objects.filter(id=bank_paper_id).first()
+            if bank_paper is None:
+                return render_exam_page(error_message="未找到可删除的试卷。")
+            try:
+                ensure_teacher_can_operate_exam_bank_paper(portal_user, bank_paper)
+            except ExamError as exc:
+                return render_exam_page(error_message=str(exc))
             delete_result = delete_exam_bank_paper_by_usage(bank_paper_id)
             if not delete_result["deleted_count"]:
                 return render_exam_page(error_message="未找到可删除的试卷。")
@@ -6006,9 +6440,13 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
         if action == "generate_bank_paper_analysis":
             bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
             try:
+                bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id, is_active=True)
+                ensure_teacher_can_operate_exam_bank_paper(portal_user, bank_paper)
                 started = start_exam_bank_paper_analysis_generation(bank_paper_id)
             except ExamQuestionBankPaper.DoesNotExist:
                 return render_exam_page(error_message="未找到这张可用试卷。")
+            except ExamError as exc:
+                return render_exam_page(error_message=str(exc))
             return redirect(
                 build_redirect_with_query(
                     reverse("teacher-exams"),
@@ -6023,9 +6461,13 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
         if action == "generate_bank_paper_knowledge":
             bank_paper_id = normalize_positive_int(request.POST.get("bank_paper_id"), default=0, minimum=1)
             try:
+                bank_paper = ExamQuestionBankPaper.objects.get(id=bank_paper_id, is_active=True)
+                ensure_teacher_can_operate_exam_bank_paper(portal_user, bank_paper)
                 started = start_exam_bank_paper_knowledge_generation(bank_paper_id)
             except ExamQuestionBankPaper.DoesNotExist:
                 return render_exam_page(error_message="未找到这张可用试卷。")
+            except ExamError as exc:
+                return render_exam_page(error_message=str(exc))
             except ExamPaperImportError as exc:
                 return render_exam_page(error_message=str(exc))
             return redirect(
@@ -6044,6 +6486,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 imported_count = import_exam_knowledge_markdown(
                     portal_user=portal_user,
                     subject=request.POST.get("knowledge_subject") or "cpp",
+                    category_code=request.POST.get("knowledge_category_code") or "",
                     uploaded_file=request.FILES.get("knowledge_md_file"),
                 )
             except ValidationError as exc:
@@ -6052,6 +6495,53 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 build_redirect_with_query(
                     reverse("teacher-exams"),
                     params={"op": "knowledge_uploaded", "count": imported_count},
+                    anchor="exam-knowledge-management",
+                )
+            )
+
+        if action == "create_exam_knowledge_point":
+            subject = normalize_exam_knowledge_subject(request.POST.get("knowledge_subject") or "")
+            course_level_code = str(request.POST.get("knowledge_course_level_code") or "").strip().upper()
+            selected_category_code = str(request.POST.get("knowledge_category_code") or "").strip()
+            manual_category_code = str(request.POST.get("knowledge_category_manual") or "").strip()
+            category_code = normalize_exam_knowledge_category_code(manual_category_code or selected_category_code)
+            level_1 = str(request.POST.get("knowledge_level_1") or "").strip()[:128]
+            level_2 = str(request.POST.get("knowledge_level_2") or "").strip()[:128]
+            level_3 = str(request.POST.get("knowledge_level_3") or "").strip()[:255]
+            if not subject:
+                return render_exam_page(error_message="请选择科目。")
+            if not teacher_can_operate_exam_subject(portal_user, subject):
+                return render_exam_page(error_message="只能给当前老师负责的科目新增知识点。")
+            if not course_level_code:
+                return render_exam_page(error_message="请选择级别。")
+            if not category_code:
+                return render_exam_page(error_message="请选择或填写考试名称。")
+            if not level_1 or not level_2:
+                return render_exam_page(error_message="一级、二级知识点不能为空。")
+            existing_max_order = (
+                ExamKnowledgePointMap.objects.filter(subject=subject, category_code=category_code)
+                .aggregate(max_order=Max("sort_order"))
+                .get("max_order")
+                or 0
+            )
+            ExamKnowledgePointMap.objects.update_or_create(
+                subject=subject,
+                category_code=category_code,
+                level_1=level_1,
+                level_2=level_2,
+                level_3=level_3,
+                defaults={
+                    "course_level_code": course_level_code,
+                    "source_path": "teacher_exam_knowledge_manual",
+                    "uploaded_by": portal_user,
+                    "sort_order": existing_max_order + 1,
+                    "is_active": True,
+                },
+            )
+            return redirect(
+                build_redirect_with_query(
+                    reverse("teacher-exams"),
+                    params={"op": "knowledge_created"},
                     anchor="exam-knowledge-management",
                 )
             )
@@ -6085,7 +6575,10 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
                 return render_exam_page(error_message="未找到可编辑的知识点目录。")
             new_subject = normalize_exam_knowledge_subject(request.POST.get("knowledge_subject") or root_map.subject)
             new_category_code = normalize_exam_knowledge_category_code(request.POST.get("knowledge_category_code") or root_map.category_code)
-            new_course_level_code = derive_exam_knowledge_course_level_code(new_category_code)
+            new_course_level_code = (
+                derive_exam_knowledge_course_level_code(new_category_code)
+                or root_map.course_level_code
+            )
             new_level_1 = str(request.POST.get("knowledge_level_1") or "").strip()[:128]
             if not new_subject:
                 return render_exam_page(error_message="请选择科目。")
@@ -6166,6 +6659,7 @@ def teacher_exams(request: HttpRequest) -> HttpResponse:
             paper_id = normalize_positive_int(request.POST.get("paper_id"), default=0, minimum=1)
             try:
                 paper = ExamPaper.objects.get(id=paper_id, teacher=portal_user, is_active=True)
+                ensure_teacher_can_operate_exam_paper(portal_user, paper)
                 schedule = parse_exam_management_schedule_from_request(request)
                 apply_exam_management_schedule(paper, schedule=schedule)
             except ExamPaper.DoesNotExist:
@@ -6404,6 +6898,18 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
     uploaded_pdf_metadata = {"year": "", "month": "", "source_pdf_id": "", "title": ""}
     selected_course_id = normalize_positive_int(request.POST.get("course_id"), default=0, minimum=1)
     selected_level_code = str(request.POST.get("level_code") or "").strip()
+    courses = list(Course.objects.order_by("title", "id").values("id", "title"))
+    if not selected_course_id and request.method != "POST" and courses:
+        teacher_default_course = next(
+            (
+                course
+                for course in courses
+                if portal_user.role != PortalUser.ROLE_PRINCIPAL
+                and teacher_can_operate_exam_subject(portal_user, course["title"])
+            ),
+            None,
+        )
+        selected_course_id = int((teacher_default_course or courses[0])["id"])
     feedback_job_id = normalize_positive_int(request.GET.get("job_id"), default=0, minimum=1)
     feedback_op = str(request.GET.get("op") or "").strip()
     if feedback_op == "deleted":
@@ -6705,7 +7211,6 @@ def teacher_exam_paper_new(request: HttpRequest) -> HttpResponse:
                             )
                         )
 
-    courses = list(Course.objects.order_by("title", "id").values("id", "title"))
     levels = list(
         CourseLevel.objects.select_related("category", "category__course")
         .filter(is_active=True, category__is_active=True)
@@ -6816,6 +7321,7 @@ def teacher_exam_bank_paper_status(request: HttpRequest) -> JsonResponse:
     portal_user = get_portal_user_from_request(request)
     current_teacher_name = portal_user.full_name or portal_user.username
     published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records()
+    current_teacher_published_bank_paper_ids = get_exam_bank_paper_ids_with_exam_management_records(portal_user)
     papers = list(
         ExamQuestionBankPaper.objects.filter(is_active=True)
         .prefetch_related("questions")
@@ -6829,6 +7335,31 @@ def teacher_exam_bank_paper_status(request: HttpRequest) -> JsonResponse:
         )
         for paper in papers
     ]
+    for row in rows:
+        subject_allowed = teacher_can_operate_exam_subject(portal_user, row.get("subject_title"))
+        subject_restricted_reason = "" if subject_allowed else "这张试卷不属于当前老师负责的学科，不能操作。"
+        row["can_operate_subject"] = subject_allowed
+        row["subject_operation_disabled_reason"] = subject_restricted_reason
+        row["can_generate_analysis"] = bool(row.get("can_generate_analysis")) and subject_allowed
+        if subject_restricted_reason:
+            row["analysis_action_disabled_reason"] = subject_restricted_reason
+        row["can_generate_knowledge"] = bool(row.get("can_generate_knowledge")) and subject_allowed
+        if subject_restricted_reason:
+            row["knowledge_action_disabled_reason"] = subject_restricted_reason
+        row["can_publish_to_exam_management"] = (
+            subject_allowed
+            and int(row["id"]) not in current_teacher_published_bank_paper_ids
+        )
+        if not subject_allowed:
+            row["publish_disabled_reason"] = subject_restricted_reason
+            row["delete_disabled_reason"] = subject_restricted_reason
+            row["edit_disabled_reason"] = subject_restricted_reason
+        elif int(row["id"]) in current_teacher_published_bank_paper_ids:
+            row["publish_disabled_reason"] = "已在试卷管理中，删除后可再次发布"
+        else:
+            row["publish_disabled_reason"] = ""
+            row["delete_disabled_reason"] = ""
+            row["edit_disabled_reason"] = ""
     return JsonResponse({"rows": rows})
 
 
@@ -6847,9 +7378,17 @@ def teacher_exam_paper_import_job_detail(request: HttpRequest, import_job_id: in
     manual_choice_review_enabled = is_manual_choice_review_import(import_job)
     can_confirm = import_job.status == ExamQuestionBankImportJob.STATUS_OCR_DONE
     is_imported = import_job.status == ExamQuestionBankImportJob.STATUS_IMPORTED
+    scratch_docx_preview_sections = build_scratch_docx_import_question_preview(import_job)
+    source_type = detect_exam_import_source_type(import_job.source_filename or import_job.source_pdf.name)
+    is_text_source_import = bool(source_type and source_type not in {"pdf", "image"})
+    status_text = import_job.get_status_display()
+    if is_text_source_import and import_job.status == ExamQuestionBankImportJob.STATUS_OCR_DONE:
+        status_text = "文本转换完成"
+    elif is_text_source_import and import_job.status == ExamQuestionBankImportJob.STATUS_RENDERING:
+        status_text = "文本转换中"
     context = {
         "page_title": f"识别预览 #{import_job.id}",
-        "page_description": "先核对 Qwen OCR 的逐页识别结果，确认后再进入结构化解析和试卷入库。",
+        "page_description": "先核对文本转换结果，确认后再进入结构化解析和试卷入库。" if is_text_source_import else "先核对 Qwen OCR 的逐页识别结果，确认后再进入结构化解析和试卷入库。",
         "breadcrumbs": [
             {"label": "教师工作台", "href": f"{reverse('teacher-students')}?tab=students"},
             {"label": "考试管理", "href": reverse("teacher-exams")},
@@ -6857,11 +7396,14 @@ def teacher_exam_paper_import_job_detail(request: HttpRequest, import_job_id: in
             {"label": f"识别预览 #{import_job.id}"},
         ],
         "import_job": import_job,
+        "is_text_source_import": is_text_source_import,
         "course_title": import_job.course.title if import_job.course_id and import_job.course else "未绑定学科",
-        "status_text": import_job.get_status_display(),
+        "status_text": status_text,
         "created_at_text": timezone.localtime(import_job.created_at).strftime("%Y-%m-%d %H:%M"),
         "updated_at_text": timezone.localtime(import_job.updated_at).strftime("%Y-%m-%d %H:%M"),
         "preview_rows": preview_rows,
+        "scratch_docx_preview_sections": scratch_docx_preview_sections,
+        "has_scratch_docx_preview": bool(scratch_docx_preview_sections),
         "manual_choice_review_enabled": manual_choice_review_enabled,
         "manual_choice_keys": EXAM_IMPORT_MANUAL_CHOICE_KEYS,
         "confirm_action": reverse("teacher-exam-paper-new"),
@@ -6869,7 +7411,7 @@ def teacher_exam_paper_import_job_detail(request: HttpRequest, import_job_id: in
         "confirm_button_label": "已确认入库" if is_imported else "确认入库",
         "confirm_disabled_reason": ""
         if can_confirm
-        else "当前任务已入库。" if is_imported else "OCR 全部完成后才能确认入库。",
+        else "当前任务已入库。" if is_imported else "处理完成后才能确认入库。",
         "back_href": reverse("teacher-exam-paper-new"),
     }
     return render_shell_page(request, "teacher", "entry/teacher_exam_paper_import_job_detail.html", context)
@@ -6882,6 +7424,10 @@ def teacher_exam_bank_paper_preview(request: HttpRequest, paper_id: int) -> Http
         paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).get()
     except ExamQuestionBankPaper.DoesNotExist as exc:
         raise Http404("未找到该可用试卷") from exc
+    try:
+        ensure_teacher_can_operate_exam_bank_paper(portal_user, paper)
+    except ExamError as exc:
+        return HttpResponseForbidden(str(exc))
     if request.method == "POST":
         action = str(request.POST.get("form_action") or "").strip()
         if action != "generate_bank_question_analysis":
@@ -6931,6 +7477,10 @@ def teacher_exam_bank_paper_edit(request: HttpRequest, paper_id: int) -> HttpRes
         paper = ExamQuestionBankPaper.objects.filter(id=paper_id, is_active=True).get()
     except ExamQuestionBankPaper.DoesNotExist as exc:
         raise Http404("未找到该可用试卷") from exc
+    try:
+        ensure_teacher_can_operate_exam_bank_paper(portal_user, paper)
+    except ExamError as exc:
+        return HttpResponseForbidden(str(exc))
 
     if request.method == "POST":
         try:
@@ -8716,35 +9266,32 @@ def teacher_course_students_detail(request: HttpRequest, course_slug: str) -> Ht
     student_import_modal_should_open = request.GET.get("open_import") == "1"
     student_import_result: dict[str, object] | None = None
     student_import_error_message = ""
-    can_import_students = teacher_can_import_students(portal_user) and context["course"].slug == "cpp"
+    can_import_students = teacher_can_import_students(portal_user)
     if student_import_modal_should_open and not can_import_students:
         student_import_modal_should_open = False
 
     if request.method == "POST" and (request.POST.get("form_action") or "").strip() == "import_students_csv":
         if not teacher_can_import_students(portal_user):
-            return HttpResponseForbidden("只有 teacher001 可以导入学生。")
+            return HttpResponseForbidden("当前账号不能导入学生。")
 
         student_import_modal_should_open = True
-        if context["course"].slug != "cpp":
-            student_import_error_message = "当前仅支持在 C++ 课程下导入学生。"
+        uploaded_file = request.FILES.get("student_import_file") or request.FILES.get("student_csv_file")
+        if uploaded_file is None:
+            student_import_error_message = "请先选择一个 CSV / XLSX 文件再提交。"
         else:
-            uploaded_file = request.FILES.get("student_import_file") or request.FILES.get("student_csv_file")
-            if uploaded_file is None:
-                student_import_error_message = "请先选择一个 CSV / XLSX 文件再提交。"
+            try:
+                rows = parse_student_import_file(uploaded_file)
+            except ValidationError as exc:
+                student_import_error_message = str(exc)
             else:
-                try:
-                    rows = parse_student_import_file(uploaded_file)
-                except ValidationError as exc:
-                    student_import_error_message = str(exc)
-                else:
-                    student_import_result = import_students_from_rows(
-                        teacher_user=portal_user,
-                        course=context["course"],
-                        rows=rows,
-                    )
+                student_import_result = import_students_from_rows(
+                    teacher_user=portal_user,
+                    course=context["course"],
+                    rows=rows,
+                )
 
         context = build_context()
-        can_import_students = teacher_can_import_students(portal_user) and context["course"].slug == "cpp"
+        can_import_students = teacher_can_import_students(portal_user)
         if student_import_result is not None:
             success_count = int(student_import_result["success_count"])
             failure_count = int(student_import_result["failure_count"])
@@ -9900,7 +10447,8 @@ def principal_dashboard(request: HttpRequest) -> HttpResponse:
     page_shell["teacher_form_values"] = {
         "name": "",
         "username": "",
-        "course_id": "",
+        "course_ids": [],
+        "subject_manual": "",
         "phone": "",
     }
     page_shell["teacher_course_options"] = [
@@ -9942,20 +10490,40 @@ def principal_dashboard(request: HttpRequest) -> HttpResponse:
 
         teacher_name = str(request.POST.get("teacher_name") or "").strip()
         teacher_username = str(request.POST.get("teacher_username") or "").strip()
-        teacher_course_id = normalize_positive_int(request.POST.get("teacher_course_id"), default=0, minimum=1)
+        raw_teacher_course_ids = request.POST.getlist("teacher_course_ids")
+        if not raw_teacher_course_ids and request.POST.get("teacher_course_id"):
+            raw_teacher_course_ids = [request.POST.get("teacher_course_id") or ""]
+        teacher_course_ids = []
+        for raw_course_id in raw_teacher_course_ids:
+            course_id = normalize_positive_int(raw_course_id, default=0, minimum=1)
+            if course_id and course_id not in teacher_course_ids:
+                teacher_course_ids.append(course_id)
         teacher_phone = normalize_phone(request.POST.get("teacher_phone"))
-        course = Course.objects.filter(id=teacher_course_id).order_by("id").first()
-        teacher_subject = course.title if course is not None else ""
+        manual_subject_parts = [
+            part.strip()
+            for part in re.split(r"[、,，;；\n]+", str(request.POST.get("teacher_subject_manual") or ""))
+            if part.strip()
+        ]
+        courses = resolve_teacher_courses_from_subjects(teacher_course_ids, manual_subject_parts)
+        subject_parts = []
+        seen_subject_keys = set()
+        for part in [*(course.title for course in courses), *manual_subject_parts]:
+            subject_key = normalize_knowledge_map_subject(part) or str(part).strip().lower()
+            if part and subject_key not in seen_subject_keys:
+                subject_parts.append(part)
+                seen_subject_keys.add(subject_key)
+        teacher_subject = "、".join(subject_parts)
         resolved_teacher_username = teacher_username or teacher_name
         page_shell["teacher_form_values"] = {
             "name": teacher_name,
             "username": teacher_username,
-            "course_id": str(teacher_course_id) if teacher_course_id else "",
+            "course_ids": [str(course_id) for course_id in teacher_course_ids],
+            "subject_manual": "、".join(manual_subject_parts),
             "phone": teacher_phone,
         }
 
-        if not teacher_name or course is None or not teacher_phone:
-            page_shell["teacher_form_error"] = "请完整填写教师姓名、学科和手机号。"
+        if not teacher_name or not subject_parts or not teacher_phone:
+            page_shell["teacher_form_error"] = "请完整填写教师姓名、所教授学科和手机号。"
         elif form_action == "create_teacher" and PortalUser.objects.filter(username=resolved_teacher_username).exists():
             page_shell["teacher_form_error"] = "当前用户名已被注册，请重新选择用户名。"
         elif form_action == "create_teacher" and PortalUser.objects.filter(phone=teacher_phone).exists():
@@ -9985,9 +10553,7 @@ def principal_dashboard(request: HttpRequest) -> HttpResponse:
                     teacher_profile.user.full_name = teacher_name
                     teacher_profile.user.phone = teacher_phone
                     teacher_profile.user.save(update_fields=["full_name", "phone", "updated_at"])
-                    teacher_profile.courses.clear()
-                    if course is not None:
-                        teacher_profile.courses.add(course)
+                    teacher_profile.courses.set(courses)
                 return redirect(f"{reverse('principal-dashboard')}?tab=teachers&teacher_saved=updated")
         else:
             with transaction.atomic():
@@ -10007,8 +10573,7 @@ def principal_dashboard(request: HttpRequest) -> HttpResponse:
                     subject=teacher_subject,
                     is_active=True,
                 )
-                if course is not None:
-                    teacher_profile.courses.add(course)
+                teacher_profile.courses.set(courses)
             return redirect(f"{reverse('principal-dashboard')}?tab=teachers&teacher_saved=1")
 
     return render_role_page(request, "principal", page_shell)

@@ -282,9 +282,18 @@
                                                 </div>
                                             </label>
                                         {% endfor %}
+                                    {% elif question.question_type == "programming" %}
+                                        <div class="record-inline-feedback">
+                                            <strong>学生提交作品 / 说明</strong>
+                                            {% if question.programming_submission_html %}
+                                                <div class="exam-markdown-body">{{ question.programming_submission_html }}</div>
+                                            {% else %}
+                                                <span>学生未提交作品说明。</span>
+                                            {% endif %}
+                                        </div>
                                     {% else %}
                                         <div class="teacher-exam-submission-placeholder">
-                                            编程题在线提交与评测下一步接入；当前展示学生提交记录和解析。
+                                            当前题型暂不支持在线作答。
                                         </div>
                                     {% endif %}
                                 </div>

@@ -184,30 +184,41 @@
                     <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-upload-subject">
                         <span class="portal-filter-label portal-grid-filter-label">科目</span>
                         <select id="knowledge-upload-subject" name="knowledge_subject" class="portal-filter-control portal-grid-filter-control">
-                            <option value="cpp">C++</option>
-                            <option value="python">Python</option>
-                            <option value="drone">无人机</option>
-                            <option value="scratch">Scratch</option>
-                            <option value="ai">AI</option>
+                            {% for option in knowledge_subject_options %}
+                                <option value="{{ option.value }}" {% if option.value == default_knowledge_subject %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
                         </select>
+                    </label>
+                    <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-upload-category">
+                        <span class="portal-filter-label portal-grid-filter-label">考试名称（可选）</span>
+                        <select id="knowledge-upload-category" name="knowledge_category_code" class="portal-filter-control portal-grid-filter-control"></select>
                     </label>
                     <input id="knowledge-upload-file" name="knowledge_md_file" type="file" accept=".md,text/markdown,text/plain" hidden required>
                     <button type="button" class="login-button" id="knowledge-upload-button">上传 md 文件</button>
+                    <button type="button" class="teacher-secondary-button" id="open-knowledge-create-dialog">单独增加知识点</button>
                 </form>
             </div>
 
             <div class="portal-filters portal-grid-filters">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-subject-filter">
+                    <span class="portal-filter-label portal-grid-filter-label">科目</span>
+                    <select id="knowledge-management-subject-filter" class="portal-filter-control portal-grid-filter-control">
+                        {% for option in knowledge_subject_options %}
+                            <option value="{{ option.value }}" {% if option.value == default_knowledge_subject %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
                 <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-level-filter">
                     <span class="portal-filter-label portal-grid-filter-label">级别</span>
-                    <input id="knowledge-management-level-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入 C1/C2/C3/C4">
+                    <select id="knowledge-management-level-filter" class="portal-filter-control portal-grid-filter-control"></select>
                 </label>
                 <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-category-filter">
                     <span class="portal-filter-label portal-grid-filter-label">考试名称</span>
-                    <input id="knowledge-management-category-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入 GESP 或 CSP">
+                    <select id="knowledge-management-category-filter" class="portal-filter-control portal-grid-filter-control"></select>
                 </label>
                 <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-management-level1-filter">
                     <span class="portal-filter-label portal-grid-filter-label">一级知识目录</span>
-                    <input id="knowledge-management-level1-filter" class="portal-filter-control portal-grid-filter-control" type="search" placeholder="输入一级目录关键词">
+                    <select id="knowledge-management-level1-filter" class="portal-filter-control portal-grid-filter-control"></select>
                 </label>
             </div>
 
@@ -247,11 +258,9 @@
                 <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-group-edit-subject">
                     <span class="portal-filter-label portal-grid-filter-label">科目</span>
                     <select id="knowledge-group-edit-subject" name="knowledge_subject" class="portal-filter-control portal-grid-filter-control">
-                        <option value="cpp">C++</option>
-                        <option value="python">Python</option>
-                        <option value="drone">无人机</option>
-                        <option value="scratch">Scratch</option>
-                        <option value="ai">AI</option>
+                        {% for option in knowledge_subject_options %}
+                            <option value="{{ option.value }}">{{ option.label }}</option>
+                        {% endfor %}
                     </select>
                 </label>
                 <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-group-edit-category">
@@ -276,6 +285,59 @@
         </form>
     </dialog>
 
+    <dialog class="topic-access-modal" id="knowledge-create-dialog">
+        <form method="post" class="topic-access-modal__panel">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="create_exam_knowledge_point">
+            <div class="topic-access-modal__header">
+                <div>
+                    <p class="eyebrow">Knowledge Management</p>
+                    <h3>单独增加知识点</h3>
+                </div>
+                <button type="button" class="teacher-modal-close" id="close-knowledge-create-dialog" aria-label="关闭弹窗">×</button>
+            </div>
+            <div class="teacher-exam-knowledge-edit-grid">
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-subject">
+                    <span class="portal-filter-label portal-grid-filter-label">科目</span>
+                    <select id="knowledge-create-subject" name="knowledge_subject" class="portal-filter-control portal-grid-filter-control" required>
+                        {% for option in knowledge_create_subject_options %}
+                            <option value="{{ option.value }}" {% if option.value == default_knowledge_subject %}selected{% endif %}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-level">
+                    <span class="portal-filter-label portal-grid-filter-label">级别</span>
+                    <select id="knowledge-create-level" name="knowledge_course_level_code" class="portal-filter-control portal-grid-filter-control" required></select>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-category">
+                    <span class="portal-filter-label portal-grid-filter-label">考试名称</span>
+                    <select id="knowledge-create-category" name="knowledge_category_code" class="portal-filter-control portal-grid-filter-control"></select>
+                </label>
+                <div class="portal-filter-unit portal-grid-filter-unit">
+                    <span class="portal-filter-label portal-grid-filter-label">新增考试名称</span>
+                    <button type="button" class="teacher-anchor-link" id="knowledge-create-category-toggle">＋ 手动输入考试名称</button>
+                    <input id="knowledge-create-category-manual" name="knowledge_category_manual" class="portal-filter-control portal-grid-filter-control" placeholder="输入新的考试名称" hidden>
+                </div>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-level-1">
+                    <span class="portal-filter-label portal-grid-filter-label">一级知识点</span>
+                    <input id="knowledge-create-level-1" name="knowledge_level_1" class="portal-filter-control portal-grid-filter-control" required>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-level-2">
+                    <span class="portal-filter-label portal-grid-filter-label">二级知识点</span>
+                    <input id="knowledge-create-level-2" name="knowledge_level_2" class="portal-filter-control portal-grid-filter-control" required>
+                </label>
+                <label class="portal-filter-unit portal-grid-filter-unit" for="knowledge-create-level-3">
+                    <span class="portal-filter-label portal-grid-filter-label">三级知识点（选填）</span>
+                    <input id="knowledge-create-level-3" name="knowledge_level_3" class="portal-filter-control portal-grid-filter-control">
+                </label>
+            </div>
+            <div class="topic-access-modal__footer">
+                <button type="button" class="teacher-anchor-link" id="cancel-knowledge-create-dialog">取消</button>
+                <button type="submit" class="login-button">保存知识点</button>
+            </div>
+        </form>
+    </dialog>
+
     <section class="surface-panel surface-panel--primary" id="available-exam-papers">
         <div class="section-heading">
             <p class="section-heading__eyebrow">Paper Management</p>
@@ -289,7 +351,7 @@
                     <select id="available-paper-subject-filter" class="portal-filter-control portal-grid-filter-control">
                         <option value="">全部</option>
                         {% for subject in subject_filter_options %}
-                            <option value="{{ subject }}">{{ subject }}</option>
+                            <option value="{{ subject }}" {% if subject == default_exam_subject_filter %}selected{% endif %}>{{ subject }}</option>
                         {% endfor %}
                     </select>
                 </label>
@@ -354,7 +416,7 @@
                     <select id="teacher-exam-subject-filter" class="portal-filter-control portal-grid-filter-control">
                         <option value="">全部</option>
                         {% for subject in subject_filter_options %}
-                            <option value="{{ subject }}">{{ subject }}</option>
+                            <option value="{{ subject }}" {% if subject == default_exam_subject_filter %}selected{% endif %}>{{ subject }}</option>
                         {% endfor %}
                     </select>
                 </label>
@@ -533,6 +595,10 @@
     {{ question_bank_rows|json_script:"exam-question-bank-data" }}
     {{ selected_question_ids|json_script:"selected-exam-question-ids" }}
     {{ knowledge_management_rows|json_script:"exam-knowledge-management-data" }}
+    {{ knowledge_level_options_by_subject|json_script:"exam-knowledge-level-options-by-subject" }}
+    {{ knowledge_exam_options_by_subject_level|json_script:"exam-knowledge-exam-options-by-subject-level" }}
+    {{ knowledge_level1_options_by_subject_level_exam|json_script:"exam-knowledge-level1-options-by-subject-level-exam" }}
+    {{ knowledge_create_level_options_by_subject|json_script:"exam-knowledge-create-level-options-by-subject" }}
     {{ available_paper_rows|json_script:"available-exam-paper-data" }}
     {{ exam_table_rows|json_script:"teacher-exam-management-data" }}
     {{ level_filter_options_by_subject|json_script:"teacher-exam-level-options-by-subject" }}
@@ -555,10 +621,13 @@
             const selectedQuestionInputs = document.getElementById("selected-exam-question-inputs");
             const selectedQuestionCount = document.getElementById("selected-exam-question-count");
             const knowledgeUploadForm = document.querySelector(".teacher-exam-knowledge-upload");
+            const knowledgeUploadSubject = document.getElementById("knowledge-upload-subject");
+            const knowledgeUploadCategory = document.getElementById("knowledge-upload-category");
             const knowledgeUploadButton = document.getElementById("knowledge-upload-button");
             const knowledgeUploadFile = document.getElementById("knowledge-upload-file");
             const knowledgeManagementGrid = document.getElementById("exam-knowledge-management-grid");
             const knowledgeManagementFallback = document.getElementById("exam-knowledge-management-fallback");
+            const knowledgeManagementSubjectFilter = document.getElementById("knowledge-management-subject-filter");
             const knowledgeManagementLevelFilter = document.getElementById("knowledge-management-level-filter");
             const knowledgeManagementCategoryFilter = document.getElementById("knowledge-management-category-filter");
             const knowledgeManagementLevel1Filter = document.getElementById("knowledge-management-level1-filter");
@@ -569,6 +638,15 @@
             const knowledgeGroupEditSubject = document.getElementById("knowledge-group-edit-subject");
             const knowledgeGroupEditCategory = document.getElementById("knowledge-group-edit-category");
             const knowledgeGroupEditLevel1 = document.getElementById("knowledge-group-edit-level-1");
+            const knowledgeCreateDialog = document.getElementById("knowledge-create-dialog");
+            const knowledgeCreateOpen = document.getElementById("open-knowledge-create-dialog");
+            const knowledgeCreateClose = document.getElementById("close-knowledge-create-dialog");
+            const knowledgeCreateCancel = document.getElementById("cancel-knowledge-create-dialog");
+            const knowledgeCreateSubject = document.getElementById("knowledge-create-subject");
+            const knowledgeCreateLevel = document.getElementById("knowledge-create-level");
+            const knowledgeCreateCategory = document.getElementById("knowledge-create-category");
+            const knowledgeCreateCategoryToggle = document.getElementById("knowledge-create-category-toggle");
+            const knowledgeCreateCategoryManual = document.getElementById("knowledge-create-category-manual");
             const availablePaperGrid = document.getElementById("available-exam-paper-grid");
             const availablePaperFallback = document.getElementById("available-exam-paper-fallback");
             const availablePaperSubjectFilter = document.getElementById("available-paper-subject-filter");
@@ -627,6 +705,10 @@
                 .replace(/'/g, "&#39;");
             const questionBankRows = readJsonScript("exam-question-bank-data", []);
             const knowledgeManagementRows = readJsonScript("exam-knowledge-management-data", []);
+            const knowledgeLevelOptionsBySubject = readJsonScript("exam-knowledge-level-options-by-subject", {});
+            const knowledgeExamOptionsBySubjectLevel = readJsonScript("exam-knowledge-exam-options-by-subject-level", {});
+            const knowledgeLevel1OptionsBySubjectLevelExam = readJsonScript("exam-knowledge-level1-options-by-subject-level-exam", {});
+            const knowledgeCreateLevelOptionsBySubject = readJsonScript("exam-knowledge-create-level-options-by-subject", {});
             const availablePaperRows = readJsonScript("available-exam-paper-data", []);
             const examManagementRows = readJsonScript("teacher-exam-management-data", []);
             const levelOptionsBySubject = readJsonScript("teacher-exam-level-options-by-subject", {});
@@ -825,12 +907,168 @@
                     knowledgeGroupEditSubject.value = row.subject || "cpp";
                 }
                 if (knowledgeGroupEditCategory) {
+                    ensureSelectOption(knowledgeGroupEditCategory, row.category_code || "", row.category_code || "");
                     knowledgeGroupEditCategory.value = row.category_code || "GESP1";
                 }
                 if (knowledgeGroupEditLevel1) {
                     knowledgeGroupEditLevel1.value = row.level_1 || "";
                 }
                 showDialog(knowledgeGroupEditDialog);
+            };
+            const normalizeKnowledgeSubject = (value) => {
+                const normalized = String(value || "").trim().toLowerCase();
+                const compact = normalized.replace(/\s+/g, "").replace(/\+/g, "p");
+                if (normalized === "c++" || normalized === "cpp" || ["cpp", "cxx", "cpptype"].includes(compact)) {
+                    return "cpp";
+                }
+                if (normalized === "scratch") {
+                    return "scratch";
+                }
+                return normalized;
+            };
+            const ensureSelectOption = (select, value, label) => {
+                if (!select || !value) {
+                    return;
+                }
+                const exists = Array.from(select.options).some((option) => option.value === value);
+                if (!exists) {
+                    select.appendChild(new Option(label || value, value));
+                }
+            };
+            const setFilterUnitVisibility = (select, visible) => {
+                if (!select) {
+                    return;
+                }
+                const unit = select.closest(".portal-filter-unit");
+                if (unit) {
+                    unit.hidden = !visible;
+                }
+                select.disabled = !visible;
+                if (!visible) {
+                    select.value = "";
+                }
+            };
+            const setSelectOptions = (select, options, placeholder, preferredValue) => {
+                if (!select) {
+                    return "";
+                }
+                const previousValue = preferredValue !== undefined ? String(preferredValue || "") : String(select.value || "");
+                const uniqueOptions = Array.from(new Set((options || []).map((option) => String(option || "").trim()).filter(Boolean)));
+                select.innerHTML = '<option value="">' + escapeHtml(placeholder || "请选择") + "</option>" + uniqueOptions
+                    .map((option) => '<option value="' + escapeHtml(option) + '">' + escapeHtml(option) + "</option>")
+                    .join("");
+                const matchedValue = uniqueOptions.find((option) => option.toLowerCase() === previousValue.toLowerCase()) || "";
+                select.value = matchedValue;
+                return matchedValue;
+            };
+            const getKnowledgeLevelsForSubject = (subject) => {
+                const normalizedSubject = normalizeKnowledgeSubject(subject);
+                return knowledgeLevelOptionsBySubject[normalizedSubject] || [];
+            };
+            const getKnowledgeExamsForSubjectLevel = (subject, level) => {
+                const normalizedSubject = normalizeKnowledgeSubject(subject);
+                const normalizedLevel = String(level || "").trim().toUpperCase();
+                return ((knowledgeExamOptionsBySubjectLevel[normalizedSubject] || {})[normalizedLevel]) || [];
+            };
+            const getKnowledgeLevel1ForSubjectLevelExam = (subject, level, examName) => {
+                const normalizedSubject = normalizeKnowledgeSubject(subject);
+                const normalizedLevel = String(level || "").trim().toUpperCase();
+                return (((knowledgeLevel1OptionsBySubjectLevelExam[normalizedSubject] || {})[normalizedLevel] || {})[examName]) || [];
+            };
+            const getKnowledgeUploadExamOptions = (subject) => {
+                const normalizedSubject = normalizeKnowledgeSubject(subject);
+                const byLevel = knowledgeExamOptionsBySubjectLevel[normalizedSubject] || {};
+                const exams = [];
+                Object.keys(byLevel).forEach((level) => {
+                    (byLevel[level] || []).forEach((examName) => {
+                        if (examName && !exams.includes(examName)) {
+                            exams.push(examName);
+                        }
+                    });
+                });
+                return exams;
+            };
+            const syncKnowledgeUploadCategory = () => {
+                if (!knowledgeUploadSubject || !knowledgeUploadCategory) {
+                    return;
+                }
+                const currentValue = knowledgeUploadCategory.value;
+                const exams = getKnowledgeUploadExamOptions(knowledgeUploadSubject.value);
+                setSelectOptions(knowledgeUploadCategory, exams, "从已有考试名称中选择", currentValue);
+                knowledgeUploadCategory.disabled = exams.length === 0;
+            };
+            const syncKnowledgeCreateLevel = () => {
+                if (!knowledgeCreateSubject || !knowledgeCreateLevel) {
+                    return;
+                }
+                const subject = normalizeKnowledgeSubject(knowledgeCreateSubject.value);
+                const previousLevel = knowledgeCreateLevel.value;
+                const levels = knowledgeCreateLevelOptionsBySubject[subject] || getKnowledgeLevelsForSubject(subject);
+                const activeLevel = setSelectOptions(knowledgeCreateLevel, levels, "请选择级别", previousLevel);
+                knowledgeCreateLevel.disabled = levels.length === 0;
+                syncKnowledgeCreateCategory(activeLevel);
+            };
+            const syncKnowledgeCreateCategory = (levelOverride) => {
+                if (!knowledgeCreateSubject || !knowledgeCreateLevel || !knowledgeCreateCategory) {
+                    return;
+                }
+                const subject = normalizeKnowledgeSubject(knowledgeCreateSubject.value);
+                const level = String(levelOverride !== undefined ? levelOverride : knowledgeCreateLevel.value || "").trim().toUpperCase();
+                const previousCategory = knowledgeCreateCategory.value;
+                const exams = getKnowledgeExamsForSubjectLevel(subject, level);
+                setSelectOptions(knowledgeCreateCategory, exams, "请选择考试名称", previousCategory);
+                knowledgeCreateCategory.disabled = exams.length === 0 || Boolean(knowledgeCreateCategoryManual && !knowledgeCreateCategoryManual.hidden);
+            };
+            const setKnowledgeCreateManualCategoryVisible = (visible) => {
+                if (!knowledgeCreateCategoryManual || !knowledgeCreateCategory) {
+                    return;
+                }
+                knowledgeCreateCategoryManual.hidden = !visible;
+                knowledgeCreateCategoryManual.required = visible;
+                knowledgeCreateCategory.disabled = visible || knowledgeCreateCategory.options.length <= 1;
+                if (visible) {
+                    knowledgeCreateCategory.value = "";
+                    knowledgeCreateCategoryManual.focus();
+                } else {
+                    knowledgeCreateCategoryManual.value = "";
+                    syncKnowledgeCreateCategory();
+                }
+                if (knowledgeCreateCategoryToggle) {
+                    knowledgeCreateCategoryToggle.textContent = visible ? "使用已有考试名称" : "＋ 手动输入考试名称";
+                }
+            };
+            const syncKnowledgeManagementCascade = () => {
+                const subject = normalizeKnowledgeSubject(knowledgeManagementSubjectFilter ? knowledgeManagementSubjectFilter.value : "");
+                const previousLevel = knowledgeManagementLevelFilter ? knowledgeManagementLevelFilter.value : "";
+                const previousCategory = knowledgeManagementCategoryFilter ? knowledgeManagementCategoryFilter.value : "";
+                const previousLevel1 = knowledgeManagementLevel1Filter ? knowledgeManagementLevel1Filter.value : "";
+
+                if (!subject) {
+                    setFilterUnitVisibility(knowledgeManagementLevelFilter, false);
+                    setFilterUnitVisibility(knowledgeManagementCategoryFilter, false);
+                    setFilterUnitVisibility(knowledgeManagementLevel1Filter, false);
+                    return;
+                }
+                const levels = getKnowledgeLevelsForSubject(subject);
+                setFilterUnitVisibility(knowledgeManagementLevelFilter, true);
+                const activeLevel = setSelectOptions(knowledgeManagementLevelFilter, levels, "请选择级别", previousLevel);
+
+                if (!activeLevel) {
+                    setFilterUnitVisibility(knowledgeManagementCategoryFilter, false);
+                    setFilterUnitVisibility(knowledgeManagementLevel1Filter, false);
+                    return;
+                }
+                const exams = getKnowledgeExamsForSubjectLevel(subject, activeLevel);
+                setFilterUnitVisibility(knowledgeManagementCategoryFilter, true);
+                const activeCategory = setSelectOptions(knowledgeManagementCategoryFilter, exams, "请选择考试名称", previousCategory);
+
+                if (!activeCategory) {
+                    setFilterUnitVisibility(knowledgeManagementLevel1Filter, false);
+                    return;
+                }
+                const level1Options = getKnowledgeLevel1ForSubjectLevelExam(subject, activeLevel, activeCategory);
+                setFilterUnitVisibility(knowledgeManagementLevel1Filter, true);
+                setSelectOptions(knowledgeManagementLevel1Filter, level1Options, "请选择一级知识目录", previousLevel1);
             };
             const redrawTable = (table) => {
                 if (!table || typeof table.redraw !== "function") {
@@ -976,10 +1214,17 @@
                 const knowledgeDisabled = row.can_generate_knowledge === false ? " disabled" : "";
                 const knowledgeTitle = row.can_generate_knowledge === false && row.knowledge_action_disabled_reason ? ' title="' + escapeHtml(row.knowledge_action_disabled_reason) + '"' : "";
                 const publishDisabled = row.can_publish_to_exam_management === false ? " disabled" : "";
-                const publishTitle = row.can_publish_to_exam_management === false ? ' title="已在试卷管理中，删除后可再次发布"' : "";
+                const publishTitle = row.can_publish_to_exam_management === false ? ' title="' + escapeHtml(row.publish_disabled_reason || "已在试卷管理中，删除后可再次发布") + '"' : "";
+                const subjectOperationDisabled = row.can_operate_subject === false;
+                const subjectOperationTitle = subjectOperationDisabled ? ' title="' + escapeHtml(row.subject_operation_disabled_reason || "这张试卷不属于当前老师负责的学科，不能操作。") + '"' : "";
+                const editAction = subjectOperationDisabled
+                    ? '<span class="cm-tabulator-btn" aria-disabled="true"' + subjectOperationTitle + '>编辑</span>'
+                    : '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>';
+                const deleteDisabled = subjectOperationDisabled ? " disabled" : "";
+                const deleteTitle = subjectOperationDisabled ? subjectOperationTitle : "";
                 return [
                     '<div class="teacher-exam-actions available-paper-actions">',
-                    '<a class="cm-tabulator-btn" href="' + escapeHtml(row.edit_href || "#") + '">编辑</a>',
+                    editAction,
                     '<form method="post" class="teacher-exam-row-action">',
                     '<input type="hidden" name="csrfmiddlewaretoken" value="' + escapeHtml(csrfToken) + '">',
                     '<input type="hidden" name="form_action" value="generate_bank_paper_analysis">',
@@ -993,7 +1238,7 @@
                     '<button type="submit" class="cm-tabulator-btn"' + knowledgeDisabled + knowledgeTitle + '>知识点识别</button>',
                     '</form>',
                     '<button type="button" class="cm-tabulator-btn cm-tabulator-btn--primary available-paper-publish-button" data-paper-id="' + escapeHtml(row.id) + '"' + publishDisabled + publishTitle + '>发布</button>',
-                    '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '">' + escapeHtml(row.delete_label || "删除") + '</button>',
+                    '<button type="button" class="cm-tabulator-btn available-paper-delete-button" data-paper-id="' + escapeHtml(row.id) + '" data-confirm-message="' + escapeHtml(row.delete_confirm_message || "是否确定删除这张可用试卷？") + '"' + deleteDisabled + deleteTitle + '>' + escapeHtml(row.delete_label || "删除") + '</button>',
                     '</div>',
                 ].join("");
             };
@@ -1048,17 +1293,21 @@
                 if (!knowledgeManagementTable) {
                     return;
                 }
-                const level = String(knowledgeManagementLevelFilter ? knowledgeManagementLevelFilter.value : "").trim().toLowerCase();
-                const category = String(knowledgeManagementCategoryFilter ? knowledgeManagementCategoryFilter.value : "").trim().toLowerCase();
-                const level1 = String(knowledgeManagementLevel1Filter ? knowledgeManagementLevel1Filter.value : "").trim().toLowerCase();
+                const subject = normalizeKnowledgeSubject(knowledgeManagementSubjectFilter ? knowledgeManagementSubjectFilter.value : "");
+                const level = String(knowledgeManagementLevelFilter ? knowledgeManagementLevelFilter.value : "").trim().toUpperCase();
+                const category = String(knowledgeManagementCategoryFilter ? knowledgeManagementCategoryFilter.value : "").trim();
+                const level1 = String(knowledgeManagementLevel1Filter ? knowledgeManagementLevel1Filter.value : "").trim();
                 knowledgeManagementTable.setFilter((row) => {
-                    if (level && !String(row.course_level_text || row.course_level_code || "").toLowerCase().includes(level)) {
+                    if (subject && normalizeKnowledgeSubject(row.subject || row.subject_title || "") !== subject) {
                         return false;
                     }
-                    if (category && !String(row.category_code || "").toLowerCase().includes(category)) {
+                    if (level && String(row.course_level_code || row.course_level_text || "").trim().toUpperCase() !== level) {
                         return false;
                     }
-                    if (level1 && !String(row.level_1 || "").toLowerCase().includes(level1)) {
+                    if (category && String(row.category_code || "").trim() !== category) {
+                        return false;
+                    }
+                    if (level1 && String(row.level_1 || "").trim() !== level1) {
                         return false;
                     }
                     return true;
@@ -1341,6 +1590,32 @@
                     knowledgeUploadFile.click();
                 });
             }
+            if (knowledgeUploadSubject) {
+                knowledgeUploadSubject.addEventListener("change", syncKnowledgeUploadCategory);
+            }
+            if (knowledgeCreateSubject) {
+                knowledgeCreateSubject.addEventListener("change", syncKnowledgeCreateLevel);
+            }
+            if (knowledgeCreateLevel) {
+                knowledgeCreateLevel.addEventListener("change", () => syncKnowledgeCreateCategory());
+            }
+            if (knowledgeCreateCategoryToggle) {
+                knowledgeCreateCategoryToggle.addEventListener("click", () => {
+                    setKnowledgeCreateManualCategoryVisible(knowledgeCreateCategoryManual ? knowledgeCreateCategoryManual.hidden : true);
+                });
+            }
+            if (knowledgeCreateOpen) {
+                knowledgeCreateOpen.addEventListener("click", () => {
+                    setKnowledgeCreateManualCategoryVisible(false);
+                    syncKnowledgeCreateLevel();
+                    showDialog(knowledgeCreateDialog);
+                });
+            }
+            [knowledgeCreateClose, knowledgeCreateCancel].forEach((button) => {
+                if (button) {
+                    button.addEventListener("click", () => hideDialog(knowledgeCreateDialog));
+                }
+            });
             if (knowledgeUploadFile && knowledgeUploadForm) {
                 knowledgeUploadFile.addEventListener("change", () => {
                     if (knowledgeUploadFile.files && knowledgeUploadFile.files.length) {
@@ -1380,13 +1655,16 @@
                 knowledgeGroupEditCancel.addEventListener("click", () => hideDialog(knowledgeGroupEditDialog));
             }
             [
+                knowledgeManagementSubjectFilter,
                 knowledgeManagementLevelFilter,
                 knowledgeManagementCategoryFilter,
                 knowledgeManagementLevel1Filter,
             ].forEach((input) => {
                 if (input) {
-                    input.addEventListener("input", applyKnowledgeManagementFilter);
-                    input.addEventListener("change", applyKnowledgeManagementFilter);
+                    input.addEventListener("change", () => {
+                        syncKnowledgeManagementCascade();
+                        applyKnowledgeManagementFilter();
+                    });
                 }
             });
             [
@@ -1440,6 +1718,9 @@
                 }
                 const deleteButton = event.target.closest(".available-paper-delete-button");
                 if (deleteButton) {
+                    if (deleteButton.disabled) {
+                        return;
+                    }
                     const paperId = Number(deleteButton.dataset.paperId || 0);
                     if (!availablePaperDeleteForm || !availablePaperDeleteId || !paperId) {
                         return;
@@ -1483,6 +1764,9 @@
             buildKnowledgeManagementTable();
             buildAvailablePaperTable();
             buildExamManagementTable();
+            syncKnowledgeUploadCategory();
+            syncKnowledgeCreateLevel();
+            syncKnowledgeManagementCascade();
             syncAvailablePaperLevelOptions();
             syncExamLevelOptions();
             syncScheduleMode(availablePaperPublishDialog);

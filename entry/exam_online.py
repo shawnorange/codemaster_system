@@ -779,6 +779,7 @@ def grade_exam_session(
     student: Student,
     selected_answers: dict[int, str],
     explanation_texts: dict[int, str] | None = None,
+    programming_submissions: dict[int, str] | None = None,
 ) -> ExamSession:
     if session.student_id != student.id or not session.is_active:
         raise ExamError("未找到可提交的考试。")
@@ -792,6 +793,7 @@ def grade_exam_session(
         raise ExamError("当前考试还没有正式题目，暂时不能提交。")
 
     explanation_texts = explanation_texts or {}
+    programming_submissions = programming_submissions or {}
     with transaction.atomic():
         locked_session = (
             ExamSession.objects.select_for_update()
@@ -815,6 +817,13 @@ def grade_exam_session(
         total_score = Decimal("0.00")
         questions = get_exam_session_questions(locked_session)
         gradable_questions = [question for question in questions if is_auto_gradable_exam_question(question)]
+        gradable_question_ids = {question.id for question in gradable_questions}
+        manual_review_questions = [
+            question
+            for question in questions
+            if question.id not in gradable_question_ids
+            and question.question_type == ExamQuestion.QUESTION_TYPE_PROGRAMMING
+        ]
         if locked_session.session_type == ExamSession.SESSION_TYPE_WRONG_PRACTICE:
             short_explanation_questions = [
                 question
@@ -846,10 +855,22 @@ def grade_exam_session(
                 correct_answer_snapshot=question.correct_answer,
                 analysis_snapshot=build_question_analysis_markdown(question),
             )
+        for question in manual_review_questions:
+            submission_text = str(programming_submissions.get(question.id) or "").strip()
+            ExamSubmissionAnswer.objects.create(
+                session=locked_session,
+                question=question,
+                selected_answer="",
+                explanation_text=submission_text,
+                is_correct=False,
+                score=Decimal("0.00"),
+                correct_answer_snapshot="",
+                analysis_snapshot=build_question_analysis_markdown(question),
+            )
 
         now = timezone.now()
         total_count = len(gradable_questions)
-        locked_session.status = ExamSession.STATUS_AUTO_CHECKED
+        locked_session.status = ExamSession.STATUS_SUBMITTED if manual_review_questions else ExamSession.STATUS_AUTO_CHECKED
         locked_session.total_count = total_count
         locked_session.correct_count = correct_count
         locked_session.wrong_count = total_count - correct_count

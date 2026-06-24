@@ -8,6 +8,7 @@ import random
 import re
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
@@ -641,7 +642,6 @@ def get_teacher_course_scope(portal_user: PortalUser, course_slug: str) -> dict:
         if (
             portal_user.role == PortalUser.ROLE_PRINCIPAL
             or course.id in profile_course_ids
-            or (teacher_can_import_students(portal_user) and course_slug == "cpp")
         ):
             return {
                 "course": course,
@@ -1289,6 +1289,16 @@ def build_principal_teacher_rows() -> list[dict[str, object]]:
         course_titles = [course.title for course in teacher_course_items]
         if not course_titles:
             course_titles = sorted({assignment.course.title for assignment in teacher_assignments})
+        subject_parts = [
+            part.strip()
+            for part in re.split(r"[、,，;；\n]+", teacher.subject or "")
+            if part.strip()
+        ]
+        manual_subject_parts = [
+            part
+            for part in subject_parts
+            if part not in set(course_titles)
+        ]
         primary_course_id = str(teacher_course_items[0].id) if teacher_course_items else ""
         rows.append(
             {
@@ -1298,6 +1308,8 @@ def build_principal_teacher_rows() -> list[dict[str, object]]:
                 "phone": teacher.phone or teacher.user.phone or "未录入",
                 "subject": teacher.subject or "、".join(course_titles) or "未设置",
                 "course_id": primary_course_id,
+                "course_ids": [str(course.id) for course in teacher_course_items],
+                "subject_manual": "、".join(manual_subject_parts),
                 "is_active": teacher.is_active,
                 "status_text": "在职" if teacher.is_active else "离职",
                 "course_titles": "、".join(course_titles) if course_titles else "未关联课程",
@@ -2920,9 +2932,27 @@ def strip_exam_display_code_line_numbers(value: object) -> str:
 
 
 def render_exam_inline_markdown_for_display(value: object) -> str:
-    escaped_text = escape(normalize_exam_inline_math_for_display(value))
+    raw_text = normalize_exam_inline_math_for_display(value)
 
     code_placeholders: list[str] = []
+    image_placeholders: list[str] = []
+
+    def stash_image(match: re.Match) -> str:
+        alt = str(match.group(1) or "题目图片").strip() or "题目图片"
+        url = str(match.group(2) or "").strip()
+        if not url:
+            return ""
+        image_placeholders.append(
+            '<img class="exam-markdown-body__image" src="'
+            + escape(url)
+            + '" alt="'
+            + escape(alt)
+            + '">'
+        )
+        return f"@@IMG{len(image_placeholders) - 1}@@"
+
+    raw_text = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", stash_image, raw_text)
+    escaped_text = escape(raw_text)
 
     def stash_inline_code(match: re.Match) -> str:
         code_placeholders.append(
@@ -2935,6 +2965,8 @@ def render_exam_inline_markdown_for_display(value: object) -> str:
     rendered = re.sub(r"__([^_\n][^_\n]*(?:_[^_\n]+)*)__", r"<strong>\1</strong>", rendered)
     for index, code_html in enumerate(code_placeholders):
         rendered = rendered.replace(f"@@CODE{index}@@", code_html)
+    for index, image_html in enumerate(image_placeholders):
+        rendered = rendered.replace(f"@@IMG{index}@@", image_html)
     return rendered
 
 
@@ -3051,6 +3083,30 @@ def render_exam_markdown_for_display(value: object) -> str:
     return mark_safe("\n".join(part for part in html_parts if part))
 
 
+def extract_exam_markdown_image_paths(value: object) -> set[str]:
+    paths: set[str] = set()
+    for match in re.finditer(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", str(value or "")):
+        raw_path = str(match.group(1) or "").strip()
+        if not raw_path:
+            continue
+        normalized_path = raw_path.split("?", 1)[0].split("#", 1)[0].strip()
+        if normalized_path.startswith("/media/"):
+            normalized_path = normalized_path[len("/media/"):]
+        paths.add(normalized_path.lstrip("/"))
+    return paths
+
+
+def exclude_markdown_embedded_image_paths(paths: list[str], markdown_text: object) -> list[str]:
+    embedded_paths = extract_exam_markdown_image_paths(markdown_text)
+    if not embedded_paths:
+        return paths
+    return [
+        path
+        for path in paths
+        if str(path or "").strip().lstrip("/") not in embedded_paths
+    ]
+
+
 def get_exam_mode_text(mode: str) -> str:
     return EXAM_MODE_LABELS.get(mode, mode or "未知模式")
 
@@ -3093,6 +3149,17 @@ def get_exam_bank_paper_id_from_exam_description(description: str) -> int | None
         return None
 
 
+def infer_exam_paper_subject_title(paper: ExamPaper) -> str:
+    if paper.course_id and paper.course:
+        return paper.course.title
+    bank_paper_id = get_exam_bank_paper_id_from_exam_description(paper.description)
+    if bank_paper_id:
+        bank_paper = ExamQuestionBankPaper.objects.filter(id=bank_paper_id).first()
+        if bank_paper is not None:
+            return format_exam_subject_filter_label(infer_exam_bank_paper_subject(bank_paper))
+    return "未绑定学科"
+
+
 def get_exam_bank_paper_ids_with_exam_management_records(teacher: PortalUser | None = None) -> set[int]:
     bank_paper_ids: set[int] = set()
     queryset = ExamPaper.objects.filter(is_active=True).exclude(description="")
@@ -3104,6 +3171,43 @@ def get_exam_bank_paper_ids_with_exam_management_records(teacher: PortalUser | N
         if bank_paper_id:
             bank_paper_ids.add(bank_paper_id)
     return bank_paper_ids
+
+
+def expire_stale_exam_bank_paper_knowledge_statuses(questions: list[ExamQuestionBankQuestion]) -> int:
+    active_questions: list[ExamQuestionBankQuestion] = []
+    for question in questions:
+        full_json = question.full_json if isinstance(question.full_json, dict) else {}
+        if str(full_json.get("knowledge_status") or "").strip() in {"pending", "running"}:
+            active_questions.append(question)
+    if not active_questions:
+        return 0
+
+    configured_minutes = int(getattr(settings, "EXAM_AI_KNOWLEDGE_STALE_MINUTES", 0) or 0)
+    qwen_timeout_seconds = max(int(getattr(settings, "QWEN_TIMEOUT_SECONDS", 180)), 1)
+    timeout_based_minutes = max((qwen_timeout_seconds * 2 + 59) // 60 + 1, 5)
+    stale_minutes = max(configured_minutes, timeout_based_minutes)
+    cutoff = timezone.now() - timedelta(minutes=stale_minutes)
+    latest_active_update = max(
+        (question.updated_at for question in active_questions if question.updated_at),
+        default=None,
+    )
+    if latest_active_update and latest_active_update >= cutoff:
+        return 0
+
+    error_message = f"知识点识别任务超过 {stale_minutes} 分钟没有进展，已自动标记失败，请重新点击知识点识别。"
+    expired_count = 0
+    for question in active_questions:
+        full_json = dict(question.full_json) if isinstance(question.full_json, dict) else {}
+        if str(full_json.get("knowledge_level_1") or "").strip() and str(full_json.get("knowledge_level_2") or "").strip():
+            full_json["knowledge_status"] = "done"
+            full_json["knowledge_error"] = ""
+        else:
+            full_json["knowledge_status"] = "failed"
+            full_json["knowledge_error"] = error_message
+        question.full_json = full_json
+        question.save(update_fields=["full_json", "updated_at"])
+        expired_count += 1
+    return expired_count
 
 
 def collect_exam_paper_question_meta(paper: ExamPaper) -> dict[str, str]:
@@ -3207,8 +3311,8 @@ def infer_exam_bank_paper_subject(paper: ExamQuestionBankPaper) -> str:
     ).lower()
     if "python" in raw_text:
         return "Python"
-    if "scratch" in raw_text:
-        return "SCRATCH"
+    if "scratch" in raw_text or "图形化" in raw_text:
+        return "Scratch"
     if "无人机" in raw_text or "uav" in raw_text:
         return "无人机"
     if "ai" in raw_text or "人工智能" in raw_text:
@@ -3216,6 +3320,81 @@ def infer_exam_bank_paper_subject(paper: ExamQuestionBankPaper) -> str:
     if "gesp" in raw_text or "csp" in raw_text or "c++" in raw_text or "cpp" in raw_text:
         return "C++"
     return "未绑定学科"
+
+
+def normalize_exam_subject_key(value: object) -> str:
+    return normalize_knowledge_map_subject(value)
+
+
+def split_teacher_subject_text(value: object) -> list[str]:
+    return [
+        part.strip()
+        for part in re.split(r"[;；、,，/\n]+", str(value or ""))
+        if part.strip()
+    ]
+
+
+def format_exam_subject_filter_label(value: object) -> str:
+    normalized = normalize_exam_subject_key(value)
+    if normalized == "cpp":
+        return "C++"
+    if normalized == "python":
+        return "Python"
+    if normalized == "scratch":
+        return "Scratch"
+    if normalized == "drone":
+        return "无人机"
+    if normalized == "ai":
+        return "AI"
+    return str(value or "").strip()
+
+
+def build_teacher_exam_subject_scope(portal_user: PortalUser) -> dict[str, object]:
+    all_subjects = ["C++", "Python", "无人机", "AI", "Scratch"]
+    if portal_user.role == PortalUser.ROLE_PRINCIPAL:
+        return {
+            "is_restricted": False,
+            "allowed_keys": set(),
+            "subject_filter_options": all_subjects,
+            "default_subject": "",
+        }
+
+    teacher = sync_teacher_profile(portal_user)
+    ordered_subjects: list[str] = []
+
+    def add_subject(value: object) -> None:
+        label = format_exam_subject_filter_label(value)
+        key = normalize_exam_subject_key(label)
+        existing_keys = {normalize_exam_subject_key(item) for item in ordered_subjects}
+        if key and label and key not in existing_keys:
+            ordered_subjects.append(label)
+
+    if teacher is not None:
+        for part in split_teacher_subject_text(teacher.subject):
+            add_subject(part)
+        for course in teacher.courses.all().order_by("id"):
+            add_subject(course.title)
+    for assignment in get_teacher_active_assignments(portal_user):
+        if assignment.course_id and assignment.course:
+            add_subject(assignment.course.title)
+
+    allowed_keys = {normalize_exam_subject_key(subject) for subject in ordered_subjects if normalize_exam_subject_key(subject)}
+    return {
+        "is_restricted": True,
+        "allowed_keys": allowed_keys,
+        "subject_filter_options": ordered_subjects,
+        "default_subject": ordered_subjects[0] if ordered_subjects else "",
+    }
+
+
+def teacher_can_operate_exam_subject(portal_user: PortalUser, subject_title: object) -> bool:
+    if portal_user.role == PortalUser.ROLE_PRINCIPAL:
+        return True
+    scope = build_teacher_exam_subject_scope(portal_user)
+    allowed_keys = scope.get("allowed_keys") or set()
+    if not allowed_keys:
+        return False
+    return normalize_exam_subject_key(subject_title) in allowed_keys
 
 
 def serialize_available_exam_bank_paper(
@@ -3250,6 +3429,7 @@ def serialize_available_exam_bank_paper(
     else:
         analysis_status_text = analysis_status_labels.get(analysis_status, "未生成")
     knowledge_questions = list(paper.questions.all())
+    expire_stale_exam_bank_paper_knowledge_statuses(knowledge_questions)
     knowledge_total_count = len(knowledge_questions)
     knowledge_done_count = 0
     knowledge_running_count = 0
@@ -3285,7 +3465,7 @@ def serialize_available_exam_bank_paper(
     can_generate_knowledge = (
         knowledge_total_count > 0
         and knowledge_running_count == 0
-        and knowledge_done_count <= 0
+        and knowledge_done_count < knowledge_total_count
     )
     return {
         "id": paper.id,
@@ -3644,6 +3824,9 @@ def serialize_exam_question(
         for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
         if str(path or "").strip()
     ]
+    image_paths = exclude_markdown_embedded_image_paths(image_paths, question.stem)
+    material_image_paths = exclude_markdown_embedded_image_paths(material_image_paths, question.stem)
+    question_image_paths = exclude_markdown_embedded_image_paths(question_image_paths, question.stem)
     analysis_blocks = build_exam_analysis_block_items(question)
     knowledge_level_1 = str(snapshot.get("knowledge_level_1") or "").strip()
     knowledge_level_2 = str(snapshot.get("knowledge_level_2") or "").strip()
@@ -3698,7 +3881,9 @@ def serialize_exam_question(
         "display_mode": str(snapshot.get("display_mode") or ""),
         "material_group_no": int(snapshot.get("material_group_no") or 0),
         "student_answer": selected_answer,
-        "student_answer_text": selected_answer or "未作答",
+        "student_answer_text": (student_explanation if question.question_type == ExamQuestion.QUESTION_TYPE_PROGRAMMING else selected_answer) or "未作答",
+        "programming_submission_text": student_explanation,
+        "programming_submission_html": render_exam_markdown_for_display(student_explanation) if student_explanation else "",
         "student_explanation": student_explanation,
         "student_explanation_html": render_exam_markdown_for_display(student_explanation) if student_explanation else "",
         "is_correct": bool(answer and answer.is_correct),
@@ -3833,6 +4018,10 @@ def build_teacher_exam_page_context(
     success_message: str = "",
 ) -> dict:
     assignments = list(get_teacher_active_assignments(portal_user))
+    exam_subject_scope = build_teacher_exam_subject_scope(portal_user)
+    allowed_exam_subject_keys = set(exam_subject_scope.get("allowed_keys") or set())
+    default_exam_subject_filter = str(exam_subject_scope.get("default_subject") or "")
+    is_exam_subject_restricted = bool(exam_subject_scope.get("is_restricted"))
     assignments_by_course: dict[int, list[TeacherStudentAssignment]] = defaultdict(list)
     for assignment in assignments:
         assignments_by_course[assignment.course_id].append(assignment)
@@ -3908,7 +4097,34 @@ def build_teacher_exam_page_context(
         for paper in available_papers
     ]
     for row in available_paper_rows:
-        row["can_publish_to_exam_management"] = int(row["id"]) not in current_teacher_published_bank_paper_ids
+        subject_allowed = (
+            True
+            if not is_exam_subject_restricted
+            else normalize_exam_subject_key(row.get("subject_title")) in allowed_exam_subject_keys
+        )
+        subject_restricted_reason = "" if subject_allowed else "这张试卷不属于当前老师负责的学科，不能操作。"
+        row["can_operate_subject"] = subject_allowed
+        row["subject_operation_disabled_reason"] = subject_restricted_reason
+        row["can_generate_analysis"] = bool(row.get("can_generate_analysis")) and subject_allowed
+        if subject_restricted_reason:
+            row["analysis_action_disabled_reason"] = subject_restricted_reason
+        row["can_generate_knowledge"] = bool(row.get("can_generate_knowledge")) and subject_allowed
+        if subject_restricted_reason:
+            row["knowledge_action_disabled_reason"] = subject_restricted_reason
+        row["can_publish_to_exam_management"] = (
+            subject_allowed
+            and int(row["id"]) not in current_teacher_published_bank_paper_ids
+        )
+        if not subject_allowed:
+            row["publish_disabled_reason"] = subject_restricted_reason
+            row["delete_disabled_reason"] = subject_restricted_reason
+            row["edit_disabled_reason"] = subject_restricted_reason
+        elif int(row["id"]) in current_teacher_published_bank_paper_ids:
+            row["publish_disabled_reason"] = "已在试卷管理中，删除后可再次发布"
+        else:
+            row["publish_disabled_reason"] = ""
+            row["delete_disabled_reason"] = ""
+            row["edit_disabled_reason"] = ""
     teacher_filter_options = [
         {
             "id": teacher.id,
@@ -3916,7 +4132,9 @@ def build_teacher_exam_page_context(
         }
         for teacher in PortalUser.objects.filter(role=PortalUser.ROLE_TEACHER, is_active=True).order_by("full_name", "id")
     ]
-    subject_filter_options = ["C++", "Python", "无人机", "AI", "SCRATCH"]
+    subject_filter_options = list(exam_subject_scope.get("subject_filter_options") or [])
+    if not subject_filter_options:
+        subject_filter_options = [] if is_exam_subject_restricted else ["C++", "Python", "无人机", "AI", "Scratch"]
     level_filter_options_by_subject: dict[str, list[str]] = {subject: [] for subject in subject_filter_options}
 
     def add_level_filter_option(subject_title: str, level_code: object) -> None:
@@ -3938,6 +4156,8 @@ def build_teacher_exam_page_context(
         .order_by("category__course__title", "category__sort_order", "category_id", "sort_order", "id")
     )
     for level in course_levels:
+        if is_exam_subject_restricted and normalize_exam_subject_key(level.category.course.title if level.category_id and level.category and level.category.course else "") not in allowed_exam_subject_keys:
+            continue
         add_level_filter_option(
             level.category.course.title if level.category_id and level.category and level.category.course else "",
             level.code or level.title,
@@ -3947,15 +4167,59 @@ def build_teacher_exam_page_context(
     for item in question_bank_items:
         add_level_filter_option(item.course.title if item.course_id and item.course else "", item.level_code)
     for row in available_paper_rows:
+        if is_exam_subject_restricted and normalize_exam_subject_key(row["subject_title"]) not in allowed_exam_subject_keys:
+            continue
         add_level_filter_option(row["subject_title"], row["level_text"])
-    for fallback_level in ["CSP-J", "CSP-S", *[f"GESP{index}" for index in range(1, 9)]]:
-        add_level_filter_option("C++", fallback_level)
+    if not is_exam_subject_restricted or "cpp" in allowed_exam_subject_keys:
+        for fallback_level in ["CSP-J", "CSP-S", *[f"GESP{index}" for index in range(1, 9)]]:
+            add_level_filter_option("C++", fallback_level)
     level_filter_options = []
     for levels in level_filter_options_by_subject.values():
         for level in levels:
             if level not in level_filter_options:
                 level_filter_options.append(level)
     knowledge_management_rows = build_exam_knowledge_management_rows(portal_user)
+    teacher_profile = sync_teacher_profile(portal_user)
+    default_knowledge_subject = normalize_teacher_subject_for_knowledge(
+        teacher_profile.subject if teacher_profile is not None else ""
+    )
+    if not default_knowledge_subject and course_options:
+        default_knowledge_subject = normalize_knowledge_map_subject(course_options[0].get("title"))
+    default_knowledge_subject = default_knowledge_subject or "cpp"
+    (
+        knowledge_level_options_by_subject,
+        knowledge_exam_options_by_subject_level,
+        knowledge_level1_options_by_subject_level_exam,
+    ) = build_knowledge_management_cascade_options(knowledge_management_rows)
+    knowledge_create_subject_options = [
+        {
+            "value": normalize_knowledge_map_subject(subject),
+            "label": format_knowledge_map_subject_label(subject),
+        }
+        for subject in subject_filter_options
+        if normalize_knowledge_map_subject(subject)
+    ]
+    if not knowledge_create_subject_options and not is_exam_subject_restricted:
+        knowledge_create_subject_options = build_knowledge_management_subject_options()
+    seen_create_subjects: set[str] = set()
+    knowledge_create_subject_options = [
+        option
+        for option in knowledge_create_subject_options
+        if option["value"] and not (option["value"] in seen_create_subjects or seen_create_subjects.add(option["value"]))
+    ]
+    knowledge_create_level_options_by_subject: dict[str, list[str]] = {}
+    for subject_label, levels in level_filter_options_by_subject.items():
+        normalized_subject = normalize_knowledge_map_subject(subject_label)
+        if normalized_subject:
+            knowledge_create_level_options_by_subject[normalized_subject] = list(levels)
+    for subject, levels in knowledge_level_options_by_subject.items():
+        normalized_subject = normalize_knowledge_map_subject(subject)
+        if not normalized_subject:
+            continue
+        target_levels = knowledge_create_level_options_by_subject.setdefault(normalized_subject, [])
+        for level in levels:
+            if level not in target_levels:
+                target_levels.append(level)
 
     now = timezone.localtime(timezone.now())
     default_start_at = now + timedelta(minutes=10)
@@ -3964,11 +4228,13 @@ def build_teacher_exam_page_context(
     if selected_mode not in {ExamPaper.MODE_TIMED, ExamPaper.MODE_DEADLINE}:
         selected_mode = ExamPaper.MODE_TIMED
 
-    papers = list(
+    papers_queryset = (
         ExamPaper.objects.select_related("course", "teacher")
         .filter(teacher=portal_user, is_active=True)
         .exclude(description__contains="free_practice_exam_question_bank_paper_id=")
-        .annotate(
+    )
+    papers = list(
+        papers_queryset.annotate(
             question_count=Count("questions", filter=Q(questions__is_active=True)),
             session_count=Count("sessions", filter=Q(sessions__is_active=True)),
             assigned_count=Count(
@@ -3988,6 +4254,9 @@ def build_teacher_exam_page_context(
     )
     exam_items = []
     for paper in papers:
+        paper_subject_title = infer_exam_paper_subject_title(paper)
+        if is_exam_subject_restricted and normalize_exam_subject_key(paper_subject_title) not in allowed_exam_subject_keys:
+            continue
         meta = collect_exam_paper_question_meta(paper)
         status_summary = build_exam_paper_status_summary(paper)
         window_end = get_exam_window_end(paper)
@@ -3995,7 +4264,7 @@ def build_teacher_exam_page_context(
             {
             "id": paper.id,
             "title": paper.title,
-            "subject_title": paper.course.title if paper.course_id and paper.course else "未绑定学科",
+            "subject_title": paper_subject_title,
             "level_text": meta["level_text"],
             "knowledge_text": meta["knowledge_text"],
             "course_title": paper.course.title if paper.course_id and paper.course else "未绑定课程",
@@ -4049,16 +4318,24 @@ def build_teacher_exam_page_context(
             {"label": "可发布课程", "value": f"{len(course_options)} 门", "hint": "来自当前教师负责关系"},
             {"label": "可选学生", "value": f"{len({item['id'] for item in student_options})} 人", "hint": "按课程关系过滤"},
             {"label": "题库题目", "value": f"{len(question_bank_rows)} 题", "hint": "当前负责课程下的可选题目"},
-            {"label": "已发布考试", "value": f"{len(papers)} 场", "hint": "最近 50 场"},
+            {"label": "已发布考试", "value": f"{len(exam_items)} 场", "hint": "最近 50 场"},
         ],
         "course_options": course_options,
         "student_options": student_options,
         "teacher_filter_options": teacher_filter_options,
         "subject_filter_options": subject_filter_options,
+        "default_exam_subject_filter": default_exam_subject_filter,
         "level_filter_options": level_filter_options,
         "level_filter_options_by_subject": level_filter_options_by_subject,
         "question_bank_rows": question_bank_rows,
         "knowledge_management_rows": knowledge_management_rows,
+        "knowledge_subject_options": build_knowledge_management_subject_options(),
+        "knowledge_create_subject_options": knowledge_create_subject_options,
+        "knowledge_create_level_options_by_subject": knowledge_create_level_options_by_subject,
+        "default_knowledge_subject": default_knowledge_subject,
+        "knowledge_level_options_by_subject": knowledge_level_options_by_subject,
+        "knowledge_exam_options_by_subject_level": knowledge_exam_options_by_subject_level,
+        "knowledge_level1_options_by_subject_level_exam": knowledge_level1_options_by_subject_level_exam,
         "available_paper_rows": available_paper_rows,
         "selected_question_ids": selected_question_ids,
         "exam_items": exam_items,
@@ -4638,6 +4915,25 @@ def normalize_knowledge_map_subject(value: object) -> str:
     return normalized
 
 
+def normalize_teacher_subject_for_knowledge(value: object) -> str:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return ""
+    direct = normalize_knowledge_map_subject(raw_text)
+    if direct in {"cpp", "python", "scratch", "drone"}:
+        return direct
+    for part in re.split(r"[、,，;/\s]+", raw_text):
+        normalized = normalize_knowledge_map_subject(part)
+        if normalized in {"cpp", "python", "scratch", "drone"}:
+            return normalized
+    compact = raw_text.replace(" ", "").lower()
+    if any(token in compact for token in ("c++", "cpp")):
+        return "cpp"
+    if "scratch" in compact:
+        return "scratch"
+    return direct
+
+
 def format_knowledge_map_subject_label(subject: object) -> str:
     normalized = normalize_knowledge_map_subject(subject)
     if normalized == "cpp":
@@ -4730,6 +5026,104 @@ def build_exam_knowledge_management_rows(portal_user: PortalUser | None = None) 
         )
     )
     return rows
+
+
+def build_knowledge_management_subject_options() -> list[dict[str, str]]:
+    base_subjects = ["cpp", "python", "scratch", "drone", "ai"]
+    db_subjects = {
+        normalize_knowledge_map_subject(subject)
+        for subject in ExamKnowledgePointMap.objects.filter(is_active=True).values_list("subject", flat=True)
+    }
+    course_subjects = {
+        normalize_knowledge_map_subject(title)
+        for title in Course.objects.values_list("title", flat=True)
+    }
+    subjects = [subject for subject in base_subjects if subject]
+    for subject in sorted((db_subjects | course_subjects) - set(subjects)):
+        if subject:
+            subjects.append(subject)
+    return [
+        {"value": subject, "label": format_knowledge_map_subject_label(subject)}
+        for subject in subjects
+    ]
+
+
+def build_knowledge_management_cascade_options(
+    rows: list[dict[str, object]],
+) -> tuple[dict[str, list[str]], dict[str, dict[str, list[str]]], dict[str, dict[str, dict[str, list[str]]]]]:
+    level_options_by_subject: dict[str, list[str]] = defaultdict(list)
+    exam_options_by_subject_level: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    level1_options_by_subject_level_exam: dict[str, dict[str, dict[str, list[str]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
+
+    def add_level(subject: str, level: str) -> None:
+        subject = normalize_knowledge_map_subject(subject)
+        level = str(level or "").strip().upper()
+        if subject and level and level not in level_options_by_subject[subject]:
+            level_options_by_subject[subject].append(level)
+
+    def add_exam(subject: str, level: str, exam_name: str) -> None:
+        subject = normalize_knowledge_map_subject(subject)
+        level = str(level or "").strip().upper()
+        exam_name = str(exam_name or "").strip()
+        if subject and level and exam_name and exam_name not in exam_options_by_subject_level[subject][level]:
+            exam_options_by_subject_level[subject][level].append(exam_name)
+
+    def add_level1(subject: str, level: str, exam_name: str, level_1: str) -> None:
+        subject = normalize_knowledge_map_subject(subject)
+        level = str(level or "").strip().upper()
+        exam_name = str(exam_name or "").strip()
+        level_1 = str(level_1 or "").strip()
+        if subject and level and exam_name and level_1 and level_1 not in level1_options_by_subject_level_exam[subject][level][exam_name]:
+            level1_options_by_subject_level_exam[subject][level][exam_name].append(level_1)
+
+    for row in rows:
+        subject = str(row.get("subject") or "")
+        level = str(row.get("course_level_code") or "")
+        exam_name = str(row.get("category_code") or "")
+        level_1 = str(row.get("level_1") or "")
+        add_level(subject, level)
+        add_exam(subject, level, exam_name)
+        add_level1(subject, level, exam_name, level_1)
+
+    for level in ["C1", "C2", "C3", "C4"]:
+        add_level("cpp", level)
+    for index in range(1, 5):
+        add_exam("cpp", "C1", f"GESP{index}")
+    for index in range(5, 9):
+        add_exam("cpp", "C2", f"GESP{index}")
+    add_exam("cpp", "C3", "CSP-J")
+    add_exam("cpp", "C4", "CSP-S")
+
+    def sorted_level_key(value: str) -> tuple[int, str]:
+        match = re.fullmatch(r"([A-Z]+)(\d+)", value)
+        if match:
+            return (int(match.group(2)), match.group(1))
+        return (99, value)
+
+    normalized_levels = {
+        subject: sorted(levels, key=sorted_level_key)
+        for subject, levels in level_options_by_subject.items()
+    }
+    normalized_exams = {
+        subject: {
+            level: sorted(exams, key=lambda value: (0 if value.startswith("GESP") else 1, value))
+            for level, exams in levels.items()
+        }
+        for subject, levels in exam_options_by_subject_level.items()
+    }
+    normalized_level1 = {
+        subject: {
+            level: {
+                exam: sorted(level1_values)
+                for exam, level1_values in exams.items()
+            }
+            for level, exams in levels.items()
+        }
+        for subject, levels in level1_options_by_subject_level_exam.items()
+    }
+    return normalized_levels, normalized_exams, normalized_level1
 
 
 def get_knowledge_map_rows_for_selector() -> list[dict[str, str]]:
@@ -4860,9 +5254,9 @@ def get_bank_question_exam_answer_for_free_practice(question: ExamQuestionBankQu
         raw_answer = raw_answer[0] if raw_answer else ""
     answer = str(raw_answer or "").strip().upper()[:1]
     if question.question_type == ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE:
-        if answer in {"T", "Y", "对", "正"}:
+        if answer in {"T", "Y", "对", "正", "√", "✓"}:
             return "A"
-        if answer in {"F", "N", "错", "误"}:
+        if answer in {"F", "N", "错", "误", "×", "✗", "X"}:
             return "B"
     return answer if answer in {"A", "B", "C", "D"} else ""
 
@@ -5091,6 +5485,9 @@ def build_free_practice_question_rows_for_filters(
                 for path in (snapshot.get("question_image_paths") if isinstance(snapshot.get("question_image_paths"), list) else [])
                 if str(path or "").strip()
             ]
+            image_paths = exclude_markdown_embedded_image_paths(image_paths, question.stem)
+            material_image_paths = exclude_markdown_embedded_image_paths(material_image_paths, question.stem)
+            question_image_paths = exclude_markdown_embedded_image_paths(question_image_paths, question.stem)
             level_parts = [
                 str(snapshot.get("knowledge_level_1") or "").strip(),
                 str(snapshot.get("knowledge_level_2") or "").strip(),
@@ -5175,6 +5572,9 @@ def build_free_practice_question_rows_for_filters(
             for path in (full_json.get("question_image_paths") if isinstance(full_json.get("question_image_paths"), list) else [])
             if str(path or "").strip()
         ]
+        image_paths = exclude_markdown_embedded_image_paths(image_paths, bank_question.stem_md)
+        material_image_paths = exclude_markdown_embedded_image_paths(material_image_paths, bank_question.stem_md)
+        question_image_paths = exclude_markdown_embedded_image_paths(question_image_paths, bank_question.stem_md)
         level_parts = [
             str(full_json.get("knowledge_level_1") or "").strip(),
             str(full_json.get("knowledge_level_2") or "").strip(),
@@ -7350,10 +7750,10 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
         {
             "label": "添加新学生",
             "href": course["student_pool_href"],
-            "import_label": "导入学生" if course["slug"] == "cpp" and teacher_can_import_students(portal_user) else "",
+            "import_label": "导入学生" if teacher_can_import_students(portal_user) else "",
             "import_href": (
                 f"{reverse('teacher-course-students-detail', args=[course['slug']])}?open_import=1"
-                if course["slug"] == "cpp" and teacher_can_import_students(portal_user)
+                if teacher_can_import_students(portal_user)
                 else ""
             ),
             "homework_batch_label": "布置作业",
@@ -7383,20 +7783,20 @@ def build_teacher_page_shell(portal_user: PortalUser, *, active_tab: str = "stud
             "homework_batch_href": "",
         },
     )
-    if teacher_can_import_students(portal_user) and not any(item["href"].endswith("/cpp/student-pool") for item in page_shell["student_pool_links"]):
-        cpp_course = Course.objects.filter(slug="cpp").order_by("id").first()
-        if cpp_course is not None:
+    if teacher_can_import_students(portal_user) and not course_rows:
+        for course in get_teacher_profile_courses(portal_user):
             page_shell["student_pool_links"].insert(
                 0,
                 {
                     "label": "添加新学生",
-                    "href": reverse("teacher-course-student-pool", args=[cpp_course.slug]),
+                    "href": reverse("teacher-course-student-pool", args=[course.slug]),
                     "import_label": "导入学生",
-                    "import_href": f"{reverse('teacher-course-students-detail', args=[cpp_course.slug])}?open_import=1",
+                    "import_href": f"{reverse('teacher-course-students-detail', args=[course.slug])}?open_import=1",
                     "homework_batch_label": "布置作业",
-                    "homework_batch_href": f"{reverse('teacher-homework-batch-create')}?course={cpp_course.slug}",
+                    "homework_batch_href": f"{reverse('teacher-homework-batch-create')}?course={course.slug}",
                 },
             )
+            break
     return page_shell
 
 
@@ -8471,7 +8871,19 @@ def build_teacher_course_student_pool_context(
 ) -> dict:
     scope = get_teacher_course_scope(portal_user, course_slug)
     course = scope["course"]
-    available_level_codes = sorted({assignment.level_code for assignment in scope["course_assignments"] if assignment.level_code})
+    available_level_codes = []
+    for level_code in CourseLevel.objects.filter(category__course=course, is_active=True).order_by(
+        "category__sort_order",
+        "category_id",
+        "sort_order",
+        "id",
+    ).values_list("code", flat=True):
+        normalized_level_code = str(level_code or "").strip()
+        if normalized_level_code and normalized_level_code not in available_level_codes:
+            available_level_codes.append(normalized_level_code)
+    for level_code in sorted({assignment.level_code for assignment in scope["course_assignments"] if assignment.level_code}):
+        if level_code not in available_level_codes:
+            available_level_codes.append(level_code)
     normalized_level_code = selected_level_code.strip().upper()
     if normalized_level_code not in available_level_codes and available_level_codes:
         normalized_level_code = available_level_codes[0]

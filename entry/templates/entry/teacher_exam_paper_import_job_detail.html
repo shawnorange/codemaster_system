@@ -70,6 +70,108 @@
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
         }
 
+        .scratch-docx-preview-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 12px 0 18px;
+        }
+
+        .scratch-docx-preview-nav a {
+            align-items: center;
+            background: #f8fbff;
+            border: 1px solid rgba(45, 95, 140, 0.16);
+            border-radius: 999px;
+            color: #16508c;
+            display: inline-flex;
+            font-weight: 700;
+            min-height: 32px;
+            padding: 5px 10px;
+            text-decoration: none;
+        }
+
+        .scratch-docx-preview-section {
+            display: grid;
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .scratch-docx-preview-section__header {
+            align-items: center;
+            border-bottom: 1px solid rgba(45, 95, 140, 0.12);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            padding-bottom: 10px;
+        }
+
+        .scratch-docx-preview-section__header h4 {
+            color: #124f85;
+            font-size: 1.08rem;
+            margin: 0;
+        }
+
+        .scratch-docx-question-card {
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            display: grid;
+            gap: 14px;
+            padding: 16px;
+        }
+
+        .scratch-docx-question-card__header {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: space-between;
+        }
+
+        .scratch-docx-question-card__meta {
+            color: #4f6684;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        .scratch-docx-question-options {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .scratch-docx-question-option {
+            background: #f8fbff;
+            border: 1px solid rgba(45, 95, 140, 0.12);
+            border-radius: 8px;
+            min-width: 0;
+            padding: 10px;
+        }
+
+        .scratch-docx-question-option strong {
+            color: #16508c;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .scratch-docx-inline-image {
+            margin: 8px 0;
+        }
+
+        .scratch-docx-inline-image img {
+            background: #fff;
+            border: 1px solid rgba(45, 95, 140, 0.12);
+            border-radius: 6px;
+            display: block;
+            max-height: 260px;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
         .exam-import-choice-review {
             display: grid;
             gap: 14px;
@@ -131,6 +233,10 @@
             .exam-import-choice-review__grid {
                 grid-template-columns: 1fr;
             }
+
+            .scratch-docx-question-options {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 {% endblock %}
@@ -149,7 +255,7 @@
 
     <section class="hero-panel">
         <div class="hero-panel__copy">
-            <p class="eyebrow">OCR Preview</p>
+            <p class="eyebrow">{% if is_text_source_import %}Text Import Preview{% else %}OCR Preview{% endif %}</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
             <h2>{{ page_title }}</h2>
             <p class="role-description">{{ page_description }}</p>
@@ -180,7 +286,11 @@
             </div>
             <div class="context-list__item">
                 <span>进度</span>
-                <strong>截图 {{ import_job.rendered_page_count }}/{{ import_job.page_count }} 页 · OCR {{ import_job.ocr_page_count }}/{{ import_job.page_count }} 页</strong>
+                {% if is_text_source_import %}
+                    <strong>文本转换 {{ import_job.ocr_page_count }}/{{ import_job.page_count }} 页</strong>
+                {% else %}
+                    <strong>截图 {{ import_job.rendered_page_count }}/{{ import_job.page_count }} 页 · OCR {{ import_job.ocr_page_count }}/{{ import_job.page_count }} 页</strong>
+                {% endif %}
             </div>
             <div class="context-list__item">
                 <span>更新时间</span>
@@ -195,10 +305,65 @@
         {% endif %}
     </section>
 
+    {% if has_scratch_docx_preview %}
+        <section class="surface-panel surface-panel--primary">
+            <div class="section-heading">
+                <p class="section-heading__eyebrow">Structured Preview</p>
+                <h3>Scratch DOCX 结构化预览</h3>
+            </div>
+            <nav class="scratch-docx-preview-nav" aria-label="题号导航">
+                {% for section in scratch_docx_preview_sections %}
+                    {% for question in section.questions %}
+                        <a href="#{{ question.anchor }}">第 {{ question.question_no }} 题</a>
+                    {% endfor %}
+                {% endfor %}
+            </nav>
+            {% for section in scratch_docx_preview_sections %}
+                <div class="scratch-docx-preview-section">
+                    <div class="scratch-docx-preview-section__header">
+                        <h4>{{ section.label }}</h4>
+                        <span class="state-pill state-pill--trial">
+                            {{ section.question_count }} 题{% if section.total_score %} · 共 {{ section.total_score }} 分{% endif %}
+                        </span>
+                    </div>
+                    {% for question in section.questions %}
+                        <article class="scratch-docx-question-card" id="{{ question.anchor }}">
+                            <div class="scratch-docx-question-card__header">
+                                <h5>第 {{ question.question_no }} 题</h5>
+                                <div class="scratch-docx-question-card__meta">
+                                    <span>{{ question.question_type_text }}</span>
+                                    {% if question.score %}<span>{{ question.score }} 分</span>{% endif %}
+                                    {% if question.answer_text %}<span>答案：{{ question.answer_text }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                            {% if question.options %}
+                                <div class="scratch-docx-question-options">
+                                    {% for option in question.options %}
+                                        {% if option.text_html %}
+                                            <div class="scratch-docx-question-option">
+                                                <strong>{{ option.key }}</strong>
+                                                <div class="exam-markdown-body">{{ option.text_html }}</div>
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            <div class="record-inline-feedback">
+                                <strong>解析</strong>
+                                <div class="exam-markdown-body">{{ question.analysis_html }}</div>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </section>
+    {% endif %}
+
     <section class="surface-panel surface-panel--primary">
         <div class="section-heading">
-            <p class="section-heading__eyebrow">Raw OCR</p>
-            <h3>逐页识别预览</h3>
+            <p class="section-heading__eyebrow">{% if is_text_source_import %}Raw Markdown{% else %}Raw OCR{% endif %}</p>
+            <h3>{% if is_text_source_import %}文本转换预览{% else %}逐页识别预览{% endif %}</h3>
         </div>
         {% if preview_rows %}
             <div class="exam-import-preview-list">
@@ -213,14 +378,14 @@
                                 {% if row.image_url %}
                                     <img src="{{ row.image_url }}" alt="第 {{ row.page_no }} 页截图">
                                 {% else %}
-                                    <div class="entry-hint-bar">当前页还没有截图。</div>
+                                    <div class="entry-hint-bar">{% if is_text_source_import %}文本类文件不生成页面截图。{% else %}当前页还没有截图。{% endif %}</div>
                                 {% endif %}
                             </div>
                             <div class="exam-import-preview-markdown">
                                 {% if row.markdown_text %}
                                     <pre>{{ row.markdown_text }}</pre>
                                 {% else %}
-                                    <div class="entry-hint-bar">当前页还没有 OCR Markdown。</div>
+                                    <div class="entry-hint-bar">{% if is_text_source_import %}当前任务还没有转换 Markdown。{% else %}当前页还没有 OCR Markdown。{% endif %}</div>
                                 {% endif %}
                             </div>
                         </div>
@@ -236,7 +401,7 @@
         <div class="section-heading">
             <p class="section-heading__eyebrow">Confirm</p>
             <h3>确认入库</h3>
-            <p>确认后会把当前 OCR Markdown 转存为考试题库快照，并出现在考试管理的可用试卷 datagrid 中。</p>
+            <p>确认后会把当前 Markdown 转存为考试题库快照，并出现在考试管理的可用试卷 datagrid 中。</p>
         </div>
         {% if confirm_disabled_reason %}
             <div class="entry-hint-bar">{{ confirm_disabled_reason }}</div>

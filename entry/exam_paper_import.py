@@ -9,6 +9,7 @@ import shutil
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,21 @@ def get_answer_text_from_json(answer_json: dict[str, Any] | None, question_type:
         if answer_text:
             return answer_text
     return ""
+
+
+def is_scratch_docx_import_job(import_job: ExamQuestionBankImportJob) -> bool:
+    source_type = detect_exam_import_source_type(import_job.source_filename or import_job.source_pdf.name)
+    if source_type != SOURCE_TYPE_DOCX:
+        return False
+    course = import_job.course if import_job.course_id else None
+    course_text = " ".join(
+        str(part or "").strip().lower()
+        for part in [
+            getattr(course, "slug", ""),
+            getattr(course, "title", ""),
+        ]
+    )
+    return "scratch" in course_text or "图形化" in course_text
 
 
 def build_default_question_analysis_md(
@@ -268,20 +284,91 @@ def extract_html_text(raw_bytes: bytes) -> str:
     return extractor.get_text()
 
 
-def extract_docx_text(raw_bytes: bytes) -> str:
+def resolve_docx_relationships(archive: zipfile.ZipFile) -> dict[str, str]:
+    try:
+        rels_xml = archive.read("word/_rels/document.xml.rels")
+    except KeyError:
+        return {}
+    root = ElementTree.fromstring(rels_xml)
+    relationships: dict[str, str] = {}
+    for relationship in root:
+        relationship_id = relationship.attrib.get("Id") or relationship.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        target = relationship.attrib.get("Target") or ""
+        if relationship_id and target:
+            relationships[relationship_id] = target
+    return relationships
+
+
+def get_docx_node_embed_ids(node: ElementTree.Element) -> list[str]:
+    embed_ids: list[str] = []
+    for child in node.iter():
+        for attr_name, attr_value in child.attrib.items():
+            if attr_name.endswith("}embed") and attr_value:
+                embed_ids.append(attr_value)
+    return embed_ids
+
+
+def copy_docx_embedded_image(
+    archive: zipfile.ZipFile,
+    *,
+    relationship_target: str,
+    output_dir: Path,
+    image_index: int,
+) -> str:
+    normalized_target = relationship_target.lstrip("/")
+    if not normalized_target.startswith("word/"):
+        normalized_target = f"word/{normalized_target}"
+    try:
+        image_bytes = archive.read(normalized_target)
+    except KeyError:
+        return ""
+    suffix = Path(normalized_target).suffix.lower() or ".png"
+    image_path = output_dir / f"docx_image_{image_index:03d}{suffix}"
+    image_path.write_bytes(image_bytes)
+    return get_media_relative_path(image_path)
+
+
+def extract_docx_text(raw_bytes: bytes, *, workspace_dir: Path | None = None) -> str:
     with zipfile.ZipFile(io.BytesIO(raw_bytes)) as archive:
         try:
             xml_bytes = archive.read("word/document.xml")
         except KeyError as exc:
             raise ExamPaperImportError("DOCX 文件中缺少 word/document.xml，无法解析。") from exc
+        relationships = resolve_docx_relationships(archive)
+        image_output_dir = workspace_dir / "docx_media" if workspace_dir is not None else None
+        if image_output_dir is not None:
+            image_output_dir.mkdir(parents=True, exist_ok=True)
+        copied_images: dict[str, str] = {}
     root = ElementTree.fromstring(xml_bytes)
     parts: list[str] = []
+    image_index = 0
     for node in root.iter():
         if node.tag.endswith("}t") and node.text:
             parts.append(node.text)
         elif node.tag.endswith("}tab"):
             parts.append("\t")
+        elif node.tag.endswith("}drawing") and workspace_dir is not None:
+            for embed_id in get_docx_node_embed_ids(node):
+                relative_path = copied_images.get(embed_id, "")
+                if not relative_path:
+                    image_index += 1
+                    relationship_target = relationships.get(embed_id, "")
+                    if relationship_target:
+                        with zipfile.ZipFile(io.BytesIO(raw_bytes)) as image_archive:
+                            relative_path = copy_docx_embedded_image(
+                                image_archive,
+                                relationship_target=relationship_target,
+                                output_dir=workspace_dir / "docx_media",
+                                image_index=image_index,
+                            )
+                    copied_images[embed_id] = relative_path
+                if relative_path:
+                    parts.append(f"\n![DOCX 图片 {image_index}](/media/{relative_path})\n")
         elif node.tag.endswith("}br") or node.tag.endswith("}p"):
+            parts.append("\n")
+        elif node.tag.endswith("}tc"):
+            parts.append("\t")
+        elif node.tag.endswith("}tr"):
             parts.append("\n")
     return "\n".join(line.rstrip() for line in "".join(parts).splitlines() if line.strip())
 
@@ -333,7 +420,7 @@ def json_value_to_markdown(value: Any) -> str:
     return "```json\n" + json.dumps(value, ensure_ascii=False, indent=2) + "\n```"
 
 
-def extract_text_source_markdown(file_path: Path, *, source_type: str) -> str:
+def extract_text_source_markdown(file_path: Path, *, source_type: str, workspace_dir: Path | None = None) -> str:
     raw_bytes = file_path.read_bytes()
     if source_type == SOURCE_TYPE_MARKDOWN:
         return decode_text_bytes(raw_bytes)
@@ -342,7 +429,7 @@ def extract_text_source_markdown(file_path: Path, *, source_type: str) -> str:
     if source_type == SOURCE_TYPE_HTML:
         return extract_html_text(raw_bytes)
     if source_type == SOURCE_TYPE_DOCX:
-        return extract_docx_text(raw_bytes)
+        return extract_docx_text(raw_bytes, workspace_dir=workspace_dir)
     if source_type == SOURCE_TYPE_JSON:
         try:
             return json_value_to_markdown(json.loads(decode_text_bytes(raw_bytes)))
@@ -712,11 +799,24 @@ CHINESE_QUESTION_NUMERALS = {
 QUESTION_START_RE = re.compile(
     r"^\s*(?:#{1,4}\s*)?(?:第\s*)?([0-9]{1,3}|[一二三四五六七八九十]{1,4})\s*题(?:\s|[：:、.．]|$)"
 )
+QUESTION_START_NUMBERED_RE = re.compile(
+    r"^\s*(?:#{1,4}\s*)?([0-9]{1,3}|[一二三四五六七八九十]{1,4})\s*[\.．、]\s*(.+)$"
+)
+QUESTION_START_SOLO_NUMBER_RE = re.compile(
+    r"^\s*(?:#{1,4}\s*)?([0-9]{1,3}|[一二三四五六七八九十]{1,4})\s*[\.．、]\s*$"
+)
 PROGRAMMING_START_RE = re.compile(
-    r"^\s*(?:(?:[0-9]+)\.[0-9]+\s*)?编程题\s*([0-9]{1,3}|[一二三四五六七八九十]{1,4})(?:\s|[：:、.．]|$)"
+    r"^\s*(?:(?:[0-9]+)\.[0-9]+\s*)?(?:编程题|程序题|操作题)\s*([0-9]{1,3}|[一二三四五六七八九十]{1,4})(?:\s|[：:、.．]|$)"
 )
 OPTION_LINE_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?:\[\s*[xX ]?\s*\]\s*)?(?:[（(]?([A-Da-d])[）)]|([A-Da-d]))[\.．、:：]\s*(.*)$"
+)
+MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*]\(([^)]+)\)")
+DOCX_QUESTION_METADATA_RE = re.compile(
+    r"^\s*(试题编号|试题类型|标准答案|试题难度|试题解析|考生答案|考生得分|是否评分|评价描述|参考程序|评分标准|展示地址)\s*[:：]\s*(.*)$"
+)
+SCRATCH_DOCX_SECTION_SCORE_RE = re.compile(
+    r"(单选题|选择题|判断题|编程题|程序题|操作题).*?共\s*([0-9]{1,3})\s*题.*?共\s*([0-9]+(?:\.[0-9]+)?)\s*分"
 )
 
 
@@ -741,6 +841,93 @@ def parse_question_number_token(value: object) -> int | None:
     return None
 
 
+def extract_markdown_image_paths(markdown_text: object) -> list[str]:
+    paths: list[str] = []
+    for match in MARKDOWN_IMAGE_RE.finditer(str(markdown_text or "")):
+        path = match.group(1).strip().strip('"').strip("'")
+        if path.startswith("/media/"):
+            path = path[len("/media/"):]
+        if path and not re.match(r"^[a-z]+://", path, flags=re.IGNORECASE) and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def extract_embedded_question_metadata(lines: list[str]) -> tuple[list[str], dict[str, str]]:
+    cleaned_lines: list[str] = []
+    metadata: dict[str, str] = {}
+    analysis_parts: list[str] = []
+    collecting_analysis = False
+    for line in lines:
+        stripped_line = str(line or "").strip()
+        match = DOCX_QUESTION_METADATA_RE.match(stripped_line)
+        if not match:
+            if collecting_analysis and stripped_line:
+                analysis_parts.append(line)
+                continue
+            cleaned_lines.append(line)
+            continue
+        key = match.group(1)
+        value = str(match.group(2) or "").strip()
+        collecting_analysis = False
+        if key == "标准答案":
+            metadata["standard_answer"] = value
+        elif key == "试题解析":
+            if value:
+                analysis_parts.append(value)
+        elif key == "参考程序":
+            analysis_parts.append(f"参考程序：{value}".rstrip())
+            collecting_analysis = True
+        elif key == "评分标准":
+            analysis_parts.append(f"评分标准：{value}".rstrip())
+            collecting_analysis = True
+    if analysis_parts:
+        metadata["analysis_md"] = "\n\n".join(analysis_parts)
+    return cleaned_lines, metadata
+
+
+def resolve_section_question_no(local_question_no: int, section_base: int, max_global_no: int) -> int:
+    if local_question_no > max_global_no:
+        return local_question_no
+    return section_base + local_question_no
+
+
+def normalize_scratch_docx_section_type(section_label: str) -> str:
+    label = str(section_label or "")
+    if "判断题" in label:
+        return QUESTION_SECTION_TRUE_FALSE
+    if "编程题" in label or "程序题" in label or "操作题" in label:
+        return QUESTION_SECTION_PROGRAMMING
+    return QUESTION_SECTION_SINGLE_CHOICE
+
+
+def format_decimal_score(value: Decimal) -> str:
+    quantized = value.quantize(Decimal("0.01"))
+    return f"{quantized:.2f}"
+
+
+def extract_scratch_docx_section_specs(markdown_text: str) -> dict[str, dict[str, str]]:
+    specs: dict[str, dict[str, str]] = {}
+    for line in str(markdown_text or "").splitlines():
+        normalized = normalize_markdown_marker_line(line)
+        match = SCRATCH_DOCX_SECTION_SCORE_RE.search(normalized)
+        if not match:
+            continue
+        try:
+            question_count = int(match.group(2))
+            total_score = Decimal(match.group(3))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if question_count <= 0:
+            continue
+        section_type = normalize_scratch_docx_section_type(match.group(1))
+        specs[section_type] = {
+            "question_count": str(question_count),
+            "total_score": format_decimal_score(total_score),
+            "score": format_decimal_score(total_score / Decimal(question_count)),
+        }
+    return specs
+
+
 def normalize_markdown_marker_line(line: str) -> str:
     normalized = str(line or "").strip()
     normalized = re.sub(r"^\s*#{1,4}\s*", "", normalized).strip()
@@ -754,21 +941,41 @@ def detect_question_section_header(line: str) -> str | None:
     compact = re.sub(r"\s+", "", normalized)
     if not compact:
         return None
-    if "单选题" in compact and ("每题" in compact or re.match(r"^\d+单选题", compact)):
+    section_prefix = r"^(?:[一二三四五六七八九十]+|[0-9]+)[、.．]?"
+    if ("单选题" in compact or "选择题" in compact) and (
+        "每题" in compact
+        or "共" in compact
+        or re.fullmatch(section_prefix + r"(?:单选题|选择题)", compact)
+    ):
         return QUESTION_SECTION_SINGLE_CHOICE
-    if "判断题" in compact and ("每题" in compact or re.match(r"^\d+判断题", compact)):
+    if "判断题" in compact and (
+        "每题" in compact
+        or "共" in compact
+        or re.fullmatch(section_prefix + r"判断题", compact)
+    ):
         return QUESTION_SECTION_TRUE_FALSE
-    if "编程题" in compact and ("每题" in compact or re.match(r"^\d+编程题", compact)):
+    if ("编程题" in compact or "程序题" in compact or "操作题" in compact) and (
+        "每题" in compact
+        or "共" in compact
+        or re.fullmatch(section_prefix + r"(?:编程题|程序题|操作题)", compact)
+    ):
         return QUESTION_SECTION_PROGRAMMING
     return None
 
 
-def detect_question_start(line: str) -> tuple[int, str] | None:
+def detect_question_start(line: str, *, allow_solo_number: bool = False) -> tuple[int, str] | None:
     normalized = normalize_markdown_marker_line(line)
     match = QUESTION_START_RE.match(normalized)
     if not match:
-        return None
-    question_no = parse_question_number_token(match.group(1))
+        numbered_match = QUESTION_START_NUMBERED_RE.match(normalized)
+        solo_match = QUESTION_START_SOLO_NUMBER_RE.match(normalized) if allow_solo_number else None
+        if not numbered_match and not solo_match:
+            return None
+        if numbered_match and re.match(r"^[A-Da-d][\.．、:：]", normalized):
+            return None
+        question_no = parse_question_number_token((numbered_match or solo_match).group(1))
+    else:
+        question_no = parse_question_number_token(match.group(1))
     if question_no is None:
         return None
     return question_no, normalized
@@ -777,9 +984,18 @@ def detect_question_start(line: str) -> tuple[int, str] | None:
 def detect_programming_question_start(line: str) -> tuple[int, str] | None:
     normalized = normalize_markdown_marker_line(line)
     match = PROGRAMMING_START_RE.match(normalized)
-    if not match:
+    if match:
+        question_no = parse_question_number_token(match.group(1))
+        if question_no is None:
+            return None
+        return question_no, normalized
+    numbered_prefix_match = re.match(
+        r"^\s*([0-9]{1,3}|[一二三四五六七八九十]{1,4})\s*[\.．、]\s*(?:编程题|程序题|操作题)(?:\s|[：:、.．]|$)",
+        normalized,
+    )
+    if not numbered_prefix_match:
         return None
-    question_no = parse_question_number_token(match.group(1))
+    question_no = parse_question_number_token(numbered_prefix_match.group(1))
     if question_no is None:
         return None
     return question_no, normalized
@@ -890,9 +1106,9 @@ def should_drop_non_question_line(line: str) -> bool:
         return True
     if re.fullmatch(r"\|?\s*[-:| ]+\s*\|?", stripped):
         return True
-    if re.match(r"^\d+\s*(单选题|判断题|编程题)", compact):
+    if re.match(r"^(?:\d+|[一二三四五六七八九十]+)[、.．]?\s*(单选题|选择题|判断题|编程题|程序题|操作题)", compact):
         return True
-    if compact in {"单选题", "判断题", "编程题"}:
+    if compact in {"单选题", "选择题", "判断题", "编程题", "程序题", "操作题"}:
         return True
     return False
 
@@ -907,27 +1123,36 @@ def parse_option_line(line: str) -> tuple[str, str] | None:
     return key, str(match.group(3) or "").strip()
 
 
-def detect_section_question_boundary(line: str, current_section: str) -> tuple[str, tuple[int, str] | str] | None:
+def detect_section_question_boundary(
+    line: str,
+    current_section: str,
+    *,
+    scratch_docx_mode: bool = False,
+) -> tuple[str, tuple[int, str] | str] | None:
     detected_section = detect_question_section_header(line)
     if detected_section:
         return "section", detected_section
     programming_start = detect_programming_question_start(line)
     if programming_start:
         return "programming_question", programming_start
-    start = (
-        None
-        if current_section == QUESTION_SECTION_PROGRAMMING
-        else detect_question_start(line)
-    )
+    start = detect_question_start(line, allow_solo_number=scratch_docx_mode)
+    if current_section == QUESTION_SECTION_PROGRAMMING and start:
+        if not scratch_docx_mode:
+            return None
+        normalized = normalize_markdown_marker_line(line)
+        is_solo_number = bool(QUESTION_START_SOLO_NUMBER_RE.match(normalized))
+        is_global_programming_number = start[0] >= 10
+        if not is_solo_number and not is_global_programming_number:
+            return None
     if start:
         return "question", start
     return None
 
 
-def is_strong_question_boundary(line: str, current_section: str) -> bool:
+def is_strong_question_boundary(line: str, current_section: str, *, scratch_docx_mode: bool = False) -> bool:
     if detect_question_section_header(line):
         return True
-    if detect_question_start(line):
+    if detect_question_start(line, allow_solo_number=scratch_docx_mode):
         return True
     if detect_programming_question_start(line):
         return True
@@ -974,9 +1199,10 @@ def split_programming_reference_solution(stem_md: str, analysis_md: str = "") ->
     return stem_part, merged_analysis
 
 
-def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str, Any]]:
+def split_ocr_markdown_into_question_blocks(markdown_text: str, *, scratch_docx_mode: bool = False) -> list[dict[str, Any]]:
     cleaned_markdown = clean_imported_markdown(markdown_text)
     answer_map, section_counts = extract_section_answer_data(cleaned_markdown)
+    section_specs = extract_scratch_docx_section_specs(cleaned_markdown) if scratch_docx_mode else {}
     lines = cleaned_markdown.splitlines()
     blocks: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
@@ -986,8 +1212,8 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
     in_code_block = False
 
     for line in lines:
-        boundary = detect_section_question_boundary(line, current_section)
-        if boundary and (not in_code_block or is_strong_question_boundary(line, current_section)):
+        boundary = detect_section_question_boundary(line, current_section, scratch_docx_mode=scratch_docx_mode)
+        if boundary and (not in_code_block or is_strong_question_boundary(line, current_section, scratch_docx_mode=scratch_docx_mode)):
             in_code_block = False
             if boundary[0] == "section":
                 detected_section = str(boundary[1])
@@ -1003,7 +1229,7 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
                 current_section = QUESTION_SECTION_PROGRAMMING
                 local_question_no, title_line = boundary[1]  # type: ignore[misc]
                 section_base = get_section_base(current_section, section_bases, section_counts, max_global_no)
-                question_no = section_base + local_question_no
+                question_no = resolve_section_question_no(local_question_no, section_base, max_global_no)
                 max_global_no = max(max_global_no, question_no)
                 current = {
                     "section": current_section,
@@ -1016,7 +1242,7 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
             if current is not None:
                 blocks.append(current)
             section_base = get_section_base(current_section, section_bases, section_counts, max_global_no)
-            question_no = section_base + local_question_no
+            question_no = resolve_section_question_no(local_question_no, section_base, max_global_no)
             max_global_no = max(max_global_no, question_no)
             current = {
                 "section": current_section,
@@ -1052,11 +1278,15 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
         seen_question_numbers.add(question_no)
         section = str(block.get("section") or QUESTION_SECTION_SINGLE_CHOICE)
         local_question_no = int(block.get("local_question_no") or question_no)
+        if scratch_docx_mode:
+            block_lines, embedded_metadata = extract_embedded_question_metadata(list(block["lines"]))
+        else:
+            block_lines, embedded_metadata = list(block["lines"]), {}
         stem_lines: list[str] = []
         option_lines: dict[str, list[str]] = {}
         current_option_key = ""
         in_code_block = False
-        for raw_line in block["lines"]:
+        for raw_line in block_lines:
             option = None if in_code_block else parse_option_line(raw_line)
             if in_code_block and section == QUESTION_SECTION_SINGLE_CHOICE:
                 option = parse_option_line(raw_line)
@@ -1104,14 +1334,17 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
             QUESTION_SECTION_TRUE_FALSE: ExamQuestionBankQuestion.QUESTION_TYPE_TRUE_FALSE,
             QUESTION_SECTION_PROGRAMMING: ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING,
         }.get(section, ExamQuestionBankQuestion.QUESTION_TYPE_RAW_MARKDOWN)
-        analysis_md = ""
+        analysis_md = str(embedded_metadata.get("analysis_md") or "").strip()
         if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING:
-            stem_md, analysis_md = split_programming_reference_solution(stem_md)
+            stem_md, analysis_md = split_programming_reference_solution(stem_md, analysis_md=analysis_md)
+        image_paths = extract_markdown_image_paths(stem_md)
         answer = answer_map.get((section, local_question_no))
+        if scratch_docx_mode and not answer and embedded_metadata.get("standard_answer"):
+            answer = normalize_section_answer(section, embedded_metadata.get("standard_answer"))
         answer_json = (
             {
                 "correct_answer" if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_SINGLE_CHOICE else "answer": answer,
-                "source": "ocr_answer_table",
+                "source": "docx_embedded_answer" if embedded_metadata.get("standard_answer") else "ocr_answer_table",
                 "needs_teacher_review": False,
             }
             if answer
@@ -1129,7 +1362,19 @@ def split_ocr_markdown_into_question_blocks(markdown_text: str) -> list[dict[str
                 "options": options,
                 "answer_json": answer_json,
                 "analysis_md": analysis_md,
-                "programming_json": {"source": "ocr_question_split"} if question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING else {},
+                "programming_json": (
+                    {
+                        "source": "ocr_question_split",
+                        "submission_mode": "scratch_project",
+                        "grading_mode": "manual",
+                    }
+                    if scratch_docx_mode and question_type == ExamQuestionBankQuestion.QUESTION_TYPE_PROGRAMMING
+                    else {}
+                ),
+                "image_paths": image_paths,
+                "score": section_specs.get(section, {}).get("score", ""),
+                "section_total_score": section_specs.get(section, {}).get("total_score", ""),
+                "section_question_count": section_specs.get(section, {}).get("question_count", ""),
             }
         )
     return parsed_blocks
@@ -1304,12 +1549,13 @@ def confirm_exam_question_bank_import_job(
 
     normalized_manual_choices = normalize_manual_choice_payloads(manual_choice_payloads)
     source_type = detect_exam_import_source_type(import_job.source_filename or import_job.source_pdf.name)
+    scratch_docx_mode = is_scratch_docx_import_job(import_job)
     question_payloads: list[dict[str, Any]] = []
     used_question_numbers: set[int] = set()
     use_page_manual_review = bool(normalized_manual_choices) or source_type == SOURCE_TYPE_IMAGE
     if not use_page_manual_review:
         combined_markdown = "\n\n".join(str(payload["markdown"]) for payload in page_payloads if str(payload.get("markdown") or "").strip())
-        parsed_questions = split_ocr_markdown_into_question_blocks(combined_markdown)
+        parsed_questions = split_ocr_markdown_into_question_blocks(combined_markdown, scratch_docx_mode=scratch_docx_mode)
         if parsed_questions:
             source_page_payload = page_payloads[0]
             for parsed_question in parsed_questions:
@@ -1328,6 +1574,8 @@ def confirm_exam_question_bank_import_job(
                         "analysis_md": parsed_question["analysis_md"],
                         "options": parsed_question["options"],
                         "programming_json": parsed_question.get("programming_json") if isinstance(parsed_question.get("programming_json"), dict) else {},
+                        "image_paths": parsed_question.get("image_paths") if isinstance(parsed_question.get("image_paths"), list) else [],
+                        "score": parsed_question.get("score") or "",
                         "attach_page_asset": False,
                         "manual_choice_review": {},
                     }
@@ -1353,6 +1601,7 @@ def confirm_exam_question_bank_import_job(
                         "analysis_md": str(manual_choice.get("analysis_md") or ""),
                         "options": manual_choice.get("options") if isinstance(manual_choice.get("options"), dict) else {},
                         "programming_json": {},
+                        "image_paths": extract_markdown_image_paths(payload["markdown"]),
                         "attach_page_asset": True,
                         "manual_choice_review": manual_choice,
                     }
@@ -1360,7 +1609,7 @@ def confirm_exam_question_bank_import_job(
                 used_question_numbers.add(page_no)
                 continue
 
-            parsed_questions = split_ocr_markdown_into_question_blocks(str(payload["markdown"]))
+            parsed_questions = split_ocr_markdown_into_question_blocks(str(payload["markdown"]), scratch_docx_mode=scratch_docx_mode)
             for parsed_question in parsed_questions:
                 question_no = int(parsed_question["question_no"])
                 if question_no in used_question_numbers:
@@ -1377,6 +1626,8 @@ def confirm_exam_question_bank_import_job(
                         "analysis_md": parsed_question["analysis_md"],
                         "options": parsed_question["options"],
                         "programming_json": parsed_question.get("programming_json") if isinstance(parsed_question.get("programming_json"), dict) else {},
+                        "image_paths": parsed_question.get("image_paths") if isinstance(parsed_question.get("image_paths"), list) else [],
+                        "score": parsed_question.get("score") or "",
                         "attach_page_asset": False,
                         "manual_choice_review": {},
                     }
@@ -1402,6 +1653,7 @@ def confirm_exam_question_bank_import_job(
                     "analysis_md": "",
                     "options": {},
                     "programming_json": {},
+                    "image_paths": extract_markdown_image_paths(payload["markdown"]),
                     "attach_page_asset": source_type == SOURCE_TYPE_IMAGE,
                     "manual_choice_review": {},
                 }
@@ -1453,6 +1705,8 @@ def confirm_exam_question_bank_import_job(
                     "response_relative_path": page_payload["response_relative_path"],
                     "char_count": page_payload["char_count"],
                     "manual_choice_review": payload.get("manual_choice_review") or {},
+                    "image_paths": payload.get("image_paths") if isinstance(payload.get("image_paths"), list) else [],
+                    "score": str(payload.get("score") or "").strip(),
                 },
             )
             questions_created += 1
@@ -1485,6 +1739,23 @@ def confirm_exam_question_bank_import_job(
                     alt=f"第 {page_no} 页原始截图",
                     width=rendered_page.get("width") or None,
                     height=rendered_page.get("height") or None,
+                )
+                assets_created += 1
+            for image_index, image_relative_path in enumerate(
+                payload.get("image_paths") if isinstance(payload.get("image_paths"), list) else [],
+                start=1,
+            ):
+                image_relative_path = str(image_relative_path or "").strip()
+                if not image_relative_path:
+                    continue
+                ExamQuestionBankAsset.objects.create(
+                    question=question,
+                    asset_uid=f"{import_job.source_pdf_id}-q-{question_no:03d}-docx-image-{image_index:03d}",
+                    asset_role="content",
+                    asset_type=mimetypes.guess_type(image_relative_path)[0] or "image",
+                    relative_path=image_relative_path,
+                    public_url="",
+                    alt=f"第 {question_no} 题 DOCX 图片 {image_index}",
                 )
                 assets_created += 1
 
@@ -1690,7 +1961,11 @@ def process_text_exam_import_job(
         workspace_dir=workspace_dir,
         status_notes="正在本地抽取文本并转换为 Markdown。",
     )
-    markdown_text = extract_text_source_markdown(Path(import_job.source_pdf.path), source_type=source_type)
+    markdown_text = extract_text_source_markdown(
+        Path(import_job.source_pdf.path),
+        source_type=source_type,
+        workspace_dir=workspace_dir,
+    )
     markdown_path = raw_ocr_dir / "page_001.md"
     response_path = response_dir / "page_001.json"
     markdown_path.write_text(markdown_text, encoding="utf-8")

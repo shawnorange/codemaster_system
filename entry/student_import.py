@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import io
-import secrets
 import zipfile
 from dataclasses import dataclass
 from xml.etree import ElementTree
@@ -14,9 +13,8 @@ from django.utils import timezone
 
 from .account_identity import normalize_phone
 from .content_visibility import CONTENT_PERMISSION_ORDER, infer_cpp_permission_code, normalize_stage_code
-from .models import Course, PortalUser, Student, TeacherStudentAssignment
+from .models import Course, CourseLevel, PortalUser, Student, TeacherStudentAssignment
 
-STUDENT_IMPORT_ADMIN_USERNAME = "teacher001"
 DEFAULT_IMPORTED_ACCOUNT_PASSWORD = "123456"
 CSV_IMPORT_ALLOWED_CPP_LEVELS = (
     "C1",
@@ -67,11 +65,7 @@ class StudentProvisionResult:
 
 
 def teacher_can_import_students(portal_user: PortalUser) -> bool:
-    return (
-        portal_user.is_active
-        and portal_user.role == PortalUser.ROLE_TEACHER
-        and portal_user.username == STUDENT_IMPORT_ADMIN_USERNAME
-    )
+    return portal_user.is_active and portal_user.role == PortalUser.ROLE_TEACHER
 
 
 def normalize_student_import_level_name(value: str | None) -> str:
@@ -97,7 +91,10 @@ def infer_student_primary_track_name(*, course: Course, primary_level_name: str)
             return "GESP"
         if normalized_primary_level_name.startswith("CSP"):
             return "CSP"
-    return ""
+        return course.title
+    if course.slug == "scratch":
+        return "图形化编程"
+    return course.title
 
 
 def parse_student_import_file(uploaded_file: UploadedFile) -> list[StudentImportRow]:
@@ -200,17 +197,29 @@ def validate_student_import_row(*, row: StudentImportRow, course: Course) -> str
     if not normalized_level_name:
         raise StudentImportError("当前级别不能为空。")
 
-    if course.slug != "cpp":
-        raise StudentImportError("当前仅支持在 C++ 课程下导入学生。")
-    if normalized_level_name not in CSV_IMPORT_ALLOWED_CPP_LEVELS:
-        raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
+    if course.slug == "cpp":
+        if normalized_level_name not in CSV_IMPORT_ALLOWED_CPP_LEVELS:
+            raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
 
-    level_code = infer_cpp_permission_code(normalized_level_name)
-    if not level_code:
-        raise StudentImportError("当前级别无法映射到权限等级。")
-    if level_code not in CONTENT_PERMISSION_ORDER:
-        raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
-    return level_code
+        level_code = infer_cpp_permission_code(normalized_level_name)
+        if not level_code:
+            raise StudentImportError("当前级别无法映射到权限等级。")
+        if level_code not in CONTENT_PERMISSION_ORDER:
+            raise StudentImportError("当前级别必须是 C1 / C2 / C3 / C4。")
+        return level_code
+
+    normalized_lookup = normalized_level_name.upper()
+    course_levels = CourseLevel.objects.filter(
+        category__course=course,
+        category__is_active=True,
+        is_active=True,
+    )
+    for level in course_levels:
+        level_code = str(level.code or "").strip().upper()
+        level_title = normalize_student_import_level_name(level.title).upper()
+        if normalized_lookup in {level_code, level_title}:
+            return level_code
+    raise StudentImportError("当前级别不属于该课程，请在学生池页面选择可用级别。")
 
 
 def create_or_update_student_with_parent_and_assignment(
@@ -417,10 +426,17 @@ def _xlsx_column_index(cell_reference: str) -> int:
     return value
 
 
-def _generate_student_username(*, parent_phone: str, used_usernames: set[str]) -> str:
-    prefix = f"student_{parent_phone}_"
-    for _ in range(10000):
-        candidate = f"{prefix}{secrets.randbelow(10000):04d}"
+def _generate_student_username(*, student_name: str, used_usernames: set[str]) -> str:
+    base_username = str(student_name or "").strip()[:64]
+    if not base_username:
+        raise StudentImportError("学生姓名不能为空。")
+    candidates = [base_username]
+    suffix = 2
+    while len(candidates) < 10000:
+        suffix_text = str(suffix)
+        candidates.append(f"{base_username[:64 - len(suffix_text)]}{suffix_text}")
+        suffix += 1
+    for candidate in candidates:
         if candidate in used_usernames:
             continue
         if PortalUser.objects.filter(username=candidate).exists():
@@ -506,7 +522,7 @@ def _get_or_create_student_user(
         return student_user, False
 
     student_user = PortalUser(
-        username=_generate_student_username(parent_phone=parent_phone, used_usernames=used_usernames),
+        username=_generate_student_username(student_name=student_name, used_usernames=used_usernames),
         role=PortalUser.ROLE_STUDENT,
         full_name=student_name,
         phone="",

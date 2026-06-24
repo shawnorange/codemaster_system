@@ -77,6 +77,25 @@
             background: #fff;
         }
 
+        .exam-bank-edit-preview {
+            display: grid;
+            gap: 8px;
+            padding: 12px;
+            border: 1px solid rgba(45, 95, 140, 0.14);
+            border-radius: 8px;
+            background: #fbfdff;
+        }
+
+        .exam-bank-edit-preview__label {
+            color: #496987;
+            font-size: 0.82rem;
+            font-weight: 800;
+        }
+
+        .exam-bank-edit-preview .exam-markdown-body__image {
+            max-height: 280px;
+        }
+
         .exam-bank-edit-actions {
             display: flex;
             justify-content: flex-end;
@@ -391,6 +410,10 @@
                             <span>题干 Markdown</span>
                             <textarea name="question_{{ question.id }}_stem_md" rows="8" required>{{ question.stem_md_for_edit }}</textarea>
                         </label>
+                        <div class="exam-bank-edit-preview">
+                            <span class="exam-bank-edit-preview__label">题干预览</span>
+                            <div class="exam-markdown-body">{{ question.stem_html }}</div>
+                        </div>
                         <div class="exam-bank-edit-grid">
                             <label class="exam-bank-edit-field">
                                 <span>题型</span>
@@ -451,6 +474,12 @@
                                 <label class="exam-bank-edit-field">
                                     <span>选项 {{ option.key }}</span>
                                     <textarea name="question_{{ question.id }}_option_{{ option.key|lower }}" rows="3">{{ option.text }}</textarea>
+                                    {% if option.text %}
+                                        <div class="exam-bank-edit-preview">
+                                            <span class="exam-bank-edit-preview__label">选项 {{ option.key }} 预览</span>
+                                            <div class="exam-markdown-body">{{ option.text_html }}</div>
+                                        </div>
+                                    {% endif %}
                                 </label>
                             {% endfor %}
                         </div>

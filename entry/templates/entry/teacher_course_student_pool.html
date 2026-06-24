@@ -20,7 +20,7 @@
         {% endfor %}
     </nav>
 
-    <section class="hero-panel">
+    <section class="hero-panel hero-panel--stacked-metrics">
         <div class="hero-panel__copy">
             <p class="eyebrow">Student Pool</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
@@ -39,7 +39,7 @@
         </div>
     </section>
 
-    <div class="system-content-grid">
+    <div class="system-content-grid portal-content-grid--single">
         <section class="surface-panel surface-panel--primary">
             <div class="section-heading">
                 <p class="section-heading__eyebrow">Course Student Pool</p>
@@ -123,23 +123,6 @@
             </form>
         </section>
 
-        <aside class="system-aside">
-            <section class="surface-panel">
-                <div class="section-heading section-heading--compact">
-                    <p class="section-heading__eyebrow">Pool Notes</p>
-                    <h3>当前说明</h3>
-                </div>
-
-                <ul class="support-list">
-                    {% for item in support_items %}
-                        <li>
-                            <strong>{{ item.title }}</strong>
-                            <span>{{ item.description }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </section>
-        </aside>
     </div>
 
     <dialog class="topic-access-modal" id="single-student-modal">
@@ -182,13 +165,13 @@
                     {% endfor %}
                 </select>
                 <select name="new_permission_level_code" required>
-                    <option value="">权限等级（C1/C2/C3/C4）</option>
+                    <option value="">权限等级</option>
                     {% for level_code in single_student_permission_level_codes %}
                         <option value="{{ level_code }}" {% if level_code == single_student_form_values.permission_level_code %}selected{% endif %}>{{ level_code }}</option>
                     {% endfor %}
                 </select>
                 <select name="new_primary_level_name" required>
-                    <option value="">等级名称（GESP / CSP）</option>
+                    <option value="">等级名称</option>
                     {% for level_name in single_student_level_name_options %}
                         <option value="{{ level_name }}" {% if level_name == single_student_form_values.primary_level_name %}selected{% endif %}>{{ level_name }}</option>
                     {% endfor %}
