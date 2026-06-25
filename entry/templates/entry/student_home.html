@@ -1,0 +1,116 @@
+{% extends "entry/student_shell.html" %}
+
+{% comment %}
+学生首页（任务驱动）。第一版：等级/闯关/今日任务均为占位数据，下一步接真实作业/考试。
+部分跳转（答题页 answer、批改 result、闯关详情 courseMap、错题本 wrongbook）尚未实现，
+暂指向现有列表页或 #，对应页面落地后回填。
+{% endcomment %}
+
+{% block title %}首页 · 大师码学生端{% endblock %}
+
+{% block student_content %}
+<!-- 等级条 -->
+<section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:16px 20px; display:flex; align-items:center; gap:20px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:22px;">
+    <span style="width:52px; height:52px; border-radius:50%; background:var(--clay); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1; box-shadow:0 5px 12px rgba(15,103,184,.25); flex-shrink:0;">
+        <span style="font-size:10px; opacity:.8; letter-spacing:.5px;">LV</span><strong style="font-size:20px;">5</strong>
+    </span>
+    <div style="flex:1; min-width:0;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:7px;">
+            <span style="font-size:13px; font-weight:600; color:var(--ink);">距离下一级还差 <strong style="color:var(--clay); font-size:15px;">80</strong> 经验</span>
+            <span style="font-size:12px; color:var(--gray);">320 / 400 EXP</span>
+        </div>
+        <div style="height:11px; border-radius:6px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);">
+            <div style="height:100%; width:80%; border-radius:6px; background:linear-gradient(90deg,var(--clay),#1f7fcf);"></div>
+        </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:7px; flex-shrink:0; padding-left:6px; border-left:1px solid var(--line);">
+        <span style="font-size:22px;">⭐</span><strong style="font-size:22px; color:var(--gold); font-variant-numeric:tabular-nums;">12</strong>
+    </div>
+</section>
+
+<div class="cm-grid">
+    <!-- 左：C++ 闯关地图 -->
+    <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px 24px 26px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <h2 style="margin:0; font-size:19px; font-weight:800; color:var(--ink); letter-spacing:.3px;">C++ 闯关地图</h2>
+            <a href="{% url 'student-courses' %}" style="font-size:12px; color:var(--clay); font-weight:600; text-decoration:none;">查看完整地图 →</a>
+        </div>
+        <p style="margin:0 0 22px; font-size:13px; color:var(--gray);">沿着关卡链一步步往上爬，今天的作业就是你的下一关。</p>
+        <div style="position:relative; padding-left:6px;">
+            <div style="display:flex; gap:16px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                    <span style="width:38px; height:38px; border-radius:50%; background:var(--green-soft); color:var(--green); border:2px solid var(--green); display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; width:3px; background:var(--green); border-radius:2px; min-height:26px; margin:3px 0;"></span>
+                </div>
+                <div style="padding-bottom:18px;"><strong style="display:block; font-size:15px; color:var(--ink);">第3课 · 顺序结构</strong><span style="font-size:12.5px; color:var(--green); font-weight:600;">已通关</span></div>
+            </div>
+            <div style="display:flex; gap:16px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                    <span style="width:38px; height:38px; border-radius:50%; background:var(--green-soft); color:var(--green); border:2px solid var(--green); display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; width:3px; background:linear-gradient(180deg,var(--green),var(--clay-line)); border-radius:2px; min-height:30px; margin:3px 0;"></span>
+                </div>
+                <div style="padding-bottom:20px;"><strong style="display:block; font-size:15px; color:var(--ink);">第4课 · 分支判断</strong><a href="{% url 'student-homework-list' %}" style="font-size:12.5px; color:var(--green); font-weight:600; text-decoration:none;">已通关 · 92 分 ›</a></div>
+            </div>
+            <div style="display:flex; gap:16px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                    <span style="width:44px; height:44px; border-radius:50%; background:var(--clay); color:#fff; border:3px solid #fff; box-shadow:0 0 0 3px var(--clay), 0 6px 14px rgba(15,103,184,.3); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; flex-shrink:0; margin-top:2px;">5</span>
+                    <span style="flex:1; width:3px; background:var(--line); border-radius:2px; min-height:30px; margin:3px 0;"></span>
+                </div>
+                <div style="flex:1; background:var(--clay-soft); border:2px solid var(--clay); border-radius:14px; padding:18px 20px; margin-bottom:20px; box-shadow:0 8px 22px rgba(15,103,184,.12);">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                        <span style="font-size:11px; font-weight:800; letter-spacing:.5px; color:#fff; background:var(--clay); padding:3px 9px; border-radius:20px;">下一关 · 今日作业</span>
+                        <span style="font-size:12px; color:var(--clay); font-weight:600;">⏰ 今天 21:00 截止</span>
+                    </div>
+                    <strong style="display:block; font-size:18px; color:var(--ink); margin-bottom:4px;">第5课 · 循环练习</strong>
+                    <p style="margin:0 0 14px; font-size:13.5px; color:#3f5a78; line-height:1.5;">8 道题 · 预计 25 分钟。掌握 for / while，搞定重复执行的代码。</p>
+                    <a href="{% url 'student-homework-list' %}" style="display:inline-block; background:var(--clay); color:#fff; font-size:15px; font-weight:700; padding:11px 22px; border-radius:11px; box-shadow:0 5px 12px rgba(15,103,184,.28); text-decoration:none;">开始闯关 →</a>
+                </div>
+            </div>
+            <div style="display:flex; gap:16px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                    <span style="width:38px; height:38px; border-radius:50%; background:var(--bg2); color:var(--gray); border:2px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;">🔒</span>
+                    <span style="flex:1; width:3px; background:var(--line); border-radius:2px; min-height:26px; margin:3px 0;"></span>
+                </div>
+                <div style="padding-bottom:18px;"><strong style="display:block; font-size:15px; color:var(--gray);">第6课 · 函数入门</strong><span style="font-size:12.5px; color:var(--gray);">未解锁 · 通关第5课后开启</span></div>
+            </div>
+            <div style="display:flex; gap:16px;">
+                <div style="display:flex; flex-direction:column; align-items:center;">
+                    <span style="width:38px; height:38px; border-radius:50%; background:var(--bg2); color:var(--gray); border:2px dashed var(--line); display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;">🔒</span>
+                </div>
+                <div style="padding-top:6px;"><strong style="display:block; font-size:15px; color:var(--gray);">第7课 · 数组初步</strong><span style="font-size:12.5px; color:var(--gray);">未解锁</span></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 右栏 -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <h2 style="margin:0 0 4px; font-size:17px; font-weight:800; color:var(--ink);">今日任务</h2>
+            <p style="margin:0 0 16px; font-size:12.5px; color:var(--gray);">登录先看这里 · 今天要做的事</p>
+            <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; gap:13px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2);">
+                <span style="width:40px; height:40px; border-radius:11px; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;">📝</span>
+                <span style="flex:1; min-width:0;"><strong style="display:block; font-size:14.5px; color:var(--ink);">待做作业</strong><span style="font-size:12px; color:var(--gray);">循环练习 等 3 项</span></span>
+                <span style="width:24px; height:24px; border-radius:50%; background:var(--clay); color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">3</span>
+            </a>
+            <a href="{% url 'student-exam-list' %}" style="display:flex; align-items:center; gap:13px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2); margin-top:10px;">
+                <span style="width:40px; height:40px; border-radius:11px; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;">🎯</span>
+                <span style="flex:1; min-width:0;"><strong style="display:block; font-size:14.5px; color:var(--ink);">待考考试</strong><span style="font-size:12px; color:var(--gray);">GESP 二级 · 模拟测</span></span>
+                <span style="width:24px; height:24px; border-radius:50%; background:var(--clay); color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;">1</span>
+            </a>
+            <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; gap:13px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--green-soft); margin-top:10px;">
+                <span style="width:40px; height:40px; border-radius:11px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--green); font-weight:800; flex-shrink:0;">✓</span>
+                <span style="flex:1; min-width:0;"><strong style="display:block; font-size:14.5px; color:var(--ink);">已批改 · 第4课</strong><span style="font-size:12px; color:var(--green); font-weight:600;">老师已点评，点开看</span></span>
+                <strong style="font-size:18px; color:var(--green); flex-shrink:0;">92<span style="font-size:11px; font-weight:600;">分</span></strong>
+            </a>
+        </section>
+        <section style="background:var(--bg2); border:2px dashed var(--gold); border-radius:16px; padding:20px;">
+            <div style="display:flex; align-items:center; gap:9px; margin-bottom:8px;"><span style="font-size:19px;">📚</span><h2 style="margin:0; font-size:16px; font-weight:800; color:var(--ink);">课程复习 · 知识点回顾</h2></div>
+            <p style="margin:0 0 14px; font-size:13px; color:#3f5a78; line-height:1.55;">上周 <strong style="color:var(--clay);">错题 5 道</strong> 待重做；薄弱点 <strong style="color:var(--ink);">「循环嵌套」</strong> 建议巩固一遍。</p>
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                <span style="display:inline-block; background:var(--clay); color:#fff; font-size:14px; font-weight:700; padding:10px 18px; border-radius:10px; box-shadow:0 4px 10px rgba(15,103,184,.22); opacity:.55; cursor:not-allowed;">开始复习</span>
+                <span style="font-size:11.5px; color:var(--gold); font-weight:600; letter-spacing:.3px;">🚧 后续上线 · 敬请期待</span>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

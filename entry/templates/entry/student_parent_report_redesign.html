@@ -1,0 +1,165 @@
+{% extends "entry/student_shell.html" %}
+
+{% comment %}
+家长学习报告 · 占位 UI 版（student-parent-report-demo）。
+本页所有 KPI、时长柱状图、掌握度、动态时间线、建议均为占位示例数据。
+真实数据待接：学习时长、知识点掌握度、近期学习动态。
+家长视角，导航不高亮（view 未设 active_nav）。柱状图为纯 CSS 高度百分比，无 JS。
+{% endcomment %}
+
+{% block title %}学习报告 · 大师码{% endblock %}
+
+{% block student_content %}
+<div style="margin-bottom:18px;">
+    <div style="display:flex; align-items:center; gap:9px; flex-wrap:wrap;">
+        <h1 style="margin:0; font-size:22px; font-weight:800; color:var(--ink);">学习报告</h1>
+        <span style="font-size:12px; font-weight:700; color:#fff; background:var(--gold); padding:3px 11px; border-radius:20px;">家长视角</span>
+    </div>
+    <p style="margin:6px 0 0; font-size:13px; color:var(--gray);">{{ viewer_display_name }} · 近 7 天学习概览 · 数据每日更新</p>
+</div>
+
+<!-- 4 KPI 卡 -->
+<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;">
+    <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 14px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="font-size:20px; margin-bottom:6px;">⏱️</div>
+        <div style="font-size:26px; font-weight:800; color:var(--clay); font-variant-numeric:tabular-nums; line-height:1;">3.5<span style="font-size:13px; color:var(--gray);">h</span></div>
+        <div style="margin-top:5px; font-size:12px; color:var(--gray); font-weight:600;">本周学习</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 14px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="font-size:20px; margin-bottom:6px;">✅</div>
+        <div style="font-size:26px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; line-height:1;">8<span style="font-size:13px; color:var(--gray);">关</span></div>
+        <div style="margin-top:5px; font-size:12px; color:var(--gray); font-weight:600;">本周通关</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 14px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="font-size:20px; margin-bottom:6px;">🎯</div>
+        <div style="font-size:26px; font-weight:800; color:var(--gold); font-variant-numeric:tabular-nums; line-height:1;">90<span style="font-size:13px; color:var(--gray);">分</span></div>
+        <div style="margin-top:5px; font-size:12px; color:var(--gray); font-weight:600;">平均分</div>
+    </div>
+    <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 14px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="font-size:20px; margin-bottom:6px;">🔥</div>
+        <div style="font-size:26px; font-weight:800; color:#c0392b; font-variant-numeric:tabular-nums; line-height:1;">12<span style="font-size:13px; color:var(--gray);">天</span></div>
+        <div style="margin-top:5px; font-size:12px; color:var(--gray); font-weight:600;">连续打卡</div>
+    </div>
+</div>
+
+<div class="cm-grid">
+    <!-- 左栏 -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+        <!-- 每日时长柱状图（纯 CSS）-->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <h2 style="margin:0 0 4px; font-size:16px; font-weight:800; color:var(--ink);">每日学习时长</h2>
+            <p style="margin:0 0 20px; font-size:12.5px; color:var(--gray);">单位：分钟 · 近 7 天</p>
+            <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:10px; height:160px;">
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">25</strong>
+                    <div style="width:100%; max-width:34px; height:42%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">一</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">40</strong>
+                    <div style="width:100%; max-width:34px; height:67%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">二</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">15</strong>
+                    <div style="width:100%; max-width:34px; height:25%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">三</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--clay);">60</strong>
+                    <div style="width:100%; max-width:34px; height:100%; border-radius:8px 8px 0 0; background:linear-gradient(180deg,#1f7fcf,var(--clay));"></div>
+                    <span style="font-size:11px; color:var(--clay); font-weight:700;">四</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">35</strong>
+                    <div style="width:100%; max-width:34px; height:58%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">五</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">50</strong>
+                    <div style="width:100%; max-width:34px; height:83%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">六</span>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end;">
+                    <strong style="font-size:11px; color:var(--gray);">30</strong>
+                    <div style="width:100%; max-width:34px; height:50%; border-radius:8px 8px 0 0; background:var(--clay-soft);"></div>
+                    <span style="font-size:11px; color:var(--gray);">日</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 知识点掌握度 -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <h2 style="margin:0 0 16px; font-size:16px; font-weight:800; color:var(--ink);">知识点掌握度</h2>
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="font-size:13.5px; color:var(--ink); font-weight:600;">顺序结构</span><span style="font-size:12.5px; color:var(--green); font-weight:700;">95%</span></div>
+                    <div style="height:9px; border-radius:5px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);"><div style="height:100%; width:95%; border-radius:5px; background:var(--green);"></div></div>
+                </div>
+                <div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="font-size:13.5px; color:var(--ink); font-weight:600;">条件判断</span><span style="font-size:12.5px; color:var(--green); font-weight:700;">88%</span></div>
+                    <div style="height:9px; border-radius:5px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);"><div style="height:100%; width:88%; border-radius:5px; background:var(--green);"></div></div>
+                </div>
+                <div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="font-size:13.5px; color:var(--ink); font-weight:600;">循环嵌套</span><span style="font-size:12.5px; color:#b45309; font-weight:700;">62%</span></div>
+                    <div style="height:9px; border-radius:5px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);"><div style="height:100%; width:62%; border-radius:5px; background:var(--gold);"></div></div>
+                </div>
+                <div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="font-size:13.5px; color:var(--ink); font-weight:600;">数组下标</span><span style="font-size:12.5px; color:#c0392b; font-weight:700;">45%</span></div>
+                    <div style="height:9px; border-radius:5px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);"><div style="height:100%; width:45%; border-radius:5px; background:#c0392b;"></div></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 右栏 -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+        <!-- 近期动态时间线 -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <h2 style="margin:0 0 18px; font-size:16px; font-weight:800; color:var(--ink);">近期动态</h2>
+            <div style="position:relative;">
+                <div style="display:flex; gap:13px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                        <span style="width:30px; height:30px; border-radius:50%; background:var(--green-soft); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">✅</span>
+                        <span style="flex:1; width:2px; background:var(--line); min-height:22px; margin:3px 0;"></span>
+                    </div>
+                    <div style="padding-bottom:16px;"><strong style="display:block; font-size:13.5px; color:var(--ink);">通关 第4课 · 分支判断</strong><span style="font-size:12px; color:var(--gray);">今天 16:20 · 得 92 分</span></div>
+                </div>
+                <div style="display:flex; gap:13px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                        <span style="width:30px; height:30px; border-radius:50%; background:var(--gold-soft); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">🏅</span>
+                        <span style="flex:1; width:2px; background:var(--line); min-height:22px; margin:3px 0;"></span>
+                    </div>
+                    <div style="padding-bottom:16px;"><strong style="display:block; font-size:13.5px; color:var(--ink);">获得徽章「连续7天」</strong><span style="font-size:12px; color:var(--gray);">昨天 19:05</span></div>
+                </div>
+                <div style="display:flex; gap:13px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                        <span style="width:30px; height:30px; border-radius:50%; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">📝</span>
+                        <span style="flex:1; width:2px; background:var(--line); min-height:22px; margin:3px 0;"></span>
+                    </div>
+                    <div style="padding-bottom:16px;"><strong style="display:block; font-size:13.5px; color:var(--ink);">提交 第3课作业</strong><span style="font-size:12px; color:var(--gray);">前天 20:40</span></div>
+                </div>
+                <div style="display:flex; gap:13px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                        <span style="width:30px; height:30px; border-radius:50%; background:var(--bg2); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">📡</span>
+                    </div>
+                    <div style="padding-top:4px;"><strong style="display:block; font-size:13.5px; color:var(--ink);">参加 实时课堂</strong><span style="font-size:12px; color:var(--gray);">3 天前 · 全程 45 分钟</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 给家长的建议 -->
+        <section style="background:var(--bg2); border:2px dashed var(--gold); border-radius:16px; padding:20px;">
+            <div style="display:flex; align-items:center; gap:9px; margin-bottom:10px;">
+                <span style="font-size:19px;">💡</span>
+                <h2 style="margin:0; font-size:15px; font-weight:800; color:var(--ink);">给家长的建议</h2>
+            </div>
+            <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px;">
+                <li style="font-size:13px; color:var(--ink-soft); line-height:1.55;">孩子<strong style="color:var(--clay);">「循环嵌套」「数组下标」</strong>掌握度偏低，可以陪他重做错题本里的题。</li>
+                <li style="font-size:13px; color:var(--ink-soft); line-height:1.55;">连续打卡 12 天，学习习惯很好，<strong style="color:var(--green);">多鼓励</strong>能帮他保持。</li>
+                <li style="font-size:13px; color:var(--ink-soft); line-height:1.55;">周四学得最久（60 分钟），状态最佳；周三偏少，可适当提醒。</li>
+            </ul>
+        </section>
+    </div>
+</div>
+{% endblock %}

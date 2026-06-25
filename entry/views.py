@@ -3673,6 +3673,103 @@ def student_courses(request: HttpRequest) -> HttpResponse:
 
 
 @role_required("student")
+def student_home(request: HttpRequest) -> HttpResponse:
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_home.html",
+        {"active_nav": "home"},
+    )
+
+
+@role_required("student")
+def student_profile(request: HttpRequest) -> HttpResponse:
+    # 占位数据写在模板里，待接真实学员资料（等级/星数/统计/徽章）。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_profile_redesign.html",
+        {"active_nav": "profile"},
+    )
+
+
+@role_required("student")
+def student_wrongbook(request: HttpRequest) -> HttpResponse:
+    # 占位数据写在模板里，待接真实错题数据（薄弱点聚合 + 待重做错题）。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_wrongbook_redesign.html",
+        {"active_nav": "profile"},
+    )
+
+
+@role_required("student")
+def student_coursemap(request: HttpRequest) -> HttpResponse:
+    # 占位数据写在模板里，待接真实课程进度（逐课通关状态 + 概览数字）。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_coursemap_redesign.html",
+        {"active_nav": "course"},
+    )
+
+
+@role_required("student")
+def student_course_page(request: HttpRequest) -> HttpResponse:
+    # 课程主页（重设计）。占位数据写在模板里；不影响现有 student_courses（通用 portal page）。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_course_redesign.html",
+        {"active_nav": "course"},
+    )
+
+
+@role_required("student")
+def student_result_demo(request: HttpRequest) -> HttpResponse:
+    # 批改/成绩详情 · 占位 UI 版。真实数据（student-homework-detail / student-exam-record-detail）待接。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_result_redesign.html",
+        {"active_nav": "homework"},
+    )
+
+
+@role_required("student")
+def student_parent_report_demo(request: HttpRequest) -> HttpResponse:
+    # 家长学习报告 · 占位 UI 版。真实数据（时长/掌握度/动态）待接。
+    # 家长视角，导航不高亮（active_nav 不设）。
+    return render_shell_page(
+        request,
+        "student",
+        "entry/student_parent_report_redesign.html",
+        {},
+    )
+
+
+@role_required("student")
+def student_answer(request: HttpRequest) -> HttpResponse:
+    ctx = "exam" if request.GET.get("ctx") == "exam" else "hw"
+    if ctx == "exam":
+        context = {
+            "active_nav": "exam",
+            "back_href": reverse("student-exam-list"),
+            "answer_title": "GESP 二级 · 模拟测",
+            "answer_meta": "共 3 题 · 限时计时中",
+        }
+    else:
+        context = {
+            "active_nav": "homework",
+            "back_href": reverse("student-homework-list"),
+            "answer_title": "第5课 · 循环练习",
+            "answer_meta": "共 3 题 · 预计 25 分钟",
+        }
+    return render_shell_page(request, "student", "entry/student_answer.html", context)
+
+
+@role_required("student")
 def student_practice(request: HttpRequest) -> HttpResponse:
     role_config = ROLE_CONFIG["student"]
     portal_user = get_portal_user_from_request(request)
@@ -3838,7 +3935,20 @@ def student_cpp_gesp4(request: HttpRequest) -> HttpResponse:
 def student_homework_list(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     context = build_student_homework_list_context(portal_user)
-    return render_shell_page(request, "student", "entry/student_homework_list.html", context)
+    items = context.get("homework_items", [])
+    todo_count = sum(1 for i in items if not i["is_completed"] and not i["is_cancelled"])
+    submitted_count = sum(1 for i in items if i["is_completed"] and not i["is_reviewed"])
+    graded_count = sum(1 for i in items if i["is_reviewed"])
+    context.update(
+        {
+            "active_nav": "homework",
+            "nav_homework_badge": todo_count,
+            "hw_todo_count": todo_count,
+            "hw_submitted_count": submitted_count,
+            "hw_graded_count": graded_count,
+        }
+    )
+    return render_shell_page(request, "student", "entry/student_homework_list_redesign.html", context)
 
 
 @role_required("student")
@@ -3851,7 +3961,18 @@ def student_exam_list(request: HttpRequest) -> HttpResponse:
             error_message=error_message,
             success_message=success_message,
         )
-        return render_shell_page(request, "student", "entry/student_exam_list.html", context)
+        items = context.get("exam_items", [])
+        assigned = sum(1 for i in items if not i["is_finished"] and not i["is_in_progress"])
+        context.update(
+            {
+                "active_nav": "exam",
+                "nav_exam_badge": assigned,
+                "exam_assigned_count": assigned,
+                "exam_progress_count": sum(1 for i in items if i["is_in_progress"]),
+                "exam_finished_count": sum(1 for i in items if i["is_finished"]),
+            }
+        )
+        return render_shell_page(request, "student", "entry/student_exam_list_redesign.html", context)
 
     if request.method == "POST":
         action = (request.POST.get("form_action") or "").strip()

@@ -1,0 +1,52 @@
+/* 大师码学生端 · 重设计样式（品牌蓝取自 login.css --primary #0f67b8）
+   仅学生端 student_shell.html 加载，老师/家长端不受影响。 */
+:root{
+  --clay:#0f67b8; --clay-soft:#dceeff; --clay-line:#a9cdee;
+  --ink:#123c68; --ink-soft:#3f5a78;
+  --bg:#fbf8f1; --card:#ffffff; --bg2:#faf7ef;
+  --gold:#d89d4a; --gold-soft:#f4e7cf;
+  --green:#047857; --green-soft:#dcefe6;
+  --gray:#8a938e; --line:#ece6d8;
+}
+*{ box-sizing:border-box; }
+
+.cm-shell{
+  min-height:100vh; background:var(--bg); color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased; padding-bottom:40px;
+}
+.cm-page{ max-width:1180px; margin:0 auto; padding:24px; }
+
+/* ---- 持久顶部导航 ---- */
+.cm-topnav{ position:sticky; top:0; z-index:40; background:#fff; border-bottom:1px solid var(--line); box-shadow:0 1px 0 rgba(45,74,62,.03); }
+.cm-topnav__inner{ max-width:1180px; margin:0 auto; height:64px; padding:0 24px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.cm-tabs{ display:flex; align-items:center; gap:4px; }
+.cm-tab{ display:flex; align-items:center; gap:6px; padding:9px 16px; border-radius:10px; text-decoration:none; font-size:15px; font-weight:600; color:var(--ink); }
+.cm-tab--active{ color:#fff; background:var(--clay); font-weight:700; }
+.cm-tab__badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--clay); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+.cm-tab--active .cm-tab__badge{ background:#fff; color:var(--clay); }
+
+/* ---- 通用布局 ---- */
+.cm-grid{ display:grid; grid-template-columns:minmax(0,1.65fr) minmax(0,1fr); gap:22px; align-items:start; }
+.cm-answer-grid{ display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:22px; align-items:start; }
+.cm-answer-palette{ position:sticky; top:84px; }
+.cm-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 1px 3px rgba(45,74,62,.04); }
+
+/* ---- 响应式底部导航 ---- */
+.cm-bottomnav{ display:none; }
+@media (max-width:860px){
+  .cm-grid{ grid-template-columns:1fr; gap:18px; }
+  .cm-answer-grid{ grid-template-columns:1fr; gap:16px; }
+  .cm-answer-palette{ position:static; order:-1; }
+  .cm-tabs{ display:none; }
+  .cm-avatar-name{ display:none; }
+  .cm-bottomnav{
+    display:flex; position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:#fff; border-top:1px solid var(--line); box-shadow:0 -2px 14px rgba(45,74,62,.06);
+    padding:6px 4px 8px;
+  }
+  .cm-bottomnav a{ flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 2px; text-decoration:none; font-size:11px; color:var(--gray); }
+  .cm-bottomnav a.cm-bn--active{ color:var(--clay); font-weight:700; }
+  .cm-shell{ padding-bottom:84px; }
+  .cm-page{ padding:18px 16px 40px; }
+}

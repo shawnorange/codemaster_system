@@ -1,0 +1,151 @@
+{% extends "entry/student_shell.html" %}
+
+{% comment %}
+答题页（作业/考试共用）。第一版：题目为占位示例（Q1/Q2 单选 + Q3 编程题），
+前端交互（选项选中、题号三态、已答统计、点题号跳转、Q3 标记完成）已完整实现。
+下一步：把占位题目换成真实题目数据，交卷按钮接后端提交（作业 grade_homework_submission / 考试 submit_exam）。
+ctx 由 ?ctx=hw|exam 决定标题/返回目标。
+{% endcomment %}
+
+{% block title %}{{ answer_title }} · 答题{% endblock %}
+
+{% block extra_head %}
+<style>
+/* 答题页移动端：隐藏 shell 底部导航，让 sticky 交卷条独占底部，避免重叠（codex review 修复） */
+@media (max-width: 860px) {
+    .cm-bottomnav { display: none !important; }
+    .cm-shell { padding-bottom: 40px !important; }
+}
+</style>
+{% endblock %}
+
+{% block student_content %}
+<div data-answer-root>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+        <a href="{{ back_href }}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
+        <div style="flex:1; min-width:0;"><h1 style="margin:0; font-size:21px; font-weight:800; color:var(--ink);">{{ answer_title }}</h1><p style="margin:2px 0 0; font-size:13px; color:var(--gray);">{{ answer_meta }}</p></div>
+    </div>
+
+    <div class="cm-answer-grid" style="margin-bottom:90px;">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+            <!-- Q1 -->
+            <div data-qcard="q1" style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04); scroll-margin-top:84px;">
+                <div style="display:flex; gap:10px; margin-bottom:16px;"><span style="font-size:12px; font-weight:800; color:#fff; background:var(--ink); width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">1</span><strong style="font-size:15.5px; color:var(--ink); line-height:1.5;">下面哪段代码会把 “你好” 打印 <span style="color:var(--clay);">5 次</span>？</strong></div>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div data-q="q1" data-opt="A" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><code style="font-size:13px; color:var(--ink); font-family:Menlo,Consolas,monospace;">for(int i=0;i&lt;5;i++) cout&lt;&lt;"你好";</code></div>
+                    <div data-q="q1" data-opt="B" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><code style="font-size:13px; color:var(--ink); font-family:Menlo,Consolas,monospace;">if(5) cout&lt;&lt;"你好";</code></div>
+                    <div data-q="q1" data-opt="C" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><code style="font-size:13px; color:var(--ink); font-family:Menlo,Consolas,monospace;">cout&lt;&lt;"你好"*5;</code></div>
+                </div>
+            </div>
+            <!-- Q2 -->
+            <div data-qcard="q2" style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04); scroll-margin-top:84px;">
+                <div style="display:flex; gap:10px; margin-bottom:16px;"><span style="font-size:12px; font-weight:800; color:#fff; background:var(--ink); width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">2</span><strong style="font-size:15.5px; color:var(--ink); line-height:1.5;">循环 <code style="font-family:Menlo,monospace;">for(i=1;i&lt;=3;i++)</code> 一共会执行几次？</strong></div>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <div data-q="q2" data-opt="A" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><span style="font-size:14px; color:var(--ink);">2 次</span></div>
+                    <div data-q="q2" data-opt="B" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><span style="font-size:14px; color:var(--ink);">3 次</span></div>
+                    <div data-q="q2" data-opt="C" style="display:flex; align-items:center; gap:12px; padding:13px 15px; border:2px solid var(--line); border-radius:12px; cursor:pointer; background:#fff;"><span data-optdot="1" style="width:20px; height:20px; border-radius:50%; border:2px solid var(--line); flex-shrink:0;"></span><span style="font-size:14px; color:var(--ink);">4 次</span></div>
+                </div>
+            </div>
+            <!-- Q3 编程题 · 统一做题入口 -->
+            <div data-qcard="q3" style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04); scroll-margin-top:84px;">
+                <div style="display:flex; gap:10px; margin-bottom:14px;"><span style="font-size:12px; font-weight:800; color:#fff; background:var(--clay); width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">3</span><strong style="font-size:15.5px; color:var(--ink); line-height:1.5;">编程题：用循环打印 1 到 10 的和。<span style="font-size:12px; color:var(--gray); font-weight:600;">（在编辑器里写好，回到这里提交作品）</span></strong></div>
+                <div style="background:var(--bg2); border:1px dashed var(--line); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:12px; align-items:flex-start;">
+                    <span style="font-size:13px; color:var(--gray);">统一做题入口：在线编辑器里编写并运行，完成后一键交回，无需再手动粘贴链接。</span>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button type="button" data-mark="q3" style="appearance:none; border:none; cursor:pointer; font-family:inherit; background:var(--ink); color:#fff; font-size:13.5px; font-weight:700; padding:10px 18px; border-radius:10px;">💻 打开在线编辑器</button>
+                        <button type="button" data-mark="q3" style="appearance:none; cursor:pointer; font-family:inherit; background:#fff; color:var(--ink); border:1px solid var(--line); font-size:13.5px; font-weight:600; padding:10px 18px; border-radius:10px;">📎 上传作品文件</button>
+                    </div>
+                    <span data-q3hint="1" style="font-size:12px; color:var(--gray); font-weight:600;">提示：打开编辑器写完即视为完成本题</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 答题卡 / 题号导航 -->
+        <aside class="cm-answer-palette">
+            <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+                <strong style="display:block; font-size:14.5px; color:var(--ink); margin-bottom:4px;">答题卡</strong>
+                <p style="margin:0 0 14px; font-size:12px; color:var(--gray);">点题号可跳转 · 灰色是还没做的</p>
+                <div style="display:flex; gap:14px; margin-bottom:14px;">
+                    <div style="flex:1; text-align:center; background:var(--green-soft); border-radius:10px; padding:8px 4px;"><div style="font-size:20px; font-weight:800; color:var(--green);" data-pal-done="1">0</div><span style="font-size:11px; color:var(--green); font-weight:600;">已作答</span></div>
+                    <div style="flex:1; text-align:center; background:var(--bg2); border-radius:10px; padding:8px 4px;"><div style="font-size:20px; font-weight:800; color:var(--clay);" data-pal-left="1">3</div><span style="font-size:11px; color:var(--gray); font-weight:600;">未作答</span></div>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px;">
+                    <button type="button" data-qjump="q1" style="appearance:none; cursor:pointer; font-family:inherit; aspect-ratio:1; border-radius:10px; border:2px solid var(--line); background:#fff; color:var(--ink); font-size:14px; font-weight:700;">1</button>
+                    <button type="button" data-qjump="q2" style="appearance:none; cursor:pointer; font-family:inherit; aspect-ratio:1; border-radius:10px; border:2px solid var(--line); background:#fff; color:var(--ink); font-size:14px; font-weight:700;">2</button>
+                    <button type="button" data-qjump="q3" style="appearance:none; cursor:pointer; font-family:inherit; aspect-ratio:1; border-radius:10px; border:2px solid var(--line); background:#fff; color:var(--ink); font-size:14px; font-weight:700;">3</button>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:7px; padding-top:12px; border-top:1px solid var(--line);">
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--gray);"><span style="width:14px; height:14px; border-radius:5px; background:var(--green-soft); border:2px solid var(--green);"></span>已作答</span>
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--gray);"><span style="width:14px; height:14px; border-radius:5px; background:var(--clay);"></span>当前题</span>
+                    <span style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--gray);"><span style="width:14px; height:14px; border-radius:5px; background:#fff; border:2px solid var(--line);"></span>未作答</span>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 交卷条 -->
+    <div style="position:sticky; bottom:0; background:#fff; border-top:1px solid var(--line); box-shadow:0 -2px 14px rgba(45,74,62,.06); padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:14px; border-radius:0 0 16px 16px; flex-wrap:wrap;">
+        <span style="font-size:13.5px; color:var(--ink); font-weight:600;">已答 <strong style="color:var(--clay); font-size:16px;" data-anscount="1">0</strong> / 3 题</span>
+        <a href="#" style="background:var(--clay); color:#fff; font-size:15px; font-weight:700; padding:12px 28px; border-radius:11px; box-shadow:0 5px 12px rgba(15,103,184,.28); text-decoration:none;">提交交卷 →</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_body_end %}
+<script>
+(function () {
+    const root = document.querySelector("[data-answer-root]");
+    if (!root) return;
+    const answers = {};
+    let activeQ = "q1";
+    const qList = ["q1", "q2", "q3"];
+
+    function sync() {
+        root.querySelectorAll("[data-opt]").forEach(function (o) {
+            const sel = answers[o.getAttribute("data-q")] === o.getAttribute("data-opt");
+            o.style.borderColor = sel ? "var(--clay)" : "var(--line)";
+            o.style.background = sel ? "var(--clay-soft)" : "#fff";
+            const dot = o.querySelector("[data-optdot]");
+            if (dot) {
+                dot.style.background = sel ? "var(--clay)" : "transparent";
+                dot.style.borderColor = sel ? "var(--clay)" : "var(--line)";
+            }
+        });
+        const done = qList.filter(function (q) { return answers[q]; }).length;
+        const ac = root.querySelector("[data-anscount]"); if (ac) ac.textContent = done;
+        const pd = root.querySelector("[data-pal-done]"); if (pd) pd.textContent = done;
+        const pl = root.querySelector("[data-pal-left]"); if (pl) pl.textContent = qList.length - done;
+        root.querySelectorAll("[data-qjump]").forEach(function (b) {
+            const q = b.getAttribute("data-qjump");
+            const answered = !!answers[q];
+            const active = activeQ === q;
+            if (active) { b.style.background = "var(--clay)"; b.style.borderColor = "var(--clay)"; b.style.color = "#fff"; }
+            else if (answered) { b.style.background = "var(--green-soft)"; b.style.borderColor = "var(--green)"; b.style.color = "var(--green)"; }
+            else { b.style.background = "#fff"; b.style.borderColor = "var(--line)"; b.style.color = "var(--ink)"; }
+        });
+        const hint = root.querySelector("[data-q3hint]");
+        if (hint) {
+            if (answers.q3) { hint.textContent = "✓ 已完成本题"; hint.style.color = "var(--green)"; }
+            else { hint.textContent = "提示：打开编辑器写完即视为完成本题"; hint.style.color = "var(--gray)"; }
+        }
+    }
+
+    root.addEventListener("click", function (e) {
+        const opt = e.target.closest("[data-opt]");
+        if (opt) { answers[opt.getAttribute("data-q")] = opt.getAttribute("data-opt"); activeQ = opt.getAttribute("data-q"); sync(); return; }
+        const mark = e.target.closest("[data-mark]");
+        if (mark) { answers[mark.getAttribute("data-mark")] = "done"; activeQ = mark.getAttribute("data-mark"); sync(); return; }
+        const jump = e.target.closest("[data-qjump]");
+        if (jump) {
+            e.preventDefault();
+            const q = jump.getAttribute("data-qjump");
+            const card = root.querySelector('[data-qcard="' + q + '"]');
+            if (card) window.scrollTo({ top: card.getBoundingClientRect().top + window.scrollY - 80, behavior: "smooth" });
+            activeQ = q; sync(); return;
+        }
+    });
+
+    sync();
+})();
+</script>
+{% endblock %}

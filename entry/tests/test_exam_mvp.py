@@ -4520,8 +4520,9 @@ class ExamMVPTests(TestCase):
         self.sign_in(self.student_user)
         list_response = self.client.get(reverse("student-exam-list"))
         self.assertEqual(list_response.status_code, 200)
-        self.assertContains(list_response, "输入口令开启考试")
-        self.assertContains(list_response, "考试记录")
+        self.assertContains(list_response, "我的考试")
+        self.assertContains(list_response, "考试口令")
+        self.assertContains(list_response, 'data-extab="assigned"', html=False)
 
         enter_response = self.client.post(
             reverse("student-exam-list"),

@@ -1,0 +1,118 @@
+{% extends "entry/student_shell.html" %}
+
+{% comment %}
+批改 / 成绩详情 · 占位 UI 版（student-result-demo）。
+本页所有分数、评级、点评、逐题对错均为占位示例数据。
+真实数据待接：作业详情 student-homework-detail、考试成绩 student-exam-record-detail。
+“加入错题本”按钮当前为占位（功能未上线）。
+{% endcomment %}
+
+{% block title %}成绩详情 · 大师码学生端{% endblock %}
+
+{% block student_content %}
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+    <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
+    <div style="flex:1; min-width:0;">
+        <h1 style="margin:0; font-size:21px; font-weight:800; color:var(--ink);">第4课 · 分支判断</h1>
+        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">老师已批改 · 共 5 题</p>
+    </div>
+</div>
+
+<div class="cm-answer-grid">
+    <!-- 左：成绩主体 -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+        <!-- 大分数圆 + 评级 -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:26px; box-shadow:0 1px 3px rgba(45,74,62,.04); display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
+            <div style="width:120px; height:120px; border-radius:50%; background:conic-gradient(var(--green) 0% 92%, var(--bg2) 92% 100%); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <div style="width:94px; height:94px; border-radius:50%; background:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1;">
+                    <strong style="font-size:38px; color:var(--green); font-variant-numeric:tabular-nums;">92</strong>
+                    <span style="font-size:12px; color:var(--gray); font-weight:600;">分</span>
+                </div>
+            </div>
+            <div style="flex:1; min-width:160px;">
+                <div style="display:inline-flex; align-items:center; gap:8px; background:var(--green-soft); padding:6px 14px; border-radius:22px; margin-bottom:12px;">
+                    <span style="font-size:20px;">🎉</span>
+                    <strong style="font-size:16px; color:var(--green);">评级 A · 优秀</strong>
+                </div>
+                <p style="margin:0; font-size:13.5px; color:var(--ink-soft); line-height:1.6;">这次发挥得很棒！5 题对了 4 题，超过班级 <strong style="color:var(--clay);">85%</strong> 的同学。错的那题加进错题本，重做一遍就稳了。</p>
+            </div>
+        </section>
+
+        <!-- 老师点评 -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <div style="display:flex; align-items:center; gap:9px; margin-bottom:12px;">
+                <span style="width:36px; height:36px; border-radius:50%; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">👩‍🏫</span>
+                <div><strong style="display:block; font-size:14.5px; color:var(--ink);">王老师 的点评</strong><span style="font-size:12px; color:var(--gray);">2 天前</span></div>
+            </div>
+            <p style="margin:0; font-size:14px; color:var(--ink-soft); line-height:1.7; background:var(--bg2); border-radius:12px; padding:14px 16px;">分支判断掌握得不错，if-else 嵌套也写对了。第3题是 else 跟错了 if，注意「就近匹配」原则。继续保持，下次冲满分！💪</p>
+        </section>
+
+        <!-- 逐题对错 -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <h2 style="margin:0 0 16px; font-size:16px; font-weight:800; color:var(--ink);">逐题回顾</h2>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
+                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第1题 · 单选 · 判断奇偶</span>
+                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
+                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第2题 · 单选 · 比较大小</span>
+                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:#fdecec; border-radius:12px; flex-wrap:wrap;">
+                    <span style="width:30px; height:30px; border-radius:9px; background:#c0392b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✕</span>
+                    <span style="flex:1; min-width:120px; font-size:14px; color:var(--ink); font-weight:600;">第3题 · 单选 · else 匹配</span>
+                    <a href="#" style="font-size:12.5px; color:#c0392b; font-weight:700; background:#fff; border:1px solid #f3c6c6; padding:6px 12px; border-radius:9px; text-decoration:none; white-space:nowrap;">📕 加入错题本</a>
+                </div>
+                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
+                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第4题 · 单选 · 嵌套判断</span>
+                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
+                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第5题 · 编程 · 闰年判断</span>
+                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 右：接下来 + 奖励 -->
+    <aside class="cm-answer-palette">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+            <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+                <h2 style="margin:0 0 14px; font-size:15px; font-weight:800; color:var(--ink);">接下来</h2>
+                <a href="#" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--clay); margin-bottom:10px;">
+                    <span style="font-size:18px;">📕</span>
+                    <span style="flex:1; font-size:14px; color:#fff; font-weight:700;">把错题加入错题本</span>
+                    <span style="color:#fff; font-size:15px;">›</span>
+                </a>
+                <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2); margin-bottom:10px;">
+                    <span style="font-size:18px;">📝</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">继续下一关</span>
+                    <span style="color:var(--gray); font-size:15px;">›</span>
+                </a>
+                <a href="{% url 'student-coursemap' %}" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2);">
+                    <span style="font-size:18px;">🗺️</span>
+                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">回到闯关地图</span>
+                    <span style="color:var(--gray); font-size:15px;">›</span>
+                </a>
+            </section>
+
+            <!-- 奖励卡 -->
+            <section style="background:linear-gradient(135deg,var(--gold-soft),#fbf3e1); border:2px dashed var(--gold); border-radius:16px; padding:20px; text-align:center;">
+                <span style="font-size:40px;">🏅</span>
+                <strong style="display:block; font-size:15px; color:var(--ink); margin:8px 0 4px;">本次奖励</strong>
+                <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft); line-height:1.5;">通关获得经验和星星</p>
+                <div style="display:flex; justify-content:center; gap:18px;">
+                    <span style="display:flex; align-items:center; gap:5px; font-size:15px; font-weight:800; color:var(--clay);">+30 <span style="font-size:11px; color:var(--gray); font-weight:600;">EXP</span></span>
+                    <span style="display:flex; align-items:center; gap:5px; font-size:15px; font-weight:800; color:var(--gold);">⭐ +5</span>
+                </div>
+            </section>
+        </div>
+    </aside>
+</div>
+{% endblock %}

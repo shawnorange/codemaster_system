@@ -1665,7 +1665,7 @@ class HomeworkMVPTests(TestCase):
         response = self.client.get(reverse("student-homework-list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '"has_summary": true', html=False)
+        self.assertContains(response, "本周总结", html=False)
         self.assertContains(response, reverse("student-homework-summary", args=[assignment.id]), html=False)
 
     def test_single_summary_can_bind_multiple_assignments_and_all_rows_show_entry(self) -> None:
@@ -1699,8 +1699,7 @@ class HomeworkMVPTests(TestCase):
         response = self.client.get(reverse("student-homework-list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '"has_summary": false', html=False)
-        self.assertContains(response, '"summary_href": ""', html=False)
+        self.assertNotContains(response, "本周总结", html=False)
 
     def test_student_homework_summary_detail_renders_sanitized_html_and_print_entry(self) -> None:
         assignment = self.create_homework(title="二维数组本周总结")
