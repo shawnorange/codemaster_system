@@ -3662,6 +3662,7 @@ def render_student_portal_page(request: HttpRequest, page_key: str) -> HttpRespo
             "page_title": page_shell["page_title"],
             "page_description": page_shell["page_description"],
             "page_shell": page_shell,
+            "active_nav": "course",
             **build_shell_identity_context(request),
         },
     )
@@ -3674,78 +3675,238 @@ def student_courses(request: HttpRequest) -> HttpResponse:
 
 @role_required("student")
 def student_home(request: HttpRequest) -> HttpResponse:
+    # 今日任务三行接真实（待做作业 / 待考考试 / 已批改），复用作业、考试列表的真实 context。
+    # 等级 / 经验 / 星星 / 闯关地图链 / 课程复习错题数：系统无真实数据源（评语制、无游戏化表），保持占位。
+    portal_user = get_portal_user_from_request(request)
+    hw_context = build_student_homework_list_context(portal_user)
+    hw_items = hw_context.get("homework_items", [])
+    todo_homework = [i for i in hw_items if not i["is_completed"] and not i["is_cancelled"]]
+    reviewed_homework = [i for i in hw_items if i["is_reviewed"]]
+    latest_reviewed = reviewed_homework[0] if reviewed_homework else None
+
+    exam_context = build_student_exam_list_context(portal_user)
+    exam_items = exam_context.get("exam_items", [])
+    todo_exams = [i for i in exam_items if not i["is_finished"] and not i["is_in_progress"]]
+
+    todo_homework_names = "、".join(i["title"] for i in todo_homework[:2])
+    if len(todo_homework) > 2:
+        todo_homework_names = f"{todo_homework_names} 等 {len(todo_homework)} 项"
+    elif not todo_homework_names:
+        todo_homework_names = "暂无待做作业"
+
+    todo_exam_name = todo_exams[0]["title"] if todo_exams else "暂无待考考试"
+
+    context = {
+        "active_nav": "home",
+        "nav_homework_badge": len(todo_homework),
+        "home_todo_homework_count": len(todo_homework),
+        "home_todo_homework_names": todo_homework_names,
+        "home_todo_exam_count": len(todo_exams),
+        "home_todo_exam_name": todo_exam_name,
+        "home_has_reviewed": latest_reviewed is not None,
+        "home_reviewed_title": latest_reviewed["content_title"] if latest_reviewed else "",
+        "home_reviewed_comment_summary": latest_reviewed["teacher_comment_summary"] if latest_reviewed else "",
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_home.html",
-        {"active_nav": "home"},
+        context,
     )
 
 
 @role_required("student")
 def student_profile(request: HttpRequest) -> HttpResponse:
-    # 占位数据写在模板里，待接真实学员资料（等级/星数/统计/徽章）。
+    # 真实：姓名（shell 已注入 viewer_display_name）、主课程方向 / 级别、已完成作业数、考试平均分。
+    # 占位（系统无源）：等级 Lv / 星数 / 连续天数 / 徽章墙 / 学号。
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+
+    hw_context = build_student_homework_list_context(portal_user)
+    hw_items = hw_context.get("homework_items", [])
+    completed_homework_count = sum(1 for i in hw_items if i["is_completed"])
+
+    exam_context = build_student_exam_list_context(portal_user)
+    checked_exams = [i for i in exam_context.get("exam_items", []) if i["status"] == ExamSession.STATUS_AUTO_CHECKED]
+    avg_score = _compute_average_exam_score(checked_exams)
+
+    course_label_parts = [
+        part
+        for part in [student.primary_course_name, student.primary_level_name]
+        if part
+    ]
+    course_label = " · ".join(course_label_parts) if course_label_parts else "课程方向待补充"
+
+    context = {
+        "active_nav": "profile",
+        "profile_course_label": course_label,
+        "profile_completed_count": completed_homework_count,
+        "profile_avg_score": avg_score,
+        "profile_has_avg_score": bool(checked_exams),
+        "profile_checked_exam_count": len(checked_exams),
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_profile_redesign.html",
-        {"active_nav": "profile"},
+        context,
     )
+
+
+def _compute_average_exam_score(checked_exam_items: list[dict]) -> int:
+    # 用已判分考试的「得分率」均值换算成百分制（真实数据）。无已判分考试时返回 0。
+    rates: list[float] = []
+    for item in checked_exam_items:
+        try:
+            earned = float(item.get("earned_score") or 0)
+            total = float(item.get("total_score") or 0)
+        except (TypeError, ValueError):
+            continue
+        if total > 0:
+            rates.append(earned / total)
+    if not rates:
+        return 0
+    return round(sum(rates) / len(rates) * 100)
 
 
 @role_required("student")
 def student_wrongbook(request: HttpRequest) -> HttpResponse:
-    # 占位数据写在模板里，待接真实错题数据（薄弱点聚合 + 待重做错题）。
+    # 真实：该学生已判分考试累计错题总数（汇总 ExamSession.wrong_count）。
+    # 占位（系统无现成聚合源）：薄弱知识点胶囊 + 逐道错题原题 —— 需跨表抽题文按知识点聚合的新查询，且涉及题目原文，留待主控定。
+    portal_user = get_portal_user_from_request(request)
+    exam_context = build_student_exam_list_context(portal_user)
+    checked_exams = [i for i in exam_context.get("exam_items", []) if i["status"] == ExamSession.STATUS_AUTO_CHECKED]
+    total_wrong = 0
+    for item in checked_exams:
+        try:
+            total_wrong += int(item.get("wrong_count") or 0)
+        except (TypeError, ValueError):
+            continue
+    context = {
+        "active_nav": "profile",
+        "wrongbook_total_wrong": total_wrong,
+        "wrongbook_checked_exam_count": len(checked_exams),
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_wrongbook_redesign.html",
-        {"active_nav": "profile"},
+        context,
     )
 
 
 @role_required("student")
 def student_coursemap(request: HttpRequest) -> HttpResponse:
-    # 占位数据写在模板里，待接真实课程进度（逐课通关状态 + 概览数字）。
+    # 真实：课程方向名 + 当前级别（Student.primary_course_name / primary_level_name）。
+    # 占位（系统无进度表）：逐课通关链 / 已通关 N 关 / 累计经验 / 平均分。
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    context = {
+        "active_nav": "course",
+        **_build_student_course_identity_context(student),
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_coursemap_redesign.html",
-        {"active_nav": "course"},
+        context,
     )
 
 
 @role_required("student")
 def student_course_page(request: HttpRequest) -> HttpResponse:
-    # 课程主页（重设计）。占位数据写在模板里；不影响现有 student_courses（通用 portal page）。
+    # 课程主页（重设计）。真实：课程方向名 + 当前级别。占位（系统无进度表）：逐课进度 / 已通关关数 / 进度百分比。
+    # 不影响现有 student_courses（通用 portal page）。
+    portal_user = get_portal_user_from_request(request)
+    student = get_student_by_user(portal_user)
+    context = {
+        "active_nav": "course",
+        **_build_student_course_identity_context(student),
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_course_redesign.html",
-        {"active_nav": "course"},
+        context,
     )
+
+
+def _build_student_course_identity_context(student: Student) -> dict:
+    # 学生真实课程定位（方向 / 体系 / 级别），来自 Student.primary_* 字段。无进度概念。
+    course_name = student.primary_course_name or "C++"
+    level_name = student.primary_level_name or ""
+    if level_name:
+        course_full_label = f"{course_name} · {level_name}"
+    else:
+        course_full_label = course_name
+    return {
+        "course_primary_name": course_name,
+        "course_primary_level": level_name,
+        "course_full_label": course_full_label,
+    }
 
 
 @role_required("student")
 def student_result_demo(request: HttpRequest) -> HttpResponse:
-    # 批改/成绩详情 · 占位 UI 版。真实数据（student-homework-detail / student-exam-record-detail）待接。
+    # 真实：取该学生一份已评阅作业的老师评语 / 老师名 / 知识点 / 评阅时间。
+    # 占位（这份作业无源）：分数圆 / 评级 / 逐题对错 / 奖励 —— 已评阅作业多为知识点任务型，无逐题判分数据。
+    portal_user = get_portal_user_from_request(request)
+    hw_context = build_student_homework_list_context(portal_user)
+    reviewed = [i for i in hw_context.get("homework_items", []) if i["is_reviewed"]]
+    latest = reviewed[0] if reviewed else None
+
+    context = {"active_nav": "homework"}
+    if latest is not None:
+        context.update(
+            {
+                "result_has_real_comment": True,
+                "result_title": latest["content_title"],
+                "result_content_path": latest["content_path_label"],
+                "result_teacher_name": latest["teacher_name"],
+                "result_teacher_comment": latest["teacher_comment_text"],
+                "result_reviewed_at": latest["reviewed_at_text"],
+            }
+        )
+    else:
+        context["result_has_real_comment"] = False
     return render_shell_page(
         request,
         "student",
         "entry/student_result_redesign.html",
-        {"active_nav": "homework"},
+        context,
     )
 
 
 @role_required("student")
 def student_parent_report_demo(request: HttpRequest) -> HttpResponse:
-    # 家长学习报告 · 占位 UI 版。真实数据（时长/掌握度/动态）待接。
+    # 真实 KPI：作业完成率、考试平均分、已完成作业数（从真实作业 / 考试算）。
+    # 占位（系统无源）：每日学习时长柱状图 / 知识点掌握度 / 近期动态时间线 / 连续打卡天数。
     # 家长视角，导航不高亮（active_nav 不设）。
+    portal_user = get_portal_user_from_request(request)
+
+    hw_context = build_student_homework_list_context(portal_user)
+    hw_items = hw_context.get("homework_items", [])
+    active_homework = [i for i in hw_items if not i["is_cancelled"]]
+    completed_homework = [i for i in active_homework if i["is_completed"]]
+    completion_rate = round(len(completed_homework) / len(active_homework) * 100) if active_homework else 0
+
+    exam_context = build_student_exam_list_context(portal_user)
+    checked_exams = [i for i in exam_context.get("exam_items", []) if i["status"] == ExamSession.STATUS_AUTO_CHECKED]
+    avg_score = _compute_average_exam_score(checked_exams)
+
+    context = {
+        "report_completion_rate": completion_rate,
+        "report_completed_count": len(completed_homework),
+        "report_active_homework_count": len(active_homework),
+        "report_avg_score": avg_score,
+        "report_has_avg_score": bool(checked_exams),
+        "report_checked_exam_count": len(checked_exams),
+    }
     return render_shell_page(
         request,
         "student",
         "entry/student_parent_report_redesign.html",
-        {},
+        context,
     )
 
 
@@ -3767,6 +3928,43 @@ def student_answer(request: HttpRequest) -> HttpResponse:
             "answer_meta": "共 3 题 · 预计 25 分钟",
         }
     return render_shell_page(request, "student", "entry/student_answer.html", context)
+
+
+@role_required("student")
+def student_exam_result(request: HttpRequest) -> HttpResponse:
+    from .models import ExamSession
+    from .portal_context import serialize_exam_session
+
+    student = get_student_by_user(get_portal_user_from_request(request))
+    session = (
+        ExamSession.objects.filter(student=student, status=ExamSession.STATUS_AUTO_CHECKED)
+        .order_by("-id")
+        .first()
+    )
+    if session is not None:
+        data = serialize_exam_session(session)
+        try:
+            correct = int(float(data.get("correct_count") or 0))
+            wrong = int(float(data.get("wrong_count") or 0))
+            total = int(float(data.get("total_count") or 0)) or (correct + wrong)
+        except (TypeError, ValueError):
+            correct, wrong, total = 0, 0, 0
+        context = {
+            "active_nav": "exam",
+            "exam_title": data.get("title"),
+            "score": data.get("earned_score"),
+            "total_score": data.get("total_score"),
+            "correct": correct,
+            "wrong": wrong,
+            "total_count": total,
+            "verdict": "已判分",
+            "has_result": True,
+        }
+    else:
+        context = {"active_nav": "exam", "has_result": False}
+    return render_shell_page(
+        request, "student", "entry/student_exam_result_redesign.html", context
+    )
 
 
 @role_required("student")
@@ -3810,6 +4008,7 @@ def student_free_practice(request: HttpRequest) -> HttpResponse:
             error_message=error_message,
             limit_warning=limit_warning,
         )
+        context["active_nav"] = "course"
         return render_shell_page(request, "student", "entry/student_free_practice.html", context)
 
     if request.method == "POST":
@@ -4000,6 +4199,7 @@ def student_exam_list(request: HttpRequest) -> HttpResponse:
 def student_site_messages(request: HttpRequest) -> HttpResponse:
     portal_user = get_portal_user_from_request(request)
     context = build_student_site_message_context(portal_user)
+    context["active_nav"] = "profile"
     return render_shell_page(request, "student", "entry/student_site_messages.html", context)
 
 
@@ -4028,6 +4228,7 @@ def student_exam_record_detail(request: HttpRequest, paper_id: int) -> HttpRespo
         context = build_student_exam_record_detail_context(portal_user, paper_id)
     except ObjectDoesNotExist as exc:
         raise Http404("未找到该考试记录") from exc
+    context["active_nav"] = "exam"
     return render_shell_page(request, "student", "entry/student_exam_record_detail.html", context)
 
 
@@ -4069,6 +4270,7 @@ def student_exam_detail(request: HttpRequest, session_id: int) -> HttpResponse:
             context["success_message"] = "口令校验成功，可以开始考试。"
         elif request.GET.get("op") == "analysis_suggestion_submitted":
             context["success_message"] = "你的解析挑战已提交，老师采纳后会展示给同学们。"
+        context["active_nav"] = "exam"
         return render_shell_page(request, "student", "entry/student_exam_detail.html", context)
 
     try:
@@ -4638,7 +4840,8 @@ def student_homework_detail(request: HttpRequest, assignment_id: int) -> HttpRes
             detail_context["success_message"] = "作业已标记完成，可以等待老师填写评语。"
         if error_message:
             detail_context["error_message"] = error_message
-        return render_shell_page(request, "student", "entry/student_homework_detail.html", detail_context)
+        detail_context["active_nav"] = "homework"
+        return render_shell_page(request, "student", "entry/student_homework_detail_redesign.html", detail_context)
 
     if request.method == "POST":
         action = request.POST.get("form_action", "").strip()
@@ -4671,6 +4874,7 @@ def student_homework_practice(request: HttpRequest, assignment_id: int) -> HttpR
             raise Http404("未找到该在线作业") from exc
         if error_message:
             context["error_message"] = error_message
+        context["active_nav"] = "homework"
         return render_shell_page(request, "student", "entry/student_homework_practice.html", context)
 
     if request.method == "POST":
@@ -4785,6 +4989,7 @@ def student_account_settings(request: HttpRequest) -> HttpResponse:
         "student_display_name": student.display_name,
         "current_username": portal_user.username,
         "proposed_username": portal_user.username,
+        "active_nav": "profile",
         **build_shell_identity_context(request),
     }
 

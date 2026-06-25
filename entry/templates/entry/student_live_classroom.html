@@ -1,13 +1,26 @@
-{% extends "entry/system_shell.html" %}
+{% extends "entry/student_shell.html" %}
 {% load static %}
 
-{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
 
 {% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_portal.css' %}">
     <link rel="stylesheet" href="{% static 'entry/css/live_classroom.css' %}?v=20260522-task-upload-feedback-v5">
+    <style>
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
+        /* 新壳（student_shell）下 header 高度与旧壳不同，覆盖 live_classroom.css 里按旧壳估算的固定高度，避免垂直溢出 */
+        .live-classroom{ height:auto !important; min-height:70vh !important; }
+    </style>
 {% endblock %}
 
-{% block system_content %}
+{% block student_content %}
+    <div style="margin-bottom:18px;">
+        <h1 style="margin:0 0 4px; font-size:22px; font-weight:800; color:var(--ink);">{{ page_title }}</h1>
+        <p style="margin:0; font-size:13px; color:var(--gray);">{{ page_description }}</p>
+    </div>
+
     {% if error_message %}
         <div class="entry-hint-bar live-classroom-error">{{ error_message }}</div>
     {% endif %}

@@ -1,9 +1,10 @@
 {% extends "entry/student_shell.html" %}
 
 {% comment %}
-错题本（学生端重设计）。第一版：薄弱知识点胶囊 + 待重做错题列表 + 一键重做均为占位数据，
-待接真实错题数据（按知识点聚合、错题原题、来源作业/考试）。
-一键重做按钮当前为占位（功能未上线），点击无跳转。
+错题本（学生端重设计）。
+真实数据：错题总数（wrongbook_total_wrong，汇总该学生已判分考试的 wrong_count）。
+占位·系统无此数据源：薄弱知识点胶囊（按知识点聚合错题数）+ 逐道错题原题 —— 需跨表抽取题目原文并按知识点聚合的新查询，且涉及题目内容，留待主控定。
+一键重做按钮为占位（功能未上线），点击无跳转。
 {% endcomment %}
 
 {% block title %}错题本 · 大师码学生端{% endblock %}
@@ -17,64 +18,23 @@
     </div>
 </div>
 
-<!-- 薄弱知识点胶囊 -->
-<section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 22px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:18px;">
-    <div style="display:flex; align-items:center; gap:9px; margin-bottom:14px;">
-        <span style="font-size:18px;">⚠️</span>
-        <h2 style="margin:0; font-size:16px; font-weight:800; color:var(--ink);">薄弱知识点</h2>
-        <span style="font-size:12px; color:var(--gray);">· 错得多的优先攻克</span>
-    </div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <span style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:22px; background:#fdecec; border:1px solid #f3c6c6; font-size:13.5px; color:#c0392b; font-weight:600;">循环嵌套 <strong style="background:#c0392b; color:#fff; font-size:11px; padding:1px 7px; border-radius:11px;">3 错</strong></span>
-        <span style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:22px; background:var(--gold-soft); border:1px solid #e6cd9c; font-size:13.5px; color:#b45309; font-weight:600;">数组下标 <strong style="background:#b45309; color:#fff; font-size:11px; padding:1px 7px; border-radius:11px;">2 错</strong></span>
-        <span style="display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:22px; background:var(--clay-soft); border:1px solid var(--clay-line); font-size:13.5px; color:var(--clay); font-weight:600;">条件判断 <strong style="background:var(--clay); color:#fff; font-size:11px; padding:1px 7px; border-radius:11px;">1 错</strong></span>
+<!-- 真实数据：错题总数概览 -->
+<section style="background:var(--clay-soft); border:1px solid var(--clay-line); border-radius:16px; padding:18px 22px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:18px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:22px;">📕</span>
+        <div>
+            <strong style="font-size:16px; color:var(--ink);">累计错题 {{ wrongbook_total_wrong }} 道</strong>
+            <p style="margin:2px 0 0; font-size:12.5px; color:var(--gray);">来自 {{ wrongbook_checked_exam_count }} 场已判分考试 · 真实统计</p>
+        </div>
     </div>
 </section>
 
-<!-- 待重做错题列表 + 一键重做 -->
-<section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-        <div>
-            <h2 style="margin:0 0 2px; font-size:16px; font-weight:800; color:var(--ink);">待重做错题</h2>
-            <p style="margin:0; font-size:12.5px; color:var(--gray);">共 6 道 · 重做对了就移出错题本</p>
-        </div>
-        <span style="display:inline-flex; align-items:center; gap:7px; background:var(--clay); color:#fff; font-size:14px; font-weight:700; padding:10px 18px; border-radius:11px; box-shadow:0 5px 12px rgba(15,103,184,.28); cursor:not-allowed; opacity:.6;">🔁 一键重做全部 <span style="font-size:11px; font-weight:600; opacity:.85;">即将上线</span></span>
-    </div>
-
-    <div style="display:flex; flex-direction:column; gap:12px;">
-        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px; background:var(--bg2); border:1px solid var(--line); border-radius:14px;">
-            <span style="width:42px; height:42px; border-radius:11px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">❌</span>
-            <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px; flex-wrap:wrap;">
-                    <span style="font-size:11px; font-weight:700; color:#c0392b; background:#fdecec; padding:2px 9px; border-radius:20px;">循环嵌套</span>
-                    <span style="font-size:12px; color:var(--gray);">来自 第5课 · 循环练习</span>
-                </div>
-                <strong style="display:block; font-size:14.5px; color:var(--ink); line-height:1.5;">下面双重循环一共会打印多少个星号？</strong>
-            </div>
-            <a href="#" style="background:#fff; color:var(--clay); border:1px solid var(--clay-line); font-size:13px; font-weight:700; padding:8px 15px; border-radius:10px; text-decoration:none; white-space:nowrap; flex-shrink:0;">重做 →</a>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px; background:var(--bg2); border:1px solid var(--line); border-radius:14px;">
-            <span style="width:42px; height:42px; border-radius:11px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">❌</span>
-            <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px; flex-wrap:wrap;">
-                    <span style="font-size:11px; font-weight:700; color:#b45309; background:var(--gold-soft); padding:2px 9px; border-radius:20px;">数组下标</span>
-                    <span style="font-size:12px; color:var(--gray);">来自 第7课 · 数组初步</span>
-                </div>
-                <strong style="display:block; font-size:14.5px; color:var(--ink); line-height:1.5;">数组 a[5] 的最后一个合法下标是几？</strong>
-            </div>
-            <a href="#" style="background:#fff; color:var(--clay); border:1px solid var(--clay-line); font-size:13px; font-weight:700; padding:8px 15px; border-radius:10px; text-decoration:none; white-space:nowrap; flex-shrink:0;">重做 →</a>
-        </div>
-        <div style="display:flex; align-items:flex-start; gap:14px; padding:16px; background:var(--bg2); border:1px solid var(--line); border-radius:14px;">
-            <span style="width:42px; height:42px; border-radius:11px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">❌</span>
-            <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px; flex-wrap:wrap;">
-                    <span style="font-size:11px; font-weight:700; color:var(--clay); background:var(--clay-soft); padding:2px 9px; border-radius:20px;">条件判断</span>
-                    <span style="font-size:12px; color:var(--gray);">来自 第4课 · 分支判断</span>
-                </div>
-                <strong style="display:block; font-size:14.5px; color:var(--ink); line-height:1.5;">if-else 中，当条件为假时执行哪一段？</strong>
-            </div>
-            <a href="#" style="background:#fff; color:var(--clay); border:1px solid var(--clay-line); font-size:13px; font-weight:700; padding:8px 15px; border-radius:10px; text-decoration:none; white-space:nowrap; flex-shrink:0;">重做 →</a>
-        </div>
-    </div>
+{% comment %}占位·系统无此数据源：薄弱知识点胶囊（按知识点聚合错题数）+ 逐道错题原题 —— 需新查询且涉及题目原文，留待主控定。改为诚实占位，不显示假知识点/假错题/假数字。{% endcomment %}
+<!-- 错题逐题回顾（即将上线，不显示假错题） -->
+<section style="background:var(--bg2); border:2px dashed var(--clay-line); border-radius:16px; padding:32px 22px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+    <div style="font-size:36px; margin-bottom:10px;">📕</div>
+    <strong style="display:block; font-size:16px; color:var(--ink); margin-bottom:6px;">错题逐题回顾即将上线</strong>
+    <p style="margin:0 0 4px; font-size:13px; color:var(--ink-soft); line-height:1.6;">以后这里会把你做错的题逐道列出来，<br/>按薄弱知识点归类，支持一键重做。</p>
+    <p style="margin:14px 0 0; font-size:12.5px; color:var(--gray);">目前先看上方的真实错题总数概览。</p>
 </section>
 {% endblock %}

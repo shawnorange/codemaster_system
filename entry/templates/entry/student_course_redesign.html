@@ -1,9 +1,10 @@
 {% extends "entry/student_shell.html" %}
 
 {% comment %}
-课程主页（学生端重设计）。第一版：课程卡 + 进度 + 展开更多均为占位数据，
-待接真实开通课程 / 进度。本页是新建页（student-course-home），不影响现有 student-courses（通用 portal page）。
-导航“课程”tab 暂仍指向 student-courses，本页通过个人主页等入口进入。
+课程主页（学生端重设计）。
+真实数据：主课程卡的课程方向名 + 级别（course_full_label，来自 Student.primary_course_name / primary_level_name）。
+占位·系统无此数据源：课程进度（第5课/4-12关/33%）、展开更多待开通课程 —— 系统无逐课进度表、无课程开通记录。
+本页是新建页（student-course-home），不影响现有 student-courses。
 {% endcomment %}
 
 {% block title %}课程 · 大师码学生端{% endblock %}
@@ -21,16 +22,15 @@
         <div style="display:flex; align-items:center; gap:13px; margin-bottom:14px;">
             <span style="width:50px; height:50px; border-radius:14px; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:26px; flex-shrink:0;">💻</span>
             <div style="flex:1; min-width:0;">
-                <strong style="display:block; font-size:16px; color:var(--ink);">C++ 编程</strong>
+                {# 真实数据：课程方向 + 级别 #}
+                <strong style="display:block; font-size:16px; color:var(--ink);">{{ course_full_label }}</strong>
                 <span style="font-size:12px; font-weight:700; color:#fff; background:var(--clay); padding:2px 9px; border-radius:20px;">进行中</span>
             </div>
         </div>
-        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:7px;">
-            <span style="font-size:12.5px; color:var(--ink); font-weight:600;">第5课 · 循环练习</span>
-            <span style="font-size:12px; color:var(--gray);">4 / 12 关</span>
-        </div>
-        <div style="height:9px; border-radius:5px; background:var(--bg2); overflow:hidden; border:1px solid var(--line);">
-            <div style="height:100%; width:33%; border-radius:5px; background:linear-gradient(90deg,var(--clay),#1f7fcf);"></div>
+        {% comment %}占位·系统无此数据源：当前课次/进度「4/12 关」/进度条 33% —— 系统无逐课进度表。改为诚实占位，不显示假进度百分比/假关数。{% endcomment %}
+        <div style="display:flex; align-items:center; gap:7px; padding:9px 12px; border-radius:10px; background:var(--bg2); border:1px dashed var(--clay-line);">
+            <span style="font-size:13px;">🚧</span>
+            <span style="font-size:12px; color:var(--ink-soft); font-weight:600;">课程进度即将上线 · 点进去看课程地图</span>
         </div>
     </a>
     <!-- 趣味练习 -->

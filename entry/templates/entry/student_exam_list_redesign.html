@@ -89,7 +89,9 @@
     tabs.forEach(function (t) {
         t.addEventListener("click", function () { selectTab(t.getAttribute("data-extab")); });
     });
-    selectTab("assigned");
+    var order = ["assigned", "progress", "finished"];
+    var initial = order.filter(function (k) { return Array.prototype.some.call(rows, function (r) { return r.getAttribute("data-status") === k; }); })[0] || "assigned";
+    selectTab(initial);
 })();
 </script>
 {% endblock %}

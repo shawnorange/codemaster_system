@@ -1,0 +1,230 @@
+{% extends "entry/student_shell.html" %}
+{% load static %}
+
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
+
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+    <style>
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
+    </style>
+{% endblock %}
+
+{% block student_content %}
+    <div class="student-homework-detail">
+        <nav class="portal-breadcrumbs" aria-label="面包屑导航">
+            {% for item in breadcrumbs %}
+                {% if item.href %}
+                    <a href="{{ item.href }}">{{ item.label }}</a>
+                {% else %}
+                    <span>{{ item.label }}</span>
+                {% endif %}
+                {% if not forloop.last %}
+                    <i></i>
+                {% endif %}
+            {% endfor %}
+        </nav>
+
+        <section class="hero-panel hero-panel--stacked-metrics">
+            <div class="hero-panel__copy">
+                <p class="eyebrow">Homework Assignment</p>
+                <span class="role-badge">当前角色：{{ role_label }}</span>
+                <h2>{{ assignment.title }}</h2>
+                <p class="role-description">{{ page_description }}</p>
+            </div>
+
+            <div class="hero-panel__metrics">
+                <article class="metric-card">
+                    <p class="metric-card__label">截止日期</p>
+                    <strong>{{ assignment.due_date_text }}</strong>
+                    <span>assignment 级别统一查看</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">当前状态</p>
+                    <strong>{{ assignment.status_text }}</strong>
+                    <span>{{ assignment.homework_mode_text }}</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">提交次数</p>
+                    <strong>{{ submission_count }}</strong>
+                    <span>同一 assignment 下的全部 submission</span>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-card__label">老师</p>
+                    <strong>{{ assignment.teacher_name }}</strong>
+                    <span>{{ assignment.reviewed_at_text }}</span>
+                </article>
+            </div>
+        </section>
+
+        <div class="system-content-grid">
+            <section class="surface-panel surface-panel--primary">
+                <div class="section-heading">
+                    <p class="section-heading__eyebrow">Assignment Brief</p>
+                    <h3>{% if has_online_questions %}先看提交记录，再决定是否开始新的练习{% else %}先看要求，再完成知识点任务{% endif %}</h3>
+                    <div class="homework-requirement-text">{{ assignment.description }}</div>
+                </div>
+
+                {% if success_message %}
+                    <div class="entry-hint-bar">
+                        <strong>作业反馈</strong>
+                        <span>{{ success_message }}</span>
+                    </div>
+                {% endif %}
+
+                {% if error_message %}
+                    <div class="entry-hint-bar">
+                        <strong>提交提示</strong>
+                        <span>{{ error_message }}</span>
+                    </div>
+                {% endif %}
+
+                <div class="content-access-list">
+                    <article class="content-access-card content-access-card--{{ assignment.status_tone }}">
+                        <div class="content-access-card__top">
+                            <div>
+                                <h5>{{ assignment.content_title }}</h5>
+                                <p>{{ assignment.content_path_label }}</p>
+                            </div>
+                            <span class="state-pill state-pill--{{ assignment.status_tone }}">{{ assignment.status_text }}</span>
+                        </div>
+                        <div class="content-access-card__footer">
+                            {% if allow_content_entry %}
+                                <div class="portal-action-row" style="margin: 0;">
+                                    <a href="{{ assignment.content_route_path }}" target="_blank" rel="noopener">打开知识点</a>
+                                    {% if has_online_questions and practice_href %}
+                                        <a href="{{ practice_href }}">{{ practice_label }}</a>
+                                    {% endif %}
+                                    {% if assignment.summary_href %}
+                                        <a href="{{ assignment.summary_href }}">查看本周总结</a>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <span>家长端仅查看作业要求、提交记录与老师评语。</span>
+                                <div class="portal-action-row" style="margin: 0;">
+                                    <span class="state-pill state-pill--locked">仅学生账号可进入内容</span>
+                                    {% if assignment.summary_href %}
+                                        <a href="{{ assignment.summary_href }}">查看本周总结</a>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </article>
+                </div>
+
+                <div class="student-homework-feedback-card">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Weekly Feedback</p>
+                        <h3>老师本周反馈</h3>
+                    </div>
+                    {% if not assignment.highlights and not assignment.areas_for_growth %}
+                        <div class="entry-hint-bar">老师暂未填写本周反馈</div>
+                    {% endif %}
+                    <div class="student-homework-feedback-card__grid">
+                        <article class="metric-card student-homework-feedback-card__item">
+                            <p class="metric-card__label">本周闪光点</p>
+                            <div class="student-homework-feedback-text">{{ assignment.highlights|default:"暂无填写" }}</div>
+                        </article>
+                        <article class="metric-card student-homework-feedback-card__item">
+                            <p class="metric-card__label">本周不足点</p>
+                            <div class="student-homework-feedback-text">{{ assignment.areas_for_growth|default:"暂无填写" }}</div>
+                        </article>
+                    </div>
+                </div>
+
+                {% if has_online_questions %}
+                    <div class="section-heading section-heading--compact" style="margin-top: 18px;">
+                        <p class="section-heading__eyebrow">Submission History</p>
+                        <h3>提交记录</h3>
+                        <p>进入详情后可查看整份结果、错题页和打印页。</p>
+                    </div>
+                    <section class="record-panel record-panel--recent">
+
+                        {% if latest_submission %}
+                            <div class="teacher-mini-stat-grid">
+                                <article class="teacher-mini-stat">
+                                    <span>最新批次</span>
+                                    <strong>{{ latest_submission.attempt_label }}</strong>
+                                    <p>{{ latest_submission.submitted_at_text }}</p>
+                                </article>
+                                <article class="teacher-mini-stat">
+                                    <span>正确 / 总题</span>
+                                    <strong>{{ latest_submission.correct_count }} / {{ latest_submission.total_count }}</strong>
+                                    <p>{{ latest_submission.result_summary_text }}</p>
+                                </article>
+                                <article class="teacher-mini-stat">
+                                    <span>分数</span>
+                                    <strong>{{ latest_submission.score_text }}</strong>
+                                    <p>{{ latest_submission.status_text }}</p>
+                                </article>
+                                <article class="teacher-mini-stat">
+                                    <span>查看入口</span>
+                                    <strong><a href="{{ latest_submission.detail_href }}">进入详情</a></strong>
+                                    <p>继续查看逐题结果和打印</p>
+                                </article>
+                            </div>
+                        {% endif %}
+
+                        {% include "entry/includes/homework_submission_table.html" with submission_rows=submission_rows submission_empty_message=submission_empty_message %}
+                    </section>
+                {% else %}
+                    {% if show_mark_completed %}
+                        <form method="post" class="record-form" style="margin-top: 16px;">
+                            {% csrf_token %}
+                            <input type="hidden" name="form_action" value="mark_completed">
+                            <button type="submit" class="login-button">标记已完成</button>
+                        </form>
+                    {% elif allow_completion_actions %}
+                        <div class="entry-hint-bar">当前状态为 {{ assignment.status_text }}，无需重复标记完成。</div>
+                    {% else %}
+                        <div class="entry-hint-bar">家长查看模式下只能查看作业信息，不能代替学生操作。</div>
+                    {% endif %}
+                {% endif %}
+            </section>
+
+            <aside class="system-aside">
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Teacher Comment</p>
+                        <h3>老师评语</h3>
+                    </div>
+
+                    <div class="record-list">
+                        <article class="record-list-item">
+                            <strong>{{ assignment.teacher_comment_text }}</strong>
+                            <span>{{ assignment.teacher_name }} · {{ assignment.reviewed_at_text }}</span>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="surface-panel">
+                    <div class="section-heading section-heading--compact">
+                        <p class="section-heading__eyebrow">Timeline</p>
+                        <h3>作业时间线</h3>
+                    </div>
+
+                    <div class="context-list">
+                        <div class="context-list__item">
+                            <span>布置时间</span>
+                            <strong>{{ assignment.assigned_at_text }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>完成时间</span>
+                            <strong>{{ assignment.completed_at_text }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>评阅时间</span>
+                            <strong>{{ assignment.reviewed_at_text }}</strong>
+                        </div>
+                        <div class="context-list__item">
+                            <span>返回列表</span>
+                            <strong><a href="{{ back_list_href }}">回到作业列表</a></strong>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </div>
+    </div>
+{% endblock %}

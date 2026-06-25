@@ -1,8 +1,18 @@
-{% extends "entry/system_shell.html" %}
+{% extends "entry/student_shell.html" %}
+{% load static %}
 
-{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
 
-{% block system_content %}
+{% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_portal.css' %}">
+    <style>
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
+    </style>
+{% endblock %}
+
+{% block student_content %}
     {% if page_shell.page_mode == "entry_grid" %}
         {% if page_shell.breadcrumb_items %}
             <nav class="student-breadcrumbs" aria-label="面包屑导航">

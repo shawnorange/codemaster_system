@@ -22,7 +22,7 @@ DEFAULT_TEST_PASSWORD = str(getattr(settings, "DEFAULT_TEST_PASSWORD", "") or ""
 ROLE_CONFIG = {
     "student": {
         "label": "学生",
-        "landing_url_name": "student-courses",
+        "landing_url_name": "student-home",
         "page_title": "学生课程选择页",
         "page_description": "请选择已开放的学习内容。课程入口按方向整理展示，大部分内容将随学习阶段逐步解锁。",
     },

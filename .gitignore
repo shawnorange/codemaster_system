@@ -54,3 +54,6 @@ services/scratch-editor/src/generated/
 services/scratch-editor/translations/
 services/scratch-editor/locale/
 services/scratch-editor/static/microbit/
+
+# 本地只读调试 settings(含生产库明文密码+DEBUG),禁止入库/部署
+codemaster_system/settings_aliyun_ro.py

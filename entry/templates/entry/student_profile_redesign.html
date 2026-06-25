@@ -1,10 +1,11 @@
 {% extends "entry/student_shell.html" %}
 
 {% comment %}
-我的（学生个人主页 · 重设计）。第一版：资料卡 / 统计 / 徽章墙 / 入口列表均为占位数据，
-待接真实学员资料（等级、星数、连续天数、已通关数、平均分、徽章）。
+我的（学生个人主页 · 重设计）。
+真实数据：姓名（viewer_display_name）、课程方向 + 级别（profile_course_label）、已完成作业数（profile_completed_count）、考试平均分（profile_avg_score）。
+占位·系统无此数据源：Lv 等级、⭐ 星数、🔥 连续天数、徽章墙、学号 —— 系统无游戏化/打卡/学号字段。
 退出登录 → logout；账号设置 → student-account-settings（均为已有真实路由）。
-错题本 / 成绩单 / 学习报告入口指向本次新建的占位页（wrongbook / parent-report-demo / result-demo）。
+错题本 / 成绩单 / 学习报告入口指向本次新建的页（wrongbook / parent-report-demo / result-demo）。
 {% endcomment %}
 
 {% block title %}我的 · 大师码学生端{% endblock %}
@@ -15,71 +16,45 @@
     <span style="width:76px; height:76px; border-radius:50%; background:linear-gradient(135deg,#f0d9a8,#e9bf7a); display:flex; align-items:center; justify-content:center; font-size:40px; flex-shrink:0; box-shadow:0 6px 16px rgba(45,74,62,.1);">🐼</span>
     <div style="flex:1; min-width:180px;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+            {# 真实数据：学生姓名 #}
             <strong style="font-size:22px; color:var(--ink);">{{ viewer_display_name }}</strong>
-            <span style="font-size:12px; font-weight:800; color:#fff; background:var(--clay); padding:3px 11px; border-radius:20px; box-shadow:0 4px 10px rgba(15,103,184,.22);">Lv 5</span>
         </div>
-        <p style="margin:0 0 12px; font-size:13px; color:var(--gray);">C++ 进阶班 · 学号 CM-2024-0815</p>
-        <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
-            <span style="display:flex; align-items:center; gap:6px; font-size:14px; color:var(--ink); font-weight:600;"><span style="font-size:18px;">⭐</span><strong style="color:var(--gold);">128</strong> 星</span>
-            <span style="display:flex; align-items:center; gap:6px; font-size:14px; color:var(--ink); font-weight:600;"><span style="font-size:18px;">🔥</span><strong style="color:var(--clay);">12</strong> 天连续</span>
-        </div>
+        {# 真实数据：课程方向 + 级别（Student.primary_course_name / primary_level_name）。学号/等级/打卡均为占位，系统无此字段，不显示 #}
+        <p style="margin:0 0 12px; font-size:13px; color:var(--gray);">{{ profile_course_label }}</p>
+        {% comment %}占位·系统无此数据源：星数 / 连续天数 / 等级 —— 系统无积分/打卡/等级表。改为诚实占位，不显示假数字。{% endcomment %}
+        <span style="display:inline-block; font-size:11.5px; color:var(--gold); font-weight:600; background:var(--bg2); border:1px solid var(--gold); padding:5px 12px; border-radius:20px;">🚧 等级 / 徽章系统即将上线</span>
     </div>
 </section>
 
-<!-- 三统计卡 -->
+<!-- 三统计卡：前两张真实，徽章占位 -->
 <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px;">
+    {# 真实数据：已完成作业数 #}
     <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 16px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-        <div style="font-size:30px; font-weight:800; color:var(--clay); font-variant-numeric:tabular-nums; line-height:1;">14</div>
-        <div style="margin-top:7px; font-size:12.5px; color:var(--gray); font-weight:600;">已通关</div>
+        <div style="font-size:30px; font-weight:800; color:var(--clay); font-variant-numeric:tabular-nums; line-height:1;">{{ profile_completed_count }}</div>
+        <div style="margin-top:7px; font-size:12.5px; color:var(--gray); font-weight:600;">已完成作业</div>
     </div>
+    {# 真实数据：考试平均分（已判分考试得分率均值）。无已判分考试时显示「—」 #}
     <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 16px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-        <div style="font-size:30px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; line-height:1;">90<span style="font-size:15px;">分</span></div>
+        {% if profile_has_avg_score %}
+        <div style="font-size:30px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; line-height:1;">{{ profile_avg_score }}<span style="font-size:15px;">分</span></div>
+        {% else %}
+        <div style="font-size:30px; font-weight:800; color:var(--gray); font-variant-numeric:tabular-nums; line-height:1;">—</div>
+        {% endif %}
         <div style="margin-top:7px; font-size:12.5px; color:var(--gray); font-weight:600;">平均分</div>
     </div>
-    <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 16px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-        <div style="font-size:30px; font-weight:800; color:var(--gold); font-variant-numeric:tabular-nums; line-height:1;">6</div>
-        <div style="margin-top:7px; font-size:12.5px; color:var(--gray); font-weight:600;">徽章</div>
+    {% comment %}占位·系统无此数据源：徽章数 —— 系统无徽章表。改为诚实占位，不显示假数字。{% endcomment %}
+    <div style="background:var(--bg2); border:2px dashed var(--gold); border-radius:16px; padding:20px 16px; text-align:center;">
+        <div style="font-size:26px; line-height:1;">🏅</div>
+        <div style="margin-top:7px; font-size:11.5px; color:var(--gold); font-weight:700;">徽章即将上线</div>
     </div>
 </div>
 
-<!-- 徽章墙 -->
-<section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:18px;">
-    <h2 style="margin:0 0 4px; font-size:17px; font-weight:800; color:var(--ink);">我的徽章</h2>
-    <p style="margin:0 0 16px; font-size:12.5px; color:var(--gray);">完成挑战解锁 · 灰色的还没拿到</p>
-    <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(86px,1fr)); gap:14px;">
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--clay-soft); font-size:28px;">🏅</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">初学乍练</div>
-        </div>
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--green-soft); font-size:28px;">🔁</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">循环大师</div>
-        </div>
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--gold-soft); font-size:28px;">🔥</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">连续7天</div>
-        </div>
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--clay-soft); font-size:28px;">🎯</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">满分达人</div>
-        </div>
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--green-soft); font-size:28px;">📚</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">勤学好问</div>
-        </div>
-        <div style="text-align:center;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--gold-soft); font-size:28px;">🚀</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--ink); font-weight:600;">进步飞快</div>
-        </div>
-        <div style="text-align:center; opacity:.4;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--bg2); border:2px dashed var(--line); font-size:24px;">🔒</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--gray); font-weight:600;">数组高手</div>
-        </div>
-        <div style="text-align:center; opacity:.4;">
-            <span style="display:flex; align-items:center; justify-content:center; width:56px; height:56px; margin:0 auto; border-radius:16px; background:var(--bg2); border:2px dashed var(--line); font-size:24px;">🔒</span>
-            <div style="margin-top:7px; font-size:11.5px; color:var(--gray); font-weight:600;">竞赛之星</div>
-        </div>
-    </div>
+{% comment %}占位·系统无此数据源：整面徽章墙（初学乍练/循环大师/连续7天…）—— 系统无徽章表。改为诚实占位，不显示任何假徽章。{% endcomment %}
+<!-- 徽章墙（即将上线，不显示假徽章） -->
+<section style="background:var(--bg2); border:2px dashed var(--gold); border-radius:16px; padding:30px 22px; text-align:center; margin-bottom:18px;">
+    <div style="font-size:36px; margin-bottom:10px;">🏅</div>
+    <strong style="display:block; font-size:16px; color:var(--ink); margin-bottom:6px;">徽章系统即将上线</strong>
+    <p style="margin:0; font-size:13px; color:var(--ink-soft); line-height:1.6;">完成挑战、坚持打卡都会点亮徽章，<br/>这套成长激励正在搭建，敬请期待。</p>
 </section>
 
 <!-- 入口列表 -->
@@ -87,7 +62,8 @@
     <a href="{% url 'student-wrongbook' %}" style="display:flex; align-items:center; gap:14px; padding:16px 20px; text-decoration:none; border-bottom:1px solid var(--line);">
         <span style="width:38px; height:38px; border-radius:11px; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;">📕</span>
         <span style="flex:1; font-size:15px; color:var(--ink); font-weight:600;">错题本</span>
-        <span style="font-size:12px; color:var(--clay); font-weight:600;">5 道待重做</span>
+        {# 占位·系统无此数据源：此处「N 道待重做」未接，错题数详见错题本页 #}
+        <span style="font-size:12px; color:var(--clay); font-weight:600;">查看</span>
         <span style="font-size:16px; color:var(--gray);">›</span>
     </a>
     <a href="{% url 'student-result-demo' %}" style="display:flex; align-items:center; gap:14px; padding:16px 20px; text-decoration:none; border-bottom:1px solid var(--line);">

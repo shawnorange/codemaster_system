@@ -1,0 +1,62 @@
+{% extends "entry/student_shell.html" %}
+
+{% comment %}
+考试结果态 examResult（学生端重设计）。当前接真实：仅读该学生自己最新一份已判分 ExamSession，
+显示真实总分 / 答对 / 答错 / 卷名（来自 serialize_exam_session）。
+逐题精确对错与逐题解析在 PublishedExamAnswer 一套模型里，尚未接入——本页不再展示
+任何写死的"逐题对错 / 错题解析 / 经验奖励"占位，避免给学生看假数据。
+{% endcomment %}
+
+{% block title %}考试结果 · 大师码学生端{% endblock %}
+
+{% block extra_head %}
+<style>
+:root { --clay-deep:#0b4f8c; --err:#c0392b; --err-soft:#fdecea; }
+</style>
+{% endblock %}
+
+{% block student_content %}
+{% if has_result %}
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
+    <a href="{% url 'student-exam-list' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
+    <div><h1 style="margin:0; font-size:22px; font-weight:800; color:var(--ink);">{{ exam_title|default:"考试结果" }}</h1><p style="margin:2px 0 0; font-size:13px; color:var(--gray);">已交卷 · 自动判分完成</p></div>
+</div>
+
+<div class="cm-grid">
+    <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:24px; display:flex; align-items:center; gap:22px; box-shadow:0 1px 3px rgba(45,74,62,.04); flex-wrap:wrap;">
+            <div style="width:104px; height:104px; border-radius:50%; background:var(--clay-soft); border:4px solid var(--clay); display:flex; flex-direction:column; align-items:center; justify-content:center; flex-shrink:0;"><strong style="font-size:38px; color:var(--clay-deep); line-height:1;">{{ score|default:"0" }}</strong><span style="font-size:11px; color:var(--clay-deep); font-weight:600;">分 / {{ total_score|default:"100" }}</span></div>
+            <div style="flex:1; min-width:180px;">
+                <div style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;"><span style="font-size:13px; font-weight:700; color:var(--clay-deep); background:var(--clay-soft); padding:4px 12px; border-radius:20px;">{{ verdict|default:"已判分" }}</span></div>
+                <div style="display:flex; gap:22px; flex-wrap:wrap;">
+                    <span style="font-size:13px; color:var(--gray);">答对 <strong style="color:var(--green); font-size:15px;">{{ correct }}</strong> / {{ total_count }} 题</span>
+                    <span style="font-size:13px; color:var(--gray);">答错 <strong style="color:var(--err); font-size:15px;">{{ wrong }}</strong> 题</span>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <strong style="display:block; font-size:15px; color:var(--ink); margin-bottom:12px;">逐题回顾</strong>
+            <p style="margin:0 0 4px; font-size:13.5px; color:var(--ink); line-height:1.6;">本卷共 <strong>{{ total_count }}</strong> 题，答对 <strong style="color:var(--green);">{{ correct }}</strong> 、答错 <strong style="color:var(--err);">{{ wrong }}</strong>。</p>
+            <p style="margin:0; font-size:13px; color:var(--gray); line-height:1.6;">逐题精确对错与解析正在接入，先到错题本针对练习。</p>
+        </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px;">
+        <div style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <strong style="display:block; font-size:15px; color:var(--ink); margin-bottom:14px;">继续练习</strong>
+            <a href="{% url 'student-exam-list' %}" style="display:block; text-align:center; box-sizing:border-box; text-decoration:none; width:100%; background:var(--clay); color:#fff; font-size:14.5px; font-weight:700; padding:13px; border-radius:11px; box-shadow:0 4px 10px rgba(15,103,184,.22); margin-bottom:10px;">🔁 重新进入考试</a>
+            <a href="{% url 'student-wrongbook' %}" style="display:block; text-align:center; box-sizing:border-box; text-decoration:none; width:100%; background:var(--clay-soft); color:var(--clay-deep); border:1px solid var(--clay-line); font-size:14.5px; font-weight:700; padding:13px; border-radius:11px; margin-bottom:10px;">🎯 去错题本</a>
+            <a href="{% url 'student-free-practice' %}" style="display:block; text-align:center; box-sizing:border-box; text-decoration:none; width:100%; background:#fff; color:var(--ink); border:1px solid var(--line); font-size:14.5px; font-weight:600; padding:13px; border-radius:11px;">🧠 自由练习</a>
+        </div>
+    </div>
+</div>
+{% else %}
+<div style="max-width:520px; margin:40px auto; text-align:center; background:#fff; border:1px solid var(--line); border-radius:16px; padding:40px 28px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+    <div style="font-size:40px; margin-bottom:12px;">📝</div>
+    <h1 style="margin:0 0 8px; font-size:19px; font-weight:800; color:var(--ink);">还没有已判分的考试</h1>
+    <p style="margin:0 0 20px; font-size:14px; color:var(--gray); line-height:1.6;">完成并交卷后，这里会显示你的成绩与逐题回顾。</p>
+    <a href="{% url 'student-exam-list' %}" style="display:inline-block; text-decoration:none; background:var(--clay); color:#fff; font-size:14.5px; font-weight:700; padding:12px 28px; border-radius:11px;">去考试列表 →</a>
+</div>
+{% endif %}
+{% endblock %}

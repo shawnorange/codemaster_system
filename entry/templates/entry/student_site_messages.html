@@ -1,9 +1,15 @@
-{% extends "entry/system_shell.html" %}
+{% extends "entry/student_shell.html" %}
+{% load static %}
 
-{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
 
 {% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_portal.css' %}">
     <style>
+        /* 复用新学生壳背景，盖掉 login.css 的全局 body 底纹 */
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
         .student-message-list {
             display: grid;
             gap: 12px;
@@ -51,7 +57,12 @@
     </style>
 {% endblock %}
 
-{% block system_content %}
+{% block student_content %}
+    <div style="margin-bottom:18px;">
+        <h1 style="margin:0 0 4px; font-size:22px; font-weight:800; color:var(--ink);">{{ page_title }}</h1>
+        <p style="margin:0; font-size:13px; color:var(--gray);">{{ page_description }}</p>
+    </div>
+
     <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}

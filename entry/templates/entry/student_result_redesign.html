@@ -1,10 +1,11 @@
 {% extends "entry/student_shell.html" %}
 
 {% comment %}
-批改 / 成绩详情 · 占位 UI 版（student-result-demo）。
-本页所有分数、评级、点评、逐题对错均为占位示例数据。
-真实数据待接：作业详情 student-homework-detail、考试成绩 student-exam-record-detail。
-“加入错题本”按钮当前为占位（功能未上线）。
+批改 / 成绩详情（student-result-demo）。
+真实数据：标题（知识点）、老师点评（teacher_comment）、老师名、评阅时间 —— 取该学生最近一份「已评阅」作业。
+占位·系统无此数据源：分数圆 / 评级 A / 逐题回顾 / 本次奖励 —— 已评阅作业多为知识点任务型，无逐题判分与分数；评语制无评级/积分。
+若该学生没有任何已评阅作业，则整页回退为占位示例。
+“加入错题本”按钮为占位（功能未上线）。
 {% endcomment %}
 
 {% block title %}成绩详情 · 大师码学生端{% endblock %}
@@ -13,71 +14,48 @@
 <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
     <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
     <div style="flex:1; min-width:0;">
-        <h1 style="margin:0; font-size:21px; font-weight:800; color:var(--ink);">第4课 · 分支判断</h1>
-        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">老师已批改 · 共 5 题</p>
+        {% if result_has_real_comment %}
+        {# 真实数据：作业标题（知识点）+ 知识点路径 #}
+        <h1 style="margin:0; font-size:21px; font-weight:800; color:var(--ink);">{{ result_title }}</h1>
+        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">老师已批改 · {{ result_content_path }}</p>
+        {% else %}
+        <h1 style="margin:0; font-size:21px; font-weight:800; color:var(--ink);">成绩详情</h1>
+        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">老师批改后的作业会显示在这里</p>
+        {% endif %}
     </div>
 </div>
 
 <div class="cm-answer-grid">
     <!-- 左：成绩主体 -->
     <div style="display:flex; flex-direction:column; gap:16px;">
-        <!-- 大分数圆 + 评级 -->
-        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:26px; box-shadow:0 1px 3px rgba(45,74,62,.04); display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
-            <div style="width:120px; height:120px; border-radius:50%; background:conic-gradient(var(--green) 0% 92%, var(--bg2) 92% 100%); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                <div style="width:94px; height:94px; border-radius:50%; background:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1;">
-                    <strong style="font-size:38px; color:var(--green); font-variant-numeric:tabular-nums;">92</strong>
-                    <span style="font-size:12px; color:var(--gray); font-weight:600;">分</span>
-                </div>
-            </div>
-            <div style="flex:1; min-width:160px;">
-                <div style="display:inline-flex; align-items:center; gap:8px; background:var(--green-soft); padding:6px 14px; border-radius:22px; margin-bottom:12px;">
-                    <span style="font-size:20px;">🎉</span>
-                    <strong style="font-size:16px; color:var(--green);">评级 A · 优秀</strong>
-                </div>
-                <p style="margin:0; font-size:13.5px; color:var(--ink-soft); line-height:1.6;">这次发挥得很棒！5 题对了 4 题，超过班级 <strong style="color:var(--clay);">85%</strong> 的同学。错的那题加进错题本，重做一遍就稳了。</p>
-            </div>
-        </section>
-
-        <!-- 老师点评 -->
+        {% if result_has_real_comment %}
+        <!-- 老师点评（真实数据 · 本页核心） -->
         <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            {# 真实数据：老师名 + 评阅时间 + 评语原文 #}
             <div style="display:flex; align-items:center; gap:9px; margin-bottom:12px;">
                 <span style="width:36px; height:36px; border-radius:50%; background:var(--clay-soft); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">👩‍🏫</span>
-                <div><strong style="display:block; font-size:14.5px; color:var(--ink);">王老师 的点评</strong><span style="font-size:12px; color:var(--gray);">2 天前</span></div>
+                <div><strong style="display:block; font-size:14.5px; color:var(--ink);">{{ result_teacher_name }} 的点评</strong><span style="font-size:12px; color:var(--gray);">{{ result_reviewed_at }}</span></div>
             </div>
-            <p style="margin:0; font-size:14px; color:var(--ink-soft); line-height:1.7; background:var(--bg2); border-radius:12px; padding:14px 16px;">分支判断掌握得不错，if-else 嵌套也写对了。第3题是 else 跟错了 if，注意「就近匹配」原则。继续保持，下次冲满分！💪</p>
+            <p style="margin:0; font-size:14px; color:var(--ink-soft); line-height:1.7; background:var(--bg2); border-radius:12px; padding:14px 16px;">{{ result_teacher_comment }}</p>
         </section>
 
-        <!-- 逐题对错 -->
-        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:22px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-            <h2 style="margin:0 0 16px; font-size:16px; font-weight:800; color:var(--ink);">逐题回顾</h2>
-            <div style="display:flex; flex-direction:column; gap:10px;">
-                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
-                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
-                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第1题 · 单选 · 判断奇偶</span>
-                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
-                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
-                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第2题 · 单选 · 比较大小</span>
-                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:#fdecec; border-radius:12px; flex-wrap:wrap;">
-                    <span style="width:30px; height:30px; border-radius:9px; background:#c0392b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✕</span>
-                    <span style="flex:1; min-width:120px; font-size:14px; color:var(--ink); font-weight:600;">第3题 · 单选 · else 匹配</span>
-                    <a href="#" style="font-size:12.5px; color:#c0392b; font-weight:700; background:#fff; border:1px solid #f3c6c6; padding:6px 12px; border-radius:9px; text-decoration:none; white-space:nowrap;">📕 加入错题本</a>
-                </div>
-                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
-                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
-                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第4题 · 单选 · 嵌套判断</span>
-                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:13px; padding:14px; background:var(--green-soft); border-radius:12px;">
-                    <span style="width:30px; height:30px; border-radius:9px; background:var(--green); color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; flex-shrink:0;">✓</span>
-                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">第5题 · 编程 · 闰年判断</span>
-                    <span style="font-size:13px; color:var(--green); font-weight:700;">答对</span>
-                </div>
-            </div>
+        {% comment %}占位·系统无此数据源：逐题回顾（对错网格）—— 知识点任务型作业无逐题判分。在线选择题作业的逐题对错另在 student-homework-submission-detail 页有真实源。改为诚实占位，不显示假题目/假对错。{% endcomment %}
+        <!-- 逐题回顾（即将上线，不显示假对错） -->
+        <section style="background:var(--bg2); border:2px dashed var(--clay-line); border-radius:16px; padding:26px 22px; text-align:center;">
+            <div style="font-size:32px; margin-bottom:10px;">📋</div>
+            <strong style="display:block; font-size:15px; color:var(--ink); margin-bottom:6px;">逐题判分即将上线</strong>
+            <p style="margin:0; font-size:13px; color:var(--ink-soft); line-height:1.6;">这份作业是知识点任务，老师以评语方式批改。<br/>逐题对错回顾正在搭建，上线后会显示每道题的判分。</p>
         </section>
+        {% else %}
+        {# result_has_real_comment 为假：诚实空状态，不回退成假分数/假题目 #}
+        <!-- 暂无已批改作业（诚实空状态） -->
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:40px 24px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+            <div style="font-size:40px; margin-bottom:12px;">📭</div>
+            <strong style="display:block; font-size:16px; color:var(--ink); margin-bottom:6px;">还没有已批改的作业</strong>
+            <p style="margin:0 0 20px; font-size:13.5px; color:var(--ink-soft); line-height:1.6;">老师批改后，作业的点评会显示在这里。<br/>先去把今天的作业完成吧。</p>
+            <a href="{% url 'student-homework-list' %}" style="display:inline-block; background:var(--clay); color:#fff; font-size:14.5px; font-weight:700; padding:11px 24px; border-radius:11px; box-shadow:0 5px 12px rgba(15,103,184,.28); text-decoration:none;">去今日作业 →</a>
+        </section>
+        {% endif %}
     </div>
 
     <!-- 右：接下来 + 奖励 -->
@@ -85,15 +63,10 @@
         <div style="display:flex; flex-direction:column; gap:16px;">
             <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
                 <h2 style="margin:0 0 14px; font-size:15px; font-weight:800; color:var(--ink);">接下来</h2>
-                <a href="#" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--clay); margin-bottom:10px;">
-                    <span style="font-size:18px;">📕</span>
-                    <span style="flex:1; font-size:14px; color:#fff; font-weight:700;">把错题加入错题本</span>
-                    <span style="color:#fff; font-size:15px;">›</span>
-                </a>
-                <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2); margin-bottom:10px;">
+                <a href="{% url 'student-homework-list' %}" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--clay); margin-bottom:10px;">
                     <span style="font-size:18px;">📝</span>
-                    <span style="flex:1; font-size:14px; color:var(--ink); font-weight:600;">继续下一关</span>
-                    <span style="color:var(--gray); font-size:15px;">›</span>
+                    <span style="flex:1; font-size:14px; color:#fff; font-weight:700;">去今日作业</span>
+                    <span style="color:#fff; font-size:15px;">›</span>
                 </a>
                 <a href="{% url 'student-coursemap' %}" style="display:flex; align-items:center; gap:11px; padding:13px 14px; border-radius:12px; text-decoration:none; background:var(--bg2);">
                     <span style="font-size:18px;">🗺️</span>
@@ -102,15 +75,12 @@
                 </a>
             </section>
 
-            <!-- 奖励卡 -->
-            <section style="background:linear-gradient(135deg,var(--gold-soft),#fbf3e1); border:2px dashed var(--gold); border-radius:16px; padding:20px; text-align:center;">
-                <span style="font-size:40px;">🏅</span>
-                <strong style="display:block; font-size:15px; color:var(--ink); margin:8px 0 4px;">本次奖励</strong>
-                <p style="margin:0 0 12px; font-size:12.5px; color:var(--ink-soft); line-height:1.5;">通关获得经验和星星</p>
-                <div style="display:flex; justify-content:center; gap:18px;">
-                    <span style="display:flex; align-items:center; gap:5px; font-size:15px; font-weight:800; color:var(--clay);">+30 <span style="font-size:11px; color:var(--gray); font-weight:600;">EXP</span></span>
-                    <span style="display:flex; align-items:center; gap:5px; font-size:15px; font-weight:800; color:var(--gold);">⭐ +5</span>
-                </div>
+            {% comment %}占位·系统无此数据源：本次奖励（+EXP / ⭐）—— 评语制无积分/星星。改为诚实占位，不显示假经验值。{% endcomment %}
+            <!-- 学习激励（即将上线，不显示假经验/星星） -->
+            <section style="background:var(--bg2); border:2px dashed var(--gold); border-radius:16px; padding:22px; text-align:center;">
+                <span style="font-size:34px;">🏅</span>
+                <strong style="display:block; font-size:14.5px; color:var(--ink); margin:8px 0 4px;">学习激励即将上线</strong>
+                <p style="margin:0; font-size:12.5px; color:var(--ink-soft); line-height:1.5;">完成作业的奖励与成长记录正在搭建。</p>
             </section>
         </div>
     </aside>

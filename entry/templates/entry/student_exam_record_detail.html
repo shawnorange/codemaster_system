@@ -1,12 +1,16 @@
-{% extends "entry/system_shell.html" %}
+{% extends "entry/student_shell.html" %}
 {% load static %}
 
-{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
 
 {% block extra_head %}
     {% include "entry/includes/teacher_tabulator_head.html" %}
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_portal.css' %}">
     <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
     <style>
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
         .student-exam-grid-container {
             display: block;
             width: 100%;
@@ -33,7 +37,12 @@
     </style>
 {% endblock %}
 
-{% block system_content %}
+{% block student_content %}
+    <div style="margin-bottom:18px;">
+        <h1 style="margin:0 0 4px; font-size:22px; font-weight:800; color:var(--ink);">{{ page_title }}</h1>
+        <p style="margin:0; font-size:13px; color:var(--gray);">{{ page_description }}</p>
+    </div>
+
     <nav class="portal-breadcrumbs" aria-label="面包屑导航">
         {% for item in breadcrumbs %}
             {% if item.href %}

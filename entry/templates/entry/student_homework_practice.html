@@ -1,14 +1,20 @@
-{% extends "entry/system_shell.html" %}
+{% extends "entry/student_shell.html" %}
 {% load static %}
 
-{% block title %}{{ page_title }} | CodeMaster 大师码教学系统{% endblock %}
+{% block title %}{{ page_title }} · 大师码学生端{% endblock %}
 
 {% block extra_head %}
+    <link rel="stylesheet" href="{% static 'entry/css/login.css' %}">
+    <link rel="stylesheet" href="{% static 'entry/css/shared_portal.css' %}">
     <link rel="stylesheet" href="{% static 'entry/css/homework_question_rendering.css' %}">
     <link rel="stylesheet" href="{% static 'entry/css/homework_portal.css' %}">
+    <style>
+        body{ background:var(--bg) !important; }
+        body::before{ display:none !important; }
+    </style>
 {% endblock %}
 
-{% block system_content %}
+{% block student_content %}
     <div class="student-homework-detail">
         <nav class="portal-breadcrumbs" aria-label="面包屑导航">
             {% for item in breadcrumbs %}

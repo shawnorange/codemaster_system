@@ -81,7 +81,9 @@
     tabs.forEach(function (t) {
         t.addEventListener("click", function () { selectTab(t.getAttribute("data-hwtab")); });
     });
-    selectTab("todo");
+    var order = ["todo", "submitted", "graded"];
+    var initial = order.filter(function (k) { return Array.prototype.some.call(rows, function (r) { return r.getAttribute("data-status") === k; }); })[0] || "todo";
+    selectTab(initial);
 })();
 </script>
 {% endblock %}
