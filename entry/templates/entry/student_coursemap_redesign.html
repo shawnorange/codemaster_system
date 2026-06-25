@@ -11,7 +11,7 @@
 
 {% block student_content %}
 <div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;">
-    <a href="{% url 'student-courses' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
+    <a href="{% url 'student-course-home' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
     <div style="flex:1; min-width:0;">
         {# 真实数据：课程方向 + 当前级别 #}
         <h1 style="margin:0; font-size:22px; font-weight:800; color:var(--ink);">{{ course_primary_name }} 闯关地图</h1>

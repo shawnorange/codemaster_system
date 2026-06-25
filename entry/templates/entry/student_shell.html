@@ -25,9 +25,9 @@
                 <a href="{% url 'student-homework-list' %}" class="cm-tab{% if active_nav == 'homework' %} cm-tab--active{% endif %}">作业{% if nav_homework_badge %}<span class="cm-tab__badge">{{ nav_homework_badge }}</span>{% endif %}</a>
                 <a href="{% url 'student-exam-list' %}" class="cm-tab{% if active_nav == 'exam' %} cm-tab--active{% endif %}">考试{% if nav_exam_badge %}<span class="cm-tab__badge">{{ nav_exam_badge }}</span>{% endif %}</a>
                 <a href="{% url 'student-course-home' %}" class="cm-tab{% if active_nav == 'course' %} cm-tab--active{% endif %}">课程</a>
-                <a href="{% url 'student-account-settings' %}" class="cm-tab{% if active_nav == 'profile' %} cm-tab--active{% endif %}">我的</a>
+                <a href="{% url 'student-profile' %}" class="cm-tab{% if active_nav == 'profile' %} cm-tab--active{% endif %}">我的</a>
             </nav>
-            <a href="{% url 'student-account-settings' %}" style="display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0;">
+            <a href="{% url 'student-profile' %}" style="display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0;">
                 <span class="cm-avatar-name" style="text-align:right; line-height:1.15;">
                     <strong style="display:block; font-size:13px; color:var(--ink);">{{ viewer_display_name }}</strong>
                     <span style="font-size:11px; color:var(--gray);">{{ role_label }}</span>
@@ -46,7 +46,7 @@
         <a href="{% url 'student-homework-list' %}" class="{% if active_nav == 'homework' %}cm-bn--active{% endif %}"><span style="font-size:20px;">📝</span>作业</a>
         <a href="{% url 'student-exam-list' %}" class="{% if active_nav == 'exam' %}cm-bn--active{% endif %}"><span style="font-size:20px;">🎯</span>考试</a>
         <a href="{% url 'student-course-home' %}" class="{% if active_nav == 'course' %}cm-bn--active{% endif %}"><span style="font-size:20px;">📖</span>课程</a>
-        <a href="{% url 'student-account-settings' %}" class="{% if active_nav == 'profile' %}cm-bn--active{% endif %}"><span style="font-size:20px;">👤</span>我的</a>
+        <a href="{% url 'student-profile' %}" class="{% if active_nav == 'profile' %}cm-bn--active{% endif %}"><span style="font-size:20px;">👤</span>我的</a>
     </nav>
 </div>
 {% block extra_body_end %}{% endblock %}
