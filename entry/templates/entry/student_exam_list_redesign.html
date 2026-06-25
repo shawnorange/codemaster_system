@@ -1,7 +1,7 @@
 {% extends "entry/student_shell.html" %}
 
 {% comment %}
-考试列表（学生端重设计 · 第④单元）。学生专用——原 student_exam_list.html 保留给其它复用。
+考试列表（学生端重设计 · 第④单元）。学生专用，已取代并移除旧版 student_exam_list.html。
 卡片 + 三段 tab（待考/进行中/已结束），数据来自 build_student_exam_list_context 的 exam_items。
 三态：待考=ASSIGNED / 进行中=IN_PROGRESS / 已结束=AUTO_CHECKED（有分数 earned/total）。保留口令开考 form。
 {% endcomment %}

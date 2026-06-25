@@ -7,6 +7,10 @@
   --gold:#d89d4a; --gold-soft:#f4e7cf;
   --green:#047857; --green-soft:#dcefe6;
   --gray:#8a938e; --line:#ece6d8;
+  --primary:var(--clay); --primary-deep:var(--ink); --primary-soft:var(--clay-soft);
+  --text-main:var(--ink); --text-muted:var(--ink-soft);
+  --shadow-soft:0 1px 3px rgba(45,74,62,.04);
+  --radius-xl:16px; --radius-lg:16px; --radius-md:12px;
 }
 *{ box-sizing:border-box; }
 
@@ -32,8 +36,232 @@
 .cm-answer-palette{ position:sticky; top:84px; }
 .cm-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 1px 3px rgba(45,74,62,.04); }
 
+/* ---- 学生端 portal 兼容层：旧作业/考试组件在 student_shell 下使用新视觉 ---- */
+.cm-shell .eyebrow,
+.cm-shell .section-heading__eyebrow{
+  margin:0 0 8px; color:var(--clay); font-size:12px; font-weight:800;
+  letter-spacing:.08em; text-transform:uppercase;
+}
+.cm-shell .role-badge{
+  display:inline-flex; align-items:center; width:max-content; min-height:26px; padding:0 10px;
+  border-radius:20px; background:var(--clay-soft); color:var(--clay);
+  font-size:12px; font-weight:700; margin-bottom:8px;
+}
+.cm-shell .portal-breadcrumbs,
+.cm-shell .student-breadcrumbs{
+  display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 16px;
+  padding:8px 12px; border:1px solid var(--line); border-radius:20px;
+  background:#fff; box-shadow:0 1px 3px rgba(45,74,62,.04);
+}
+.cm-shell .portal-breadcrumbs a,
+.cm-shell .portal-breadcrumbs span,
+.cm-shell .student-breadcrumbs a,
+.cm-shell .student-breadcrumbs span{
+  color:var(--ink); font-size:12.5px; font-weight:600; text-decoration:none;
+}
+.cm-shell .portal-breadcrumbs a:hover,
+.cm-shell .student-breadcrumbs a:hover{ color:var(--clay); }
+.cm-shell .portal-breadcrumbs i,
+.cm-shell .student-breadcrumbs i{
+  width:12px; height:2px; border-radius:2px; background:var(--clay-line);
+}
+.cm-shell .hero-panel,
+.cm-shell .compact-portal-header{
+  background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 22px;
+  box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:20px;
+}
+.cm-shell .hero-panel{
+  display:grid; grid-template-columns:minmax(0,1.35fr) minmax(260px,.9fr);
+  gap:18px; align-items:stretch;
+}
+.cm-shell .hero-panel--single-column,
+.cm-shell .hero-panel--stacked-metrics{ grid-template-columns:1fr; }
+.cm-shell .hero-panel__copy h2,
+.cm-shell .compact-portal-header__main h2{
+  margin:0 0 8px; color:var(--ink); font-size:22px; line-height:1.25; font-weight:800;
+}
+.cm-shell .role-description,
+.cm-shell .compact-portal-header__description{
+  margin:0; color:var(--gray); font-size:13px; line-height:1.65;
+}
+.cm-shell .hero-panel__metrics,
+.cm-shell .portal-summary-cards,
+.cm-shell .entry-stat-row{
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px;
+}
+.cm-shell .metric-card,
+.cm-shell .entry-stat-chip{
+  min-width:0; min-height:96px; display:flex; flex-direction:column; justify-content:center;
+  padding:15px 16px; border:1px solid var(--line); border-radius:14px;
+  background:var(--bg2); box-shadow:none;
+}
+.cm-shell .metric-card__label,
+.cm-shell .entry-stat-chip span{
+  margin:0 0 7px; color:var(--gray); font-size:12px; font-weight:700;
+}
+.cm-shell .metric-card strong,
+.cm-shell .entry-stat-chip strong{
+  color:var(--ink); font-size:20px; line-height:1.2; font-weight:800;
+}
+.cm-shell .metric-card span{
+  margin-top:7px; color:var(--gray); font-size:12px; line-height:1.45;
+}
+.cm-shell .system-content-grid,
+.cm-shell .portal-content-grid{
+  display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,.65fr);
+  gap:18px; align-items:start;
+}
+.cm-shell .portal-content-grid--single{ grid-template-columns:1fr; }
+.cm-shell .system-aside,
+.cm-shell .portal-aside{ display:grid; gap:16px; }
+.cm-shell .surface-panel,
+.cm-shell .record-panel{
+  background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px;
+  box-shadow:0 1px 3px rgba(45,74,62,.04);
+}
+.cm-shell .surface-panel--primary{ min-height:100%; }
+.cm-shell .section-heading{ margin:0 0 18px; }
+.cm-shell .section-heading--compact{ margin-bottom:14px; }
+.cm-shell .section-heading h3{
+  margin:0; color:var(--ink); font-size:18px; line-height:1.35; font-weight:800;
+}
+.cm-shell .section-heading p{
+  margin:8px 0 0; color:var(--gray); font-size:13px; line-height:1.65;
+}
+.cm-shell .entry-hint-bar,
+.cm-shell .form-error,
+.cm-shell .record-inline-feedback{
+  display:grid; gap:6px; margin:12px 0; padding:12px 14px;
+  border:1px solid var(--clay-line); border-radius:12px;
+  background:var(--clay-soft); color:var(--ink); font-size:13px; line-height:1.6;
+}
+.cm-shell .form-error{
+  border-color:#f5c2c2; background:#fff1f1; color:#a82020; font-weight:700;
+}
+.cm-shell .entry-hint-bar strong,
+.cm-shell .record-inline-feedback strong{ color:var(--ink); font-size:13px; }
+.cm-shell .portal-action-row{
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:16px 0;
+}
+.cm-shell .login-button,
+.cm-shell .teacher-anchor-link,
+.cm-shell .system-header__link,
+.cm-shell .portal-action-row a{
+  appearance:none; border:1px solid var(--clay); border-radius:11px; min-height:40px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:0 16px; font:inherit; font-size:13.5px; font-weight:800;
+  text-decoration:none; cursor:pointer; box-shadow:none;
+}
+.cm-shell .login-button,
+.cm-shell .portal-action-row a:first-child{
+  background:var(--clay); color:#fff;
+}
+.cm-shell .teacher-anchor-link,
+.cm-shell .system-header__link,
+.cm-shell .portal-action-row a{
+  background:#fff; color:var(--clay);
+}
+.cm-shell .login-button:disabled,
+.cm-shell .teacher-anchor-link:disabled{
+  opacity:.48; cursor:not-allowed;
+}
+.cm-shell .content-access-list,
+.cm-shell .record-list,
+.cm-shell .context-list{ display:grid; gap:12px; }
+.cm-shell .content-access-card,
+.cm-shell .record-list-item,
+.cm-shell .context-list__item{
+  display:grid; gap:10px; padding:15px; border:1px solid var(--line);
+  border-radius:14px; background:#fff; color:var(--ink); text-decoration:none;
+}
+.cm-shell .content-access-card--trial{ border-color:var(--clay-line); background:var(--clay-soft); }
+.cm-shell .content-access-card--open{ border-color:#b9ddc8; background:var(--green-soft); }
+.cm-shell .content-access-card--locked{ border-color:#f0c2c2; background:#fff5f5; }
+.cm-shell .content-access-card--future{ border-color:var(--gold); background:var(--gold-soft); }
+.cm-shell .content-access-card__top{
+  display:flex; justify-content:space-between; gap:12px; align-items:flex-start;
+}
+.cm-shell .content-access-card__top h5{
+  margin:0 0 5px; color:var(--ink); font-size:15px; line-height:1.35; font-weight:800;
+}
+.cm-shell .content-access-card__top p,
+.cm-shell .content-access-card__description,
+.cm-shell .content-access-card__footer span,
+.cm-shell .record-list-item span,
+.cm-shell .context-list__item span{
+  margin:0; color:var(--gray); font-size:12.5px; line-height:1.55;
+}
+.cm-shell .content-access-card__footer{
+  display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+}
+.cm-shell .state-pill{
+  display:inline-flex; align-items:center; justify-content:center; width:max-content;
+  min-height:26px; padding:0 10px; border-radius:20px;
+  font-size:11.5px; line-height:1; font-weight:800; white-space:nowrap;
+}
+.cm-shell .state-pill--open{ background:var(--green-soft); color:var(--green); }
+.cm-shell .state-pill--trial{ background:var(--clay-soft); color:var(--clay); }
+.cm-shell .state-pill--future{ background:var(--gold-soft); color:#9a641e; }
+.cm-shell .state-pill--locked{ background:#f3f4f6; color:#64748b; }
+.cm-shell .teacher-mini-stat-grid{
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:14px;
+}
+.cm-shell .teacher-mini-stat{
+  display:grid; gap:6px; min-width:0; padding:14px; border:1px solid var(--line);
+  border-radius:12px; background:var(--bg2);
+}
+.cm-shell .teacher-mini-stat span,
+.cm-shell .teacher-mini-stat p{ margin:0; color:var(--gray); font-size:12px; line-height:1.45; }
+.cm-shell .teacher-mini-stat strong{ color:var(--ink); font-size:16px; line-height:1.3; }
+.cm-shell .record-form{ display:grid; gap:12px; }
+.cm-shell .topic-access-modal__footer{
+  display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:10px; margin-top:18px;
+}
+.cm-shell .topic-access-modal__footer--course .login-button,
+.cm-shell .topic-access-modal__footer--course .teacher-anchor-link{ min-width:140px; }
+.cm-shell .topic-access-option{ display:block; margin:0 0 10px; }
+.cm-shell .topic-access-option input{ margin-right:8px; }
+.cm-shell .topic-access-option__content{
+  display:block; padding:12px 14px; border:1px solid var(--line);
+  border-radius:12px; background:#fff;
+}
+.cm-shell .topic-access-option__header{
+  display:flex; justify-content:space-between; gap:12px; align-items:flex-start;
+}
+.cm-shell .exam-markdown-body{
+  color:var(--ink); font-size:14px; line-height:1.75; word-break:break-word;
+}
+.cm-shell .exam-markdown-body p,
+.cm-shell .exam-markdown-body__paragraph,
+.cm-shell .exam-markdown-body__heading,
+.cm-shell .exam-markdown-body__list{ margin:0 0 10px; }
+.cm-shell .exam-markdown-body pre,
+.cm-shell .exam-markdown-body__code{
+  overflow:auto; padding:12px; border-radius:10px; background:#0f172a; color:#e2e8f0;
+}
+.cm-shell .exam-markdown-body code,
+.cm-shell .exam-markdown-body__inline-code{
+  padding:2px 5px; border-radius:5px; background:var(--bg2); color:var(--ink);
+}
+.cm-shell .student-exam-material-panel{
+  background:var(--bg2); border:1px solid var(--line); border-radius:12px;
+  margin:10px 0 14px; max-height:520px; overflow:auto; padding:12px;
+}
+.cm-shell .student-exam-material-panel strong{
+  color:var(--ink); display:block; margin-bottom:6px;
+}
+
 /* ---- 响应式底部导航 ---- */
 .cm-bottomnav{ display:none; }
+@media (max-width:960px){
+  .cm-shell .hero-panel,
+  .cm-shell .system-content-grid,
+  .cm-shell .portal-content-grid{ grid-template-columns:1fr; }
+  .cm-shell .hero-panel__metrics,
+  .cm-shell .portal-summary-cards,
+  .cm-shell .entry-stat-row,
+  .cm-shell .teacher-mini-stat-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
 @media (max-width:860px){
   .cm-grid{ grid-template-columns:1fr; gap:18px; }
   .cm-answer-grid{ grid-template-columns:1fr; gap:16px; }
@@ -49,4 +277,10 @@
   .cm-bottomnav a.cm-bn--active{ color:var(--clay); font-weight:700; }
   .cm-shell{ padding-bottom:84px; }
   .cm-page{ padding:18px 16px 40px; }
+  .cm-shell .hero-panel__metrics,
+  .cm-shell .portal-summary-cards,
+  .cm-shell .entry-stat-row,
+  .cm-shell .teacher-mini-stat-grid{ grid-template-columns:1fr; }
+  .cm-shell .content-access-card__top,
+  .cm-shell .topic-access-option__header{ flex-direction:column; }
 }

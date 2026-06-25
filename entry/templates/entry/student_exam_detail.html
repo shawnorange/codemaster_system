@@ -352,6 +352,23 @@
             width: 100%;
         }
 
+        .student-exam-submit-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            width: 100%;
+        }
+
+        .student-exam-submit-actions .teacher-anchor-link,
+        .student-exam-submit-actions .login-button {
+            box-sizing: border-box;
+            justify-content: center;
+            margin: 0;
+            min-width: 0;
+            text-align: center;
+            width: 100%;
+        }
+
         @media (max-width: 760px) {
             .student-exam-result-actions {
                 grid-template-columns: 1fr;
@@ -369,6 +386,10 @@
                 height: 680px;
                 min-height: 680px;
             }
+
+            .student-exam-submit-actions {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
     </style>
 {% endblock %}
@@ -385,21 +406,12 @@
         {% endfor %}
     </nav>
 
-    <section class="hero-panel">
+    <section class="hero-panel hero-panel--single-column">
         <div class="hero-panel__copy">
             <p class="eyebrow">Online Exam</p>
             <span class="role-badge">当前角色：{{ role_label }}</span>
             <h2>{{ page_title }}</h2>
             <p class="role-description">{{ page_description }}</p>
-        </div>
-        <div class="hero-panel__metrics">
-            {% for item in summary_cards %}
-                <article class="metric-card">
-                    <p class="metric-card__label">{{ item.label }}</p>
-                    <strong>{{ item.value }}</strong>
-                    <span>{{ item.hint }}</span>
-                </article>
-            {% endfor %}
         </div>
     </section>
 
@@ -725,7 +737,7 @@
                     <div class="entry-hint-bar">当前考试还没有题目。</div>
                 {% endif %}
 
-                <div class="topic-access-modal__footer topic-access-modal__footer--course">
+                <div class="topic-access-modal__footer topic-access-modal__footer--course{% if show_answer_sheet and question_rows %} student-exam-submit-actions{% endif %}">
                     <a class="teacher-anchor-link" href="{{ back_list_href }}">返回考试列表</a>
                     {% if show_answer_sheet and question_rows %}
                         <button type="submit" class="login-button">提交考试</button>

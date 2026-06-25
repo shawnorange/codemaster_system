@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Q, QuerySet, Sum
+from django.db.models import Count, F, Prefetch, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils.html import escape
@@ -3211,15 +3211,35 @@ def expire_stale_exam_bank_paper_knowledge_statuses(questions: list[ExamQuestion
     return expired_count
 
 
-def collect_exam_paper_question_meta(paper: ExamPaper) -> dict[str, str]:
-    questions = list(
-        paper.questions.filter(is_active=True)
-        .order_by("question_no", "id")
-        .values("wrong_point_label", "source_snapshot_json")
-    )
+# `bank_paper` 缺省哨兵：未传入时由函数自行按 description 查题库试卷（保持旧行为）。
+_BANK_PAPER_UNSET = object()
+
+
+def collect_exam_paper_question_meta(
+    paper: ExamPaper,
+    *,
+    questions: list | None = None,
+    bank_paper: object = _BANK_PAPER_UNSET,
+) -> dict[str, str]:
+    # `questions`/`bank_paper` 可由调用方批量预取后传入，避免按试卷循环逐张查库（N+1）；
+    # 不传时退回逐张查询，保持其它调用方行为不变。
+    if questions is None:
+        question_rows = list(
+            paper.questions.filter(is_active=True)
+            .order_by("question_no", "id")
+            .values("wrong_point_label", "source_snapshot_json")
+        )
+    else:
+        question_rows = [
+            {
+                "wrong_point_label": getattr(question, "wrong_point_label", None),
+                "source_snapshot_json": getattr(question, "source_snapshot_json", None),
+            }
+            for question in questions
+        ]
     knowledge_points: list[str] = []
     level_codes: list[str] = []
-    for question in questions:
+    for question in question_rows:
         snapshot = question.get("source_snapshot_json") if isinstance(question.get("source_snapshot_json"), dict) else {}
         knowledge_point = str(question.get("wrong_point_label") or snapshot.get("knowledge_point") or "").strip()
         level_code = str(snapshot.get("level_code") or "").strip()
@@ -3227,14 +3247,18 @@ def collect_exam_paper_question_meta(paper: ExamPaper) -> dict[str, str]:
             knowledge_points.append(knowledge_point)
         if level_code and level_code not in level_codes:
             level_codes.append(level_code)
-    bank_paper_id = get_exam_bank_paper_id_from_exam_description(paper.description)
-    if bank_paper_id:
-        bank_paper = ExamQuestionBankPaper.objects.filter(id=bank_paper_id, is_active=True).only("level", "title").first()
-        if bank_paper:
-            if bank_paper.level and bank_paper.level not in level_codes:
-                level_codes.insert(0, bank_paper.level)
-            if bank_paper.title and bank_paper.title not in knowledge_points:
-                knowledge_points.insert(0, bank_paper.title)
+    if bank_paper is _BANK_PAPER_UNSET:
+        bank_paper_id = get_exam_bank_paper_id_from_exam_description(paper.description)
+        bank_paper = (
+            ExamQuestionBankPaper.objects.filter(id=bank_paper_id, is_active=True).only("level", "title").first()
+            if bank_paper_id
+            else None
+        )
+    if bank_paper:
+        if bank_paper.level and bank_paper.level not in level_codes:
+            level_codes.insert(0, bank_paper.level)
+        if bank_paper.title and bank_paper.title not in knowledge_points:
+            knowledge_points.insert(0, bank_paper.title)
     return {
         "knowledge_text": " / ".join(knowledge_points[:3]) if knowledge_points else "未归类",
         "level_text": " / ".join(level_codes[:3]) if level_codes else "未分级",
@@ -5838,6 +5862,13 @@ def build_student_exam_list_context(
     student = get_student_by_user(portal_user)
     sessions = list(
         ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .prefetch_related(
+            Prefetch(
+                "paper__questions",
+                queryset=ExamQuestion.objects.filter(is_active=True).order_by("question_no", "id"),
+                to_attr="prefetched_active_questions",
+            )
+        )
         .filter(student=student, is_active=True, paper__is_active=True)
         .order_by("-created_at", "-id")
     )
@@ -5857,11 +5888,29 @@ def build_student_exam_list_context(
     sessions_by_paper: dict[int, list[ExamSession]] = defaultdict(list)
     for session in sessions:
         sessions_by_paper[session.paper_id].append(session)
+    # 批量预取题库试卷，避免循环内按试卷逐张查 ExamQuestionBankPaper（N+1）。
+    bank_paper_id_by_paper: dict[int, int] = {}
+    for paper_id, paper_sessions in sessions_by_paper.items():
+        bank_paper_id = get_exam_bank_paper_id_from_exam_description(paper_sessions[0].paper.description)
+        if bank_paper_id:
+            bank_paper_id_by_paper[paper_id] = bank_paper_id
+    bank_papers_by_id: dict[int, ExamQuestionBankPaper] = {}
+    if bank_paper_id_by_paper:
+        bank_papers_by_id = {
+            bank_paper.id: bank_paper
+            for bank_paper in ExamQuestionBankPaper.objects.filter(
+                id__in=set(bank_paper_id_by_paper.values()), is_active=True
+            ).only("level", "title")
+        }
     exam_table_rows = []
     for paper_id, paper_sessions in sessions_by_paper.items():
         latest_session = sorted(paper_sessions, key=lambda item: (item.created_at, item.id), reverse=True)[0]
         paper = latest_session.paper
-        meta = collect_exam_paper_question_meta(paper)
+        meta = collect_exam_paper_question_meta(
+            paper,
+            questions=getattr(paper, "prefetched_active_questions", None),
+            bank_paper=bank_papers_by_id.get(bank_paper_id_by_paper.get(paper_id)),
+        )
         serialized = serialize_exam_session(latest_session)
         exam_table_rows.append(
             {

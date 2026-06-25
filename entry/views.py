@@ -129,6 +129,7 @@ from .models import (
     HomeworkImportJob,
     HomeworkQuestion,
     HomeworkSubmission,
+    HomeworkSubmissionAnswer,
     HomeworkSummary,
     LessonHourLedger,
     PortalUser,
@@ -184,6 +185,8 @@ from .portal_context import (
     build_teacher_exam_page_context,
     build_teacher_exam_detail_context,
     format_knowledge_map_subject_label,
+    format_datetime,
+    get_homework_question_knowledge_values,
     serialize_available_exam_bank_paper,
     build_teacher_homework_stats_context,
     build_teacher_homework_builder_context,
@@ -218,6 +221,7 @@ from .portal_context import (
     student_has_content_access,
     get_teacher_student_homework_contents,
     normalize_knowledge_map_subject,
+    truncate_plain_text,
 )
 from .student_import import (
     DEFAULT_IMPORTED_ACCOUNT_PASSWORD,
@@ -3769,24 +3773,176 @@ def _compute_average_exam_score(checked_exam_items: list[dict]) -> int:
     return round(sum(rates) / len(rates) * 100)
 
 
+def _get_exam_wrongbook_knowledge_display(question: ExamQuestion) -> str:
+    snapshot = question.source_snapshot_json if isinstance(question.source_snapshot_json, dict) else {}
+    parts = [
+        str(snapshot.get("knowledge_level_1") or "").strip(),
+        str(snapshot.get("knowledge_level_2") or "").strip(),
+        str(snapshot.get("knowledge_level_3") or "").strip(),
+    ]
+    display = " / ".join(part for part in parts if part)
+    return display or str(question.wrong_point_label or snapshot.get("knowledge_point") or "未标注").strip() or "未标注"
+
+
+def _get_homework_wrongbook_knowledge_display(question: HomeworkQuestion) -> str:
+    values = get_homework_question_knowledge_values(question)
+    parts = [
+        str(values.get("knowledge_level_1") or "").strip(),
+        str(values.get("knowledge_level_2") or "").strip(),
+        str(values.get("knowledge_level_3") or "").strip(),
+    ]
+    return " / ".join(part for part in parts if part) or "未标注"
+
+
+def _build_wrongbook_knowledge_groups(rows: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        key = str(row.get("knowledge_display") or "未标注").strip() or "未标注"
+        item = grouped.setdefault(
+            key,
+            {
+                "label": key,
+                "count": 0,
+                "exam_count": 0,
+                "homework_count": 0,
+            },
+        )
+        item["count"] += 1
+        if row.get("source_type") == "homework":
+            item["homework_count"] += 1
+        else:
+            item["exam_count"] += 1
+    return sorted(grouped.values(), key=lambda item: (-item["count"], item["label"]))[:12]
+
+
+def _build_student_wrongbook_context(portal_user: PortalUser) -> dict:
+    student = get_student_by_user(portal_user)
+    exam_answer_queryset = (
+        ExamSubmissionAnswer.objects.select_related("session", "session__paper", "question")
+        .filter(
+            session__student=student,
+            session__is_active=True,
+            session__paper__is_active=True,
+            session__session_type__in=[
+                ExamSession.SESSION_TYPE_EXAM,
+                ExamSession.SESSION_TYPE_FULL_PRACTICE,
+                ExamSession.SESSION_TYPE_WRONG_PRACTICE,
+            ],
+            session__status__in=[
+                ExamSession.STATUS_SUBMITTED,
+                ExamSession.STATUS_AUTO_CHECKED,
+            ],
+            question__is_active=True,
+            is_correct=False,
+        )
+        .order_by("-session__submitted_at", "-session__checked_at", "-updated_at", "-id")
+    )
+    homework_answer_queryset = (
+        HomeworkSubmissionAnswer.objects.select_related(
+            "submission",
+            "submission__assignment",
+            "homework_question",
+            "homework_question__import_job",
+            "homework_question__import_job__content",
+            "homework_question__import_job__content__level",
+        )
+        .filter(
+            submission__student=student,
+            submission__is_active=True,
+            submission__assignment__is_active=True,
+            submission__status__in=[
+                HomeworkSubmission.STATUS_SUBMITTED,
+                HomeworkSubmission.STATUS_AUTO_CHECKED,
+                HomeworkSubmission.STATUS_REVIEWED,
+            ],
+            homework_question__is_active=True,
+            is_correct=False,
+        )
+        .order_by("-submission__submitted_at", "-submission__checked_at", "-updated_at", "-id")
+    )
+
+    exam_wrong_count = exam_answer_queryset.count()
+    homework_wrong_count = homework_answer_queryset.count()
+    exam_session_count = exam_answer_queryset.values("session_id").distinct().count()
+    homework_submission_count = homework_answer_queryset.values("submission_id").distinct().count()
+
+    rows: list[dict] = []
+    session_type_text = dict(ExamSession.SESSION_TYPE_CHOICES)
+    for answer in list(exam_answer_queryset[:80]):
+        session = answer.session
+        question = answer.question
+        submitted_at = session.submitted_at or session.checked_at or answer.updated_at
+        rows.append(
+            {
+                "source_type": "exam",
+                "source_label": session_type_text.get(session.session_type, "考试"),
+                "title": session.paper.title,
+                "question_label": f"第 {question.question_no} 题",
+                "knowledge_display": _get_exam_wrongbook_knowledge_display(question),
+                "stem_preview": truncate_plain_text(question.stem, 120),
+                "stem_html": render_exam_markdown_for_display(question.stem),
+                "student_answer_text": str(answer.selected_answer or "").strip() or "未作答",
+                "correct_answer_text": str(answer.correct_answer_snapshot or question.correct_answer or "").strip() or "暂无",
+                "analysis_html": render_exam_markdown_for_display(
+                    answer.analysis_snapshot or question.analysis or "当前老师没有补充解析。"
+                ),
+                "submitted_at_text": format_datetime(submitted_at),
+                "detail_href": f"{reverse('student-exam-detail', args=[session.id])}#student-exam-question-{question.id}",
+                "sort_at": submitted_at,
+            }
+        )
+
+    for answer in list(homework_answer_queryset[:80]):
+        submission = answer.submission
+        assignment = submission.assignment
+        question = answer.homework_question
+        submitted_at = submission.submitted_at or submission.checked_at or answer.updated_at
+        rows.append(
+            {
+                "source_type": "homework",
+                "source_label": "作业",
+                "title": assignment.title,
+                "question_label": f"第 {question.question_no} 题",
+                "knowledge_display": _get_homework_wrongbook_knowledge_display(question),
+                "stem_preview": truncate_plain_text(question.stem, 120),
+                "stem_html": render_exam_markdown_for_display(question.stem),
+                "student_answer_text": str(answer.selected_answer or "").strip() or "未作答",
+                "correct_answer_text": str(answer.correct_answer_snapshot or question.correct_answer or "").strip() or "暂无",
+                "analysis_html": render_exam_markdown_for_display(
+                    answer.analysis_snapshot or question.analysis or "当前老师没有补充解析。"
+                ),
+                "submitted_at_text": format_datetime(submitted_at),
+                "detail_href": (
+                    f"{reverse('student-homework-submission-detail', args=[assignment.id, submission.id])}"
+                    f"#homework-question-{question.id}"
+                ),
+                "sort_at": submitted_at,
+            }
+        )
+
+    fallback_sort_at = datetime.min.replace(tzinfo=timezone.get_current_timezone())
+    rows.sort(key=lambda item: item["sort_at"] or fallback_sort_at, reverse=True)
+    rows = rows[:80]
+    for row in rows:
+        row.pop("sort_at", None)
+
+    return {
+        "active_nav": "profile",
+        "wrongbook_total_wrong": exam_wrong_count + homework_wrong_count,
+        "wrongbook_exam_wrong_count": exam_wrong_count,
+        "wrongbook_homework_wrong_count": homework_wrong_count,
+        "wrongbook_checked_exam_count": exam_session_count,
+        "wrongbook_homework_submission_count": homework_submission_count,
+        "wrongbook_source_count": exam_session_count + homework_submission_count,
+        "wrongbook_rows": rows,
+        "wrongbook_knowledge_groups": _build_wrongbook_knowledge_groups(rows),
+    }
+
+
 @role_required("student")
 def student_wrongbook(request: HttpRequest) -> HttpResponse:
-    # 真实：该学生已判分考试累计错题总数（汇总 ExamSession.wrong_count）。
-    # 占位（系统无现成聚合源）：薄弱知识点胶囊 + 逐道错题原题 —— 需跨表抽题文按知识点聚合的新查询，且涉及题目原文，留待主控定。
     portal_user = get_portal_user_from_request(request)
-    exam_context = build_student_exam_list_context(portal_user)
-    checked_exams = [i for i in exam_context.get("exam_items", []) if i["status"] == ExamSession.STATUS_AUTO_CHECKED]
-    total_wrong = 0
-    for item in checked_exams:
-        try:
-            total_wrong += int(item.get("wrong_count") or 0)
-        except (TypeError, ValueError):
-            continue
-    context = {
-        "active_nav": "profile",
-        "wrongbook_total_wrong": total_wrong,
-        "wrongbook_checked_exam_count": len(checked_exams),
-    }
+    context = _build_student_wrongbook_context(portal_user)
     return render_shell_page(
         request,
         "student",
@@ -3937,7 +4093,13 @@ def student_exam_result(request: HttpRequest) -> HttpResponse:
 
     student = get_student_by_user(get_portal_user_from_request(request))
     session = (
-        ExamSession.objects.filter(student=student, status=ExamSession.STATUS_AUTO_CHECKED)
+        ExamSession.objects.select_related("paper", "paper__course", "paper__teacher")
+        .filter(
+            student=student,
+            is_active=True,
+            paper__is_active=True,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+        )
         .order_by("-id")
         .first()
     )
@@ -4920,7 +5082,8 @@ def student_homework_submission_detail(request: HttpRequest, assignment_id: int,
         raise Http404("未找到该提交记录") from exc
     if request.GET.get("op") == "submitted":
         context["success_message"] = "本次练习已提交并自动判分，历史记录已保留。"
-    return render_shell_page(request, "student", "entry/homework_submission_detail.html", context)
+    context["active_nav"] = "homework"
+    return render_shell_page(request, "student", "entry/student_homework_submission_detail_redesign.html", context)
 
 
 @role_required("student")

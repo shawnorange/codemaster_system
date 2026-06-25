@@ -1,12 +1,5 @@
 {% extends "entry/student_shell.html" %}
 
-{% comment %}
-错题本（学生端重设计）。
-真实数据：错题总数（wrongbook_total_wrong，汇总该学生已判分考试的 wrong_count）。
-占位·系统无此数据源：薄弱知识点胶囊（按知识点聚合错题数）+ 逐道错题原题 —— 需跨表抽取题目原文并按知识点聚合的新查询，且涉及题目内容，留待主控定。
-一键重做按钮为占位（功能未上线），点击无跳转。
-{% endcomment %}
-
 {% block title %}错题本 · 大师码学生端{% endblock %}
 
 {% block student_content %}
@@ -14,27 +7,84 @@
     <a href="{% url 'student-profile' %}" style="display:flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:11px; border:1px solid var(--line); background:#fff; font-size:17px; color:var(--ink); flex-shrink:0; text-decoration:none;">←</a>
     <div style="flex:1; min-width:0;">
         <h1 style="margin:0; font-size:22px; font-weight:800; color:var(--ink);">错题本</h1>
-        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">做错的题攒在这里 · 重做几遍就变成你的强项</p>
+        <p style="margin:2px 0 0; font-size:13px; color:var(--gray);">考试和作业里的错题会按真实提交记录归集到这里。</p>
     </div>
 </div>
 
-<!-- 真实数据：错题总数概览 -->
 <section style="background:var(--clay-soft); border:1px solid var(--clay-line); border-radius:16px; padding:18px 22px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:18px;">
-    <div style="display:flex; align-items:center; gap:10px;">
-        <span style="font-size:22px;">📕</span>
-        <div>
-            <strong style="font-size:16px; color:var(--ink);">累计错题 {{ wrongbook_total_wrong }} 道</strong>
-            <p style="margin:2px 0 0; font-size:12.5px; color:var(--gray);">来自 {{ wrongbook_checked_exam_count }} 场已判分考试 · 真实统计</p>
-        </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px;">
+        <article style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px;">
+            <span style="display:block; font-size:12px; color:var(--gray); font-weight:700; margin-bottom:7px;">累计错题</span>
+            <strong style="display:block; font-size:24px; color:var(--ink); line-height:1;">{{ wrongbook_total_wrong }}</strong>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--gray);">考试 + 作业</p>
+        </article>
+        <article style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px;">
+            <span style="display:block; font-size:12px; color:var(--gray); font-weight:700; margin-bottom:7px;">考试错题</span>
+            <strong style="display:block; font-size:24px; color:var(--ink); line-height:1;">{{ wrongbook_exam_wrong_count }}</strong>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--gray);">{{ wrongbook_checked_exam_count }} 场记录</p>
+        </article>
+        <article style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px;">
+            <span style="display:block; font-size:12px; color:var(--gray); font-weight:700; margin-bottom:7px;">作业错题</span>
+            <strong style="display:block; font-size:24px; color:var(--ink); line-height:1;">{{ wrongbook_homework_wrong_count }}</strong>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--gray);">{{ wrongbook_homework_submission_count }} 次提交</p>
+        </article>
+        <article style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px;">
+            <span style="display:block; font-size:12px; color:var(--gray); font-weight:700; margin-bottom:7px;">覆盖来源</span>
+            <strong style="display:block; font-size:24px; color:var(--ink); line-height:1;">{{ wrongbook_source_count }}</strong>
+            <p style="margin:8px 0 0; font-size:12px; color:var(--gray);">考试场次 / 作业提交</p>
+        </article>
     </div>
 </section>
 
-{% comment %}占位·系统无此数据源：薄弱知识点胶囊（按知识点聚合错题数）+ 逐道错题原题 —— 需新查询且涉及题目原文，留待主控定。改为诚实占位，不显示假知识点/假错题/假数字。{% endcomment %}
-<!-- 错题逐题回顾（即将上线，不显示假错题） -->
-<section style="background:var(--bg2); border:2px dashed var(--clay-line); border-radius:16px; padding:32px 22px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
-    <div style="font-size:36px; margin-bottom:10px;">📕</div>
-    <strong style="display:block; font-size:16px; color:var(--ink); margin-bottom:6px;">错题逐题回顾即将上线</strong>
-    <p style="margin:0 0 4px; font-size:13px; color:var(--ink-soft); line-height:1.6;">以后这里会把你做错的题逐道列出来，<br/>按薄弱知识点归类，支持一键重做。</p>
-    <p style="margin:14px 0 0; font-size:12.5px; color:var(--gray);">目前先看上方的真实错题总数概览。</p>
-</section>
+{% if wrongbook_rows %}
+    {% if wrongbook_knowledge_groups %}
+        <section style="background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 20px; box-shadow:0 1px 3px rgba(45,74,62,.04); margin-bottom:18px;">
+            <h2 style="margin:0 0 12px; font-size:17px; font-weight:800; color:var(--ink);">薄弱知识点</h2>
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                {% for item in wrongbook_knowledge_groups %}
+                    <span style="display:inline-flex; align-items:center; gap:7px; padding:7px 10px; border-radius:20px; background:var(--bg2); border:1px solid var(--line); color:var(--ink); font-size:12.5px; font-weight:700;">
+                        {{ item.label }}
+                        <strong style="color:var(--clay);">{{ item.count }}</strong>
+                    </span>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    <section style="display:flex; flex-direction:column; gap:12px;">
+        {% for item in wrongbook_rows %}
+            <article style="background:#fff; border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+                <div style="display:flex; align-items:flex-start; gap:14px;">
+                    <span style="width:42px; height:42px; border-radius:12px; background:{% if item.source_type == 'homework' %}var(--gold-soft){% else %}var(--clay-soft){% endif %}; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">{% if item.source_type == 'homework' %}📝{% else %}🎯{% endif %}</span>
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+                            <span class="state-pill state-pill--{% if item.source_type == 'homework' %}future{% else %}trial{% endif %}">{{ item.source_label }}</span>
+                            <span style="font-size:12px; color:var(--gray);">{{ item.submitted_at_text }}</span>
+                        </div>
+                        <h2 style="margin:0 0 5px; font-size:15.5px; color:var(--ink); line-height:1.35;">{{ item.title }} · {{ item.question_label }}</h2>
+                        <p style="margin:0 0 10px; font-size:12.5px; color:var(--gray);">知识点：{{ item.knowledge_display }}</p>
+                        <p style="margin:0 0 12px; font-size:13px; color:var(--ink-soft); line-height:1.65;">{{ item.stem_preview }}</p>
+                        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <span style="font-size:12px; font-weight:700; padding:5px 9px; border-radius:20px; background:#fff1f1; color:#a82020;">你的答案：{{ item.student_answer_text }}</span>
+                            <span style="font-size:12px; font-weight:700; padding:5px 9px; border-radius:20px; background:var(--green-soft); color:var(--green);">正确答案：{{ item.correct_answer_text }}</span>
+                        </div>
+                        <details style="border:1px solid var(--line); border-radius:12px; padding:10px 12px; background:var(--bg2);">
+                            <summary style="cursor:pointer; color:var(--clay); font-size:13px; font-weight:800;">查看题目与解析</summary>
+                            <div class="exam-markdown-body" style="margin-top:12px;">{{ item.stem_html }}</div>
+                            <div style="height:1px; background:var(--line); margin:12px 0;"></div>
+                            <div class="exam-markdown-body">{{ item.analysis_html }}</div>
+                        </details>
+                    </div>
+                    <a href="{{ item.detail_href }}" style="background:var(--clay); color:#fff; font-size:13.5px; font-weight:800; padding:9px 14px; border-radius:10px; text-decoration:none; white-space:nowrap; flex-shrink:0;">回到原题</a>
+                </div>
+            </article>
+        {% endfor %}
+    </section>
+{% else %}
+    <section style="background:var(--bg2); border:2px dashed var(--clay-line); border-radius:16px; padding:36px 22px; text-align:center; box-shadow:0 1px 3px rgba(45,74,62,.04);">
+        <div style="font-size:36px; margin-bottom:10px;">📕</div>
+        <strong style="display:block; font-size:16px; color:var(--ink); margin-bottom:6px;">现在还没有错题记录</strong>
+        <p style="margin:0; font-size:13px; color:var(--ink-soft); line-height:1.6;">提交考试或在线作业并完成判分后，答错的题会出现在这里。</p>
+    </section>
+{% endif %}
 {% endblock %}

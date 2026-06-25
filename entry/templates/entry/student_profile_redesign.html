@@ -82,10 +82,13 @@
         <span style="flex:1; font-size:15px; color:var(--ink); font-weight:600;">账号设置</span>
         <span style="font-size:16px; color:var(--gray);">›</span>
     </a>
-    <a href="{% url 'logout' %}" style="display:flex; align-items:center; gap:14px; padding:16px 20px; text-decoration:none;">
-        <span style="width:38px; height:38px; border-radius:11px; background:#fdecec; display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;">🚪</span>
-        <span style="flex:1; font-size:15px; color:#c0392b; font-weight:600;">退出登录</span>
-        <span style="font-size:16px; color:var(--gray);">›</span>
-    </a>
+    <form method="post" action="{% url 'logout' %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" style="display:flex; align-items:center; gap:14px; padding:16px 20px; width:100%; border:none; background:none; cursor:pointer; text-align:left; font:inherit;">
+            <span style="width:38px; height:38px; border-radius:11px; background:#fdecec; display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;">🚪</span>
+            <span style="flex:1; font-size:15px; color:#c0392b; font-weight:600;">退出登录</span>
+            <span style="font-size:16px; color:var(--gray);">›</span>
+        </button>
+    </form>
 </section>
 {% endblock %}
