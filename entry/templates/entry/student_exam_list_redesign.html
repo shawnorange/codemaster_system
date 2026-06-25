@@ -3,7 +3,7 @@
 {% comment %}
 考试列表（学生端重设计 · 第④单元）。学生专用，已取代并移除旧版 student_exam_list.html。
 卡片 + 三段 tab（待考/进行中/已结束），数据来自 build_student_exam_list_context 的 exam_items。
-三态：待考=ASSIGNED / 进行中=IN_PROGRESS / 已结束=AUTO_CHECKED（有分数 earned/total）。保留口令开考 form。
+每个 item 代表一份试卷，同一试卷的正式考试和练习记录在卡片内合并展示。保留口令开考 form。
 {% endcomment %}
 
 {% block title %}我的考试 · 大师码学生端{% endblock %}
@@ -39,17 +39,33 @@
             <div data-exrow data-status="{% if item.is_finished %}finished{% elif item.is_in_progress %}progress{% else %}assigned{% endif %}" style="display:flex; align-items:flex-start; gap:15px; padding:18px; background:#fff; border:1px solid {% if item.is_finished %}var(--line){% else %}var(--clay-line){% endif %}; border-radius:14px; box-shadow:0 1px 3px rgba(45,74,62,.04);">
                 <span style="width:46px; height:46px; border-radius:12px; background:{% if item.is_finished %}var(--green-soft){% else %}var(--clay-soft){% endif %}; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">🎯</span>
                 <div style="flex:1; min-width:0;">
-                    <strong style="display:block; font-size:15px; color:var(--ink); margin-bottom:3px;">{{ item.title }}</strong>
-                    <div style="font-size:12.5px; color:var(--gray); margin-bottom:7px;">{{ item.course_title }} · {{ item.session_type_text }}</div>
-                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                        <span style="font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; {% if item.is_finished %}color:var(--green); background:var(--green-soft);{% elif item.is_in_progress %}color:#b45309; background:var(--gold-soft);{% else %}color:#fff; background:var(--clay);{% endif %}">{% if item.is_finished %}已结束{% elif item.is_in_progress %}进行中{% else %}待考{% endif %}</span>
-                        <span style="font-size:12px; color:var(--gray);">老师 {{ item.teacher_name }}</span>
-                        {% if item.time_rule_text %}<span style="font-size:12px; color:var(--gray);">· {{ item.time_rule_text }}</span>{% endif %}
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                        <div style="flex:1 1 260px; min-width:0;">
+                            <strong style="display:block; font-size:15px; color:var(--ink); margin-bottom:3px; overflow-wrap:anywhere;">{{ item.title }}</strong>
+                            <div style="font-size:12.5px; color:var(--gray); margin-bottom:7px;">{{ item.course_title }} · {{ item.session_type_summary_text }}</div>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <span style="font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; {% if item.is_finished %}color:var(--green); background:var(--green-soft);{% elif item.is_in_progress %}color:#b45309; background:var(--gold-soft);{% else %}color:#fff; background:var(--clay);{% endif %}">{{ item.status_text }}</span>
+                                <span style="font-size:12px; color:var(--gray);">{{ item.attempt_count_text }}</span>
+                                {% if item.in_progress_session_count %}<span style="font-size:12px; color:var(--gray);">进行中 {{ item.in_progress_session_count }} 次</span>{% endif %}
+                                {% if item.assigned_session_count %}<span style="font-size:12px; color:var(--gray);">待开始 {{ item.assigned_session_count }} 次</span>{% endif %}
+                                <span style="font-size:12px; color:var(--gray);">老师 {{ item.teacher_name }}</span>
+                                {% if item.time_rule_text %}<span style="font-size:12px; color:var(--gray);">· {{ item.time_rule_text }}</span>{% endif %}
+                            </div>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; flex-shrink:0;">
+                            <strong style="font-size:15px; color:{% if item.attempt_count %}var(--green){% else %}var(--gray){% endif %};">{{ item.attempt_count_text }}</strong>
+                            <a href="{{ item.detail_href }}" style="background:var(--clay); color:#fff; font-size:13.5px; font-weight:700; padding:9px 16px; border-radius:10px; text-decoration:none; white-space:nowrap;">{{ item.action_label }} →</a>
+                        </div>
                     </div>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end; flex-shrink:0;">
-                    {% if item.is_finished %}<strong style="font-size:18px; color:var(--green);">{{ item.earned_score }}<span style="font-size:11px; color:var(--gray); font-weight:600;"> / {{ item.total_score }}</span></strong>{% endif %}
-                    <a href="{{ item.detail_href }}" style="background:var(--clay); color:#fff; font-size:13.5px; font-weight:700; padding:9px 16px; border-radius:10px; text-decoration:none; white-space:nowrap;">{{ item.action_label }} →</a>
+                    {% if item.score_items %}
+                        <div style="display:flex; flex-wrap:wrap; gap:7px; margin-top:12px;">
+                            {% for score in item.score_items %}
+                                <span style="font-size:12px; color:var(--ink); background:var(--bg2); border:1px solid var(--line); border-radius:999px; padding:5px 10px;">{{ score.attempt_label }} · {{ score.session_type_text }} · {{ score.score_text }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div style="margin-top:12px; font-size:12.5px; color:var(--gray); background:var(--bg2); border:1px solid var(--line); border-radius:10px; padding:9px 11px;">做了 0 次 / 未做</div>
+                    {% endif %}
                 </div>
             </div>
         {% empty %}

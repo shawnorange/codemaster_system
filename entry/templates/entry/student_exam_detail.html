@@ -58,6 +58,49 @@
             justify-content: center;
         }
 
+        .student-exam-history {
+            margin-bottom: 16px;
+        }
+
+        .student-exam-history__table {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        .student-exam-history__table table {
+            border-collapse: collapse;
+            min-width: 640px;
+            width: 100%;
+        }
+
+        .student-exam-history__table th,
+        .student-exam-history__table td {
+            border-bottom: 1px solid var(--line);
+            color: var(--ink);
+            font-size: 13px;
+            padding: 10px 8px;
+            text-align: left;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        .student-exam-history__table th {
+            color: var(--gray);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .student-exam-history__table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .student-exam-history__current {
+            color: var(--clay);
+            font-size: 12px;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+
         .student-exam-explanation-field {
             display: grid;
             gap: 8px;
@@ -421,6 +464,50 @@
     {% if error_message %}
         <div class="entry-hint-bar">{{ error_message }}</div>
     {% endif %}
+
+    <section class="surface-panel surface-panel--primary student-exam-history">
+        <div class="section-heading">
+            <p class="section-heading__eyebrow">Score History</p>
+            <h3>历次成绩</h3>
+            <p>同一试卷的正式考试、整卷练习和错题练习都会列在这里。</p>
+        </div>
+        <div class="student-exam-history__table">
+            {% if exam_history_rows %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>记录</th>
+                            <th>类型</th>
+                            <th>时间</th>
+                            <th>得分</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in exam_history_rows %}
+                            <tr>
+                                <td>{{ row.attempt_label }}{% if row.is_current %}<span class="student-exam-history__current">当前</span>{% endif %}</td>
+                                <td>{{ row.session_type_text }}</td>
+                                <td>{{ row.time_text }}</td>
+                                <td><strong>{{ row.score_text }}</strong></td>
+                                <td><span class="state-pill state-pill--{{ row.status_tone }}">{{ row.status_text }}</span></td>
+                                <td>
+                                    {% if row.is_current %}
+                                        <span style="font-size:12px; color:var(--gray);">正在查看</span>
+                                    {% else %}
+                                        <a class="system-header__link" href="{{ row.detail_href }}">查看</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <div class="entry-hint-bar">当前试卷还没有作答记录。</div>
+            {% endif %}
+        </div>
+    </section>
 
     <section class="surface-panel surface-panel--primary">
         <div class="section-heading">

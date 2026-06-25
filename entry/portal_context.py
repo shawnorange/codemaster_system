@@ -4081,6 +4081,78 @@ def serialize_exam_session(session: ExamSession) -> dict:
     }
 
 
+def get_exam_session_activity_at(session: ExamSession):
+    return session.submitted_at or session.started_at or session.created_at
+
+
+def build_student_exam_history_rows(
+    sessions: list[ExamSession],
+    *,
+    current_session_id: int | None = None,
+) -> list[dict[str, object]]:
+    rows = []
+    sorted_sessions = sorted(
+        sessions,
+        key=lambda item: (item.attempt_no, item.created_at, item.id),
+    )
+    for session in sorted_sessions:
+        serialized = serialize_exam_session(session)
+        is_finished = session.status in FINISHED_EXAM_SESSION_STATUSES
+        if session.status == ExamSession.STATUS_ASSIGNED:
+            score_text = "未做"
+        elif session.status == ExamSession.STATUS_IN_PROGRESS:
+            score_text = "未出分"
+        else:
+            score_text = f"{serialized['earned_score']} / {serialized['total_score']}"
+        activity_at = get_exam_session_activity_at(session)
+        rows.append(
+            {
+                "id": session.id,
+                "paper_id": session.paper_id,
+                "attempt_no": session.attempt_no,
+                "attempt_label": f"第 {session.attempt_no} 次",
+                "session_type": session.session_type,
+                "session_type_text": serialized["session_type_text"],
+                "status": session.status,
+                "status_text": serialized["status_text"],
+                "status_tone": serialized["status_tone"],
+                "time_text": format_datetime(activity_at),
+                "score_text": score_text,
+                "earned_score": serialized["earned_score"],
+                "total_score": serialized["total_score"],
+                "is_current": current_session_id == session.id,
+                "is_finished": is_finished,
+                "detail_href": reverse("student-exam-detail", args=[session.id]),
+            }
+        )
+    return rows
+
+
+def pick_student_exam_group_session(sessions: list[ExamSession]) -> ExamSession:
+    def latest(items: list[ExamSession]) -> ExamSession:
+        return sorted(
+            items,
+            key=lambda item: (get_exam_session_activity_at(item), item.created_at, item.id),
+            reverse=True,
+        )[0]
+
+    in_progress_sessions = [session for session in sessions if session.status == ExamSession.STATUS_IN_PROGRESS]
+    if in_progress_sessions:
+        return latest(in_progress_sessions)
+    assigned_sessions = [session for session in sessions if session.status == ExamSession.STATUS_ASSIGNED]
+    if assigned_sessions:
+        return latest(assigned_sessions)
+    return latest(sessions)
+
+
+def get_student_exam_group_status(sessions: list[ExamSession]) -> dict[str, object]:
+    if any(session.status == ExamSession.STATUS_IN_PROGRESS for session in sessions):
+        return {"key": "progress", "text": "进行中", "tone": "open"}
+    if any(session.status == ExamSession.STATUS_ASSIGNED for session in sessions):
+        return {"key": "assigned", "text": "待考", "tone": "trial"}
+    return {"key": "finished", "text": "已结束", "tone": "future"}
+
+
 def build_teacher_exam_course_options(portal_user: PortalUser, student: Student) -> list[dict]:
     options = []
     seen_course_ids = set()
@@ -5872,22 +5944,10 @@ def build_student_exam_list_context(
         .filter(student=student, is_active=True, paper__is_active=True)
         .order_by("-created_at", "-id")
     )
-    assigned_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_ASSIGNED)
-    in_progress_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_IN_PROGRESS)
-    checked_count = sum(1 for session in sessions if session.status == ExamSession.STATUS_AUTO_CHECKED)
-    exam_items = [serialize_exam_session(session) for session in sessions]
-    for item in exam_items:
-        item["detail_href"] = reverse("student-exam-detail", args=[item["id"]])
-        if item["is_finished"]:
-            item["action_label"] = "查看结果"
-        elif item["is_in_progress"]:
-            item["action_label"] = "继续作答"
-        else:
-            item["action_label"] = "查看并开始"
-
     sessions_by_paper: dict[int, list[ExamSession]] = defaultdict(list)
     for session in sessions:
         sessions_by_paper[session.paper_id].append(session)
+
     # 批量预取题库试卷，避免循环内按试卷逐张查 ExamQuestionBankPaper（N+1）。
     bank_paper_id_by_paper: dict[int, int] = {}
     for paper_id, paper_sessions in sessions_by_paper.items():
@@ -5902,42 +5962,124 @@ def build_student_exam_list_context(
                 id__in=set(bank_paper_id_by_paper.values()), is_active=True
             ).only("level", "title")
         }
+    exam_items = []
     exam_table_rows = []
     for paper_id, paper_sessions in sessions_by_paper.items():
-        latest_session = sorted(paper_sessions, key=lambda item: (item.created_at, item.id), reverse=True)[0]
-        paper = latest_session.paper
+        representative_session = pick_student_exam_group_session(paper_sessions)
+        latest_activity_session = sorted(
+            paper_sessions,
+            key=lambda item: (get_exam_session_activity_at(item), item.created_at, item.id),
+            reverse=True,
+        )[0]
+        paper = representative_session.paper
         meta = collect_exam_paper_question_meta(
             paper,
             questions=getattr(paper, "prefetched_active_questions", None),
             bank_paper=bank_papers_by_id.get(bank_paper_id_by_paper.get(paper_id)),
         )
-        serialized = serialize_exam_session(latest_session)
+        serialized = serialize_exam_session(representative_session)
+        history_rows = build_student_exam_history_rows(paper_sessions)
+        score_items = [row for row in history_rows if row["is_finished"]]
+        attempt_count = len(score_items)
+        assigned_session_count = sum(1 for session in paper_sessions if session.status == ExamSession.STATUS_ASSIGNED)
+        in_progress_session_count = sum(1 for session in paper_sessions if session.status == ExamSession.STATUS_IN_PROGRESS)
+        group_status = get_student_exam_group_status(paper_sessions)
+        status_key = str(group_status["key"])
+        if status_key == "progress":
+            action_label = "继续作答"
+        elif status_key == "assigned":
+            action_label = "查看并开始"
+        else:
+            action_label = "查看结果"
+        session_type_texts = []
+        for row in history_rows:
+            session_type_text = str(row["session_type_text"])
+            if session_type_text not in session_type_texts:
+                session_type_texts.append(session_type_text)
+        latest_score_text = score_items[-1]["score_text"] if score_items else "未做"
+        latest_activity_at = get_exam_session_activity_at(latest_activity_session)
+        exam_item = {
+            "id": representative_session.id,
+            "paper_id": paper_id,
+            "title": paper.title,
+            "description": serialized["description"],
+            "course_title": serialized["course_title"],
+            "teacher_name": serialized["teacher_name"],
+            "mode": serialized["mode"],
+            "mode_text": serialized["mode_text"],
+            "session_type": serialized["session_type"],
+            "session_type_text": " / ".join(session_type_texts) if session_type_texts else serialized["session_type_text"],
+            "session_type_summary_text": " / ".join(session_type_texts) if session_type_texts else serialized["session_type_text"],
+            "requires_explanations": serialized["requires_explanations"],
+            "time_rule_text": serialized["time_rule_text"],
+            "duration_minutes": serialized["duration_minutes"],
+            "start_at_text": serialized["start_at_text"],
+            "end_at_text": serialized["end_at_text"],
+            "status": status_key,
+            "status_text": group_status["text"],
+            "status_tone": group_status["tone"],
+            "total_count": serialized["total_count"],
+            "correct_count": serialized["correct_count"],
+            "wrong_count": serialized["wrong_count"],
+            "total_score": serialized["total_score"],
+            "earned_score": serialized["earned_score"],
+            "created_at_text": serialized["created_at_text"],
+            "started_at_text": serialized["started_at_text"],
+            "submitted_at_text": serialized["submitted_at_text"],
+            "is_finished": status_key == "finished",
+            "is_in_progress": status_key == "progress",
+            "can_start": serialized["can_start"],
+            "entry_message": serialized["entry_message"],
+            "attempt_count": attempt_count,
+            "attempt_count_text": f"做了 {attempt_count} 次" + (" / 未做" if attempt_count == 0 else ""),
+            "assigned_session_count": assigned_session_count,
+            "in_progress_session_count": in_progress_session_count,
+            "score_items": score_items,
+            "latest_score": latest_score_text,
+            "latest_started_at_text": serialized["started_at_text"],
+            "latest_submitted_at_text": serialized["submitted_at_text"],
+            "detail_href": reverse("student-exam-detail", args=[representative_session.id]),
+            "action_label": action_label,
+            "_sort_at": latest_activity_at,
+            "search_text": " ".join(
+                [
+                    paper.title,
+                    meta["knowledge_text"],
+                    meta["level_text"],
+                    serialized["course_title"],
+                    serialized["teacher_name"],
+                    " ".join(session_type_texts),
+                    serialized["time_rule_text"],
+                    str(group_status["text"]),
+                    " ".join(str(row["score_text"]) for row in score_items),
+                ]
+            ),
+        }
+        exam_items.append(exam_item)
         exam_table_rows.append(
             {
                 "paper_id": paper_id,
-                "latest_session_id": latest_session.id,
+                "latest_session_id": representative_session.id,
                 "title": paper.title,
                 "knowledge_point": meta["knowledge_text"],
                 "level_text": meta["level_text"],
                 "course_title": serialized["course_title"],
                 "teacher_name": serialized["teacher_name"],
-                "session_type_text": serialized["session_type_text"],
+                "session_type_text": exam_item["session_type_summary_text"],
                 "exam_time_text": serialized["time_rule_text"],
                 "exam_time_value": (
                     timezone.localtime(paper.start_at or paper.end_at or paper.created_at).date().isoformat()
                     if (paper.start_at or paper.end_at or paper.created_at)
                     else ""
                 ),
-                "exam_time_sort_value": timezone.localtime(
-                    latest_session.created_at or paper.start_at or paper.end_at or paper.created_at
-                ).isoformat(),
-                "status_text": serialized["status_text"],
-                "status_tone": serialized["status_tone"],
-                "attempt_count": len(paper_sessions),
-                "latest_score": f"{serialized['earned_score']} / {serialized['total_score']}",
+                "exam_time_sort_value": timezone.localtime(latest_activity_at).isoformat() if latest_activity_at else "",
+                "status_text": group_status["text"],
+                "status_tone": group_status["tone"],
+                "attempt_count": attempt_count,
+                "latest_score": latest_score_text,
                 "latest_started_at_text": serialized["started_at_text"],
                 "latest_submitted_at_text": serialized["submitted_at_text"],
-                "detail_href": reverse("student-exam-record-detail", args=[paper_id]),
+                "detail_href": reverse("student-exam-detail", args=[representative_session.id]),
                 "search_text": " ".join(
                     [
                         paper.title,
@@ -5945,14 +6087,27 @@ def build_student_exam_list_context(
                         meta["level_text"],
                         serialized["course_title"],
                         serialized["teacher_name"],
-                        serialized["session_type_text"],
+                        str(exam_item["session_type_summary_text"]),
                         serialized["time_rule_text"],
-                        serialized["status_text"],
+                        str(group_status["text"]),
+                        " ".join(str(row["score_text"]) for row in score_items),
                     ]
                 ),
             }
         )
+    exam_items.sort(
+        key=lambda row: (
+            row.get("_sort_at") or datetime.min.replace(tzinfo=timezone.get_current_timezone()),
+            int(row["paper_id"]),
+        ),
+        reverse=True,
+    )
+    for item in exam_items:
+        item.pop("_sort_at", None)
     exam_table_rows.sort(key=lambda row: (row["exam_time_sort_value"], row["paper_id"]), reverse=True)
+    assigned_count = sum(1 for item in exam_items if not item["is_finished"] and not item["is_in_progress"])
+    in_progress_count = sum(1 for item in exam_items if item["is_in_progress"])
+    finished_count = sum(1 for item in exam_items if item["is_finished"])
     return {
         "page_title": "我的考试",
         "page_description": "这里按试卷展示你的考试记录，输入老师给出的 6 位口令后可开启考试。",
@@ -5962,10 +6117,10 @@ def build_student_exam_list_context(
             {"label": "我的考试"},
         ],
         "summary_cards": [
-            {"label": "考试总数", "value": f"{len(sessions)} 场", "hint": "当前账号下的全部考试"},
-            {"label": "待开始", "value": f"{assigned_count} 场", "hint": "还没有进入考试"},
-            {"label": "考试中", "value": f"{in_progress_count} 场", "hint": "已开始但未交卷"},
-            {"label": "已判分", "value": f"{checked_count} 场", "hint": "已提交并自动判分"},
+            {"label": "试卷总数", "value": f"{len(exam_items)} 份", "hint": "当前账号下的全部试卷"},
+            {"label": "待开始", "value": f"{assigned_count} 份", "hint": "有待开始记录的试卷"},
+            {"label": "考试中", "value": f"{in_progress_count} 份", "hint": "有进行中记录的试卷"},
+            {"label": "已结束", "value": f"{finished_count} 份", "hint": "没有待开始或进行中记录"},
         ],
         "exam_items": exam_items,
         "exam_table_rows": exam_table_rows,
@@ -6054,6 +6209,11 @@ def build_student_exam_detail_context(
         .filter(id=session_id, student=student, is_active=True, paper__is_active=True)
         .get()
     )
+    paper_sessions = list(
+        ExamSession.objects.select_related("paper", "paper__teacher", "paper__course")
+        .filter(paper_id=session.paper_id, student=student, is_active=True, paper__is_active=True)
+        .order_by("attempt_no", "created_at", "id")
+    )
     questions = get_exam_session_questions(session)
     show_feedback = session.status in {
         ExamSession.STATUS_SUBMITTED,
@@ -6101,6 +6261,10 @@ def build_student_exam_detail_context(
         "session": serialized,
         "session_id": session.id,
         "paper": session.paper,
+        "exam_history_rows": build_student_exam_history_rows(
+            paper_sessions,
+            current_session_id=session.id,
+        ),
         "question_rows": question_rows,
         "wrong_question_count": first_exam_wrong_question_count,
         "show_feedback": show_feedback,

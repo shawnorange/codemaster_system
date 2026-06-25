@@ -4240,6 +4240,75 @@ class ExamMVPTests(TestCase):
         response = self.client.get(reverse("student-exam-detail", args=[session.id]))
         self.assertContains(response, "知识点：数学判断 / 奇偶判断 / x % 2 == 0")
 
+    def test_student_exam_list_groups_sessions_by_paper_and_detail_shows_history(self) -> None:
+        session = self.create_exam_via_teacher_view()
+        now = timezone.now()
+        session.status = ExamSession.STATUS_AUTO_CHECKED
+        session.total_count = 1
+        session.correct_count = 1
+        session.wrong_count = 0
+        session.total_score = 2
+        session.earned_score = 2
+        session.started_at = now - timedelta(hours=3)
+        session.submitted_at = now - timedelta(hours=2, minutes=50)
+        session.save(
+            update_fields=[
+                "status",
+                "total_count",
+                "correct_count",
+                "wrong_count",
+                "total_score",
+                "earned_score",
+                "started_at",
+                "submitted_at",
+                "updated_at",
+            ]
+        )
+        ExamSession.objects.create(
+            paper=session.paper,
+            student=self.student,
+            attempt_no=2,
+            session_type=ExamSession.SESSION_TYPE_FULL_PRACTICE,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+            total_count=1,
+            correct_count=0,
+            wrong_count=1,
+            total_score=2,
+            earned_score=1,
+            started_at=now - timedelta(hours=2),
+            submitted_at=now - timedelta(hours=1, minutes=50),
+        )
+        ExamSession.objects.create(
+            paper=session.paper,
+            student=self.student,
+            attempt_no=3,
+            session_type=ExamSession.SESSION_TYPE_WRONG_PRACTICE,
+            status=ExamSession.STATUS_AUTO_CHECKED,
+            total_count=1,
+            correct_count=1,
+            wrong_count=0,
+            total_score=2,
+            earned_score=2,
+            started_at=now - timedelta(hours=1),
+            submitted_at=now - timedelta(minutes=50),
+        )
+
+        self.sign_in(self.student_user)
+        list_response = self.client.get(reverse("student-exam-list"))
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "第一场考试", count=1)
+        self.assertContains(list_response, "做了 3 次")
+        self.assertContains(list_response, "正式考试 / 整卷练习 / 错题练习")
+        self.assertContains(list_response, "1.00 / 2.00")
+
+        detail_response = self.client.get(reverse("student-exam-detail", args=[session.id]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "历次成绩")
+        self.assertContains(detail_response, "正式考试")
+        self.assertContains(detail_response, "整卷练习")
+        self.assertContains(detail_response, "错题练习")
+        self.assertContains(detail_response, "1.00 / 2.00")
+
     def test_student_practice_exposes_free_practice_entry(self) -> None:
         self.sign_in(self.student_user)
         response = self.client.get(reverse("student-practice"))
